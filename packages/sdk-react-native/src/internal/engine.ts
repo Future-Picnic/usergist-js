@@ -1276,6 +1276,7 @@ export async function submitResponse(
     purpose?: QueuedEvent['purpose']
   ) => void
 ): Promise<void> {
+  const generation = engine.resetGeneration
   const id = engine.identity.get()
   const context = engine.context.build(id)
   const submitPayload: SubmitResponsePayload = {
@@ -1315,6 +1316,9 @@ export async function submitResponse(
     'feedback',
     submitPayload as unknown as Readonly<Record<string, unknown>>
   )
+  if (!payload.dismissed && !engine.resetting && engine.resetGeneration === generation && engine.consent.allowsFeedback()) {
+    engine.events.emit('feedbackSaved', { promptId: payload.promptId })
+  }
   void flushMutations(engine)
 }
 

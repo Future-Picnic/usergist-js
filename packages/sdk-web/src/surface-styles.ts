@@ -4,7 +4,7 @@ export const surfaceStyles = `
 :host{container-type:size;--ug-fill:color-mix(in srgb,var(--ug-text) 6%,var(--ug-bg));--ug-tint:color-mix(in srgb,var(--ug-primary) 10%,var(--ug-bg))}
 .ug-surface{box-shadow:none;min-height:0}
 .ug-chrome{display:flex;align-items:center;gap:12px;min-height:56px;padding:4px 12px;flex-shrink:0}
-.ug-close,.ug-back{position:static;flex-shrink:0;width:44px;height:44px;min-width:44px;min-height:44px;border-radius:50%;color:var(--ug-text);background:transparent}
+.ug-close,.ug-back{position:static;display:grid;place-items:center;padding:0;border:0;flex-shrink:0;width:44px;height:44px;min-width:44px;min-height:44px;border-radius:50%;color:var(--ug-text);background:transparent}
 .ug-close svg,.ug-back svg{width:32px;height:32px;padding:9px;border-radius:50%;background:var(--ug-fill)}
 .ug-close:hover,.ug-back:hover{background:transparent}.ug-close:hover svg,.ug-back:hover svg{background:color-mix(in srgb,var(--ug-text) 12%,var(--ug-bg))}
 .feedback .ug-chrome,.survey .ug-chrome{display:grid;grid-template-columns:44px minmax(0,1fr) 44px}
@@ -51,11 +51,17 @@ button.ug-button:disabled{opacity:1;color:var(--ug-muted);background:var(--ug-fi
  .inapp .ug-footer{flex-direction:column;align-items:stretch}.inapp .ug-footer .ug-button{flex:none}
 }
 @container (orientation:landscape) and (max-height:600px) and (max-width:960px){
- .ug-root.feedback:not(.card),.ug-root.survey{padding:0;align-items:flex-end}
- .feedback:not(.card) .ug-surface,.survey .ug-surface{width:100%;max-height:calc(100dvh - max(8px,env(safe-area-inset-top)));display:flex;flex-direction:column;border-radius:var(--ug-radius) var(--ug-radius) 0 0;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
- .feedback .ug-chrome,.survey .ug-chrome{padding:4px 12px;min-height:52px}
- .feedback .ug-footer,.survey .ug-footer{padding-top:8px;padding-bottom:max(12px,env(safe-area-inset-bottom));flex-wrap:nowrap}
- .feedback .ug-content,.survey .ug-content{padding-top:8px;padding-bottom:12px}
+ .ug-root.feedback:not(.card),.ug-root.survey{padding:0;align-items:flex-end;height:var(--ug-visible-height,100%);bottom:auto}
+ .feedback:not(.card) .ug-surface,.survey .ug-surface{width:100%;max-height:calc(100% - max(8px,env(safe-area-inset-top)));display:grid;grid-template-columns:minmax(24px,1fr) 44px 8px 44px 8px minmax(0,352px) 8px 96px minmax(24px,1fr);grid-template-rows:auto minmax(0,1fr);border-radius:var(--ug-radius) var(--ug-radius) 0 0;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+ .feedback:not(.card) .ug-chrome,.survey .ug-chrome{display:contents}
+ .feedback:not(.card) .ug-chrome>.ug-close,.survey .ug-chrome>.ug-close,.feedback:not(.card) .ug-chrome[data-has-back=true]>[aria-label=Close],.survey .ug-chrome[data-has-back=true]>[aria-label=Close]{grid-column:2;grid-row:1;align-self:center}
+ .feedback:not(.card) .ug-chrome>.ug-back,.survey .ug-chrome>.ug-back{grid-column:4;grid-row:1;align-self:center}
+ .feedback:not(.card) .ug-chrome>.ug-progress,.survey .ug-chrome>.ug-progress{grid-column:6;grid-row:1;max-width:320px;align-self:center}
+ .feedback:not(.card) .ug-close svg,.survey .ug-close svg,.feedback:not(.card) .ug-back svg,.survey .ug-back svg{width:44px;height:44px;padding:13px}
+ .feedback:not(.card) .ug-footer,.survey .ug-footer{grid-column:8;grid-row:1;width:96px;max-width:none;padding:4px 0;max-height:none;overflow:visible;align-self:center;flex-direction:column;gap:8px}
+ .feedback:not(.card) .ug-footer .ug-button,.survey .ug-footer .ug-button{width:100%;flex:none;min-height:44px;padding:10px 18px;border-radius:22px;font-size:15px}
+ .feedback:not(.card) .ug-content,.survey .ug-content{grid-column:1/-1;grid-row:2;padding-top:8px;padding-bottom:12px}
+ .feedback:not(.card) .ug-content>.ug-step,.survey .ug-content>.ug-step{display:none}
  .ug-scale.nps{display:grid;grid-template-columns:repeat(11,minmax(0,1fr));gap:4px}
  .ug-content>*{max-width:560px}.ug-content img{max-height:128px}
  .inapp .ug-footer{flex-direction:row}.inapp .ug-footer .ug-button{flex:1}

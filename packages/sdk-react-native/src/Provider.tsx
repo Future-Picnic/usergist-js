@@ -2,7 +2,8 @@
 // showSurvey events and render the appropriate modal.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Linking } from 'react-native'
+import { Linking, Text, View } from 'react-native'
+import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './ui/theme.js'
 import { UserGist } from './UserGist.js'
 import { PromptSheet } from './ui/PromptSheet.js'
 import { SurveyView } from './ui/SurveyView.js'
@@ -93,6 +94,12 @@ interface SurveyState {
 export function UserGistProvider({ children }: Props): React.ReactElement {
   const [payload, setPayload] = useState<ShowPromptPayload | null>(null)
   const currentRef = useRef<ShowPromptPayload | null>(null)
+  const [savedTheme, setSavedTheme] = useState<ResolvedTheme | null>(null)
+  useEffect(() => {
+    if (!savedTheme) return
+    const timer = setTimeout(() => setSavedTheme(null), 4000)
+    return () => clearTimeout(timer)
+  }, [savedTheme])
 
   const surfaceGeneration = useRef(0)
   const surveyOpenGeneration = useRef(0)
@@ -141,10 +148,17 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     let unsubInvite: (() => void) | null = null
     let unsubShowInApp: (() => void) | null = null
     let unsubResetSurfaces: (() => void) | null = null
+    let unsubFeedbackSaved: (() => void) | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     function attach(): void {
       try {
         const bus = UserGist.__internal_events()
+        unsubFeedbackSaved = bus.on('feedbackSaved', ({ promptId }) => {
+          const prompt = currentRef.current
+          if (prompt?.promptId === promptId) {
+            setSavedTheme(mergeTheme(UserGist.__internal_theme() ?? DEFAULT_THEME, prompt.theme))
+          }
+        })
         unsubShow = bus.on('showPrompt', (p) => {
           enqueueModal((release) => {
             promptReleaseRef.current = release
@@ -187,6 +201,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
           }, 'feedback', () => UserGist.__internal_inAppScreenAllowed(p.message))
         })
         unsubResetSurfaces = bus.on('resetSurfaces', () => {
+          setSavedTheme(null)
           surfaceGeneration.current++
           surveyOpenGeneration.current++
           modalQueueRef.current.clearPending()
@@ -248,6 +263,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       if (unsubInvite) unsubInvite()
       if (unsubShowInApp) unsubShowInApp()
       if (unsubResetSurfaces) unsubResetSurfaces()
+      if (unsubFeedbackSaved) unsubFeedbackSaved()
       modalQueueRef.current.clearPending()
     }
   }, [])
@@ -418,6 +434,13 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
   return (
     <>
       {children}
+      {savedTheme ? (
+        <View pointerEvents="none" style={{position: 'absolute', bottom: 32, left: 16, right: 16, alignItems: 'center', zIndex: 10000}}>
+          <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={{maxWidth: 560, paddingHorizontal: 20, paddingVertical: 14, borderRadius: savedTheme.radius, backgroundColor: savedTheme.colors.background, color: savedTheme.colors.text, borderWidth: 1, borderColor: savedTheme.colors.border, fontFamily: savedTheme.fontFamily, fontSize: 16, elevation: 6}}>
+            Feedback saved. We’ll send it automatically.
+          </Text>
+        </View>
+      ) : null}
       <PromptSheet
         payload={payload}
         themeOverride={themeOverride ?? undefined}

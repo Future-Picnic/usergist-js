@@ -330,10 +330,12 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
   const landscape = layout.landscape
   const isFinal = Boolean(currentQuestion && !nextQuestionId(flow, currentQuestion.id, answers))
   const nextAction = <SurfaceNext onPress={advance} disabled={nextDisabled} loading={submitting}
-    theme={theme} testID="survey-next" label={isFinal ? 'Submit' : 'Next'} />
+    compact={landscape} theme={theme} testID="survey-next" label={isFinal ? 'Submit' : 'Next'} />
   const canGoBack = flow.backNavigation && history.length > 0 && !ended && !submitting
+  const closeAction = <SurfaceClose onPress={dismiss} color={theme.colors.text}
+    size={landscape ? 'regular' : 'small'} testID="survey-close" />
   const backAction = canGoBack
-    ? <SurfaceBack onPress={goBack} color={theme.colors.text} testID="survey-back" />
+    ? <SurfaceBack onPress={goBack} color={theme.colors.text} size={landscape ? 'regular' : 'small'} testID="survey-back" />
     : null
   const stepIndex = flow.questions.findIndex((x) => x.id === currentId)
   const progressView = ended ? null : flow.progressStyle === 'bar' ? (
@@ -352,7 +354,7 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
   ) : null
   const showFooter = !ended && needsNext
   const endCta = ended ? (
-    <EndAction screen={surveyLocal.endScreen} theme={theme} compact={false} onClose={onDismissRequest} />
+    <EndAction screen={surveyLocal.endScreen} theme={theme} compact={landscape} onClose={onDismissRequest} />
   ) : null
 
   return (
@@ -366,11 +368,15 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
       <SurfaceModalFrame onChange={setModalLayout}>
       <View style={[styles.root, { backgroundColor: theme.colors.background, paddingLeft: layout.left, paddingRight: layout.right }]}>
         {/* Keep actions inside the live safe area in either orientation. */}
-        <View style={[styles.header, { paddingTop: layout.top + (landscape ? 8 : 4) }]}>
+        <View style={[styles.header, landscape && styles.landscapeHeader, { paddingTop: layout.top + (landscape ? 8 : 4) }]}>
           <SurfaceHeader
-            leading={backAction ?? <SurfaceClose onPress={dismiss} color={theme.colors.text} testID="survey-close" />}
+            balancedSides={landscape && !ended}
+            leading={landscape ? <>{closeAction}{backAction}</> : backAction ?? closeAction}
             center={<View style={styles.progressWrap}>{progressView}</View>}
-            trailing={canGoBack ? <SurfaceClose onPress={dismiss} color={theme.colors.text} testID="survey-close" /> : null}
+            trailing={<>
+              {!landscape && canGoBack ? closeAction : null}
+              {landscape ? (ended ? endCta : needsNext ? nextAction : null) : null}
+            </>}
           />
         </View>
 
@@ -419,13 +425,13 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
             </SurfaceFieldFocus.Provider>
           </ScrollView>
 
-          {showFooter ? (
+          {!landscape && showFooter ? (
             // Lift actions above the home indicator / gesture bar.
             <View style={[styles.footer, { paddingBottom: Math.max(layout.bottom, 16) }]}>
               <View style={styles.footerMain}>{needsNext ? nextAction : null}</View>
             </View>
           ) : null}
-          {ended ? (
+          {!landscape && ended ? (
             <View style={[styles.footer, { paddingBottom: Math.max(layout.bottom, 16) }]}>
               <View style={styles.footerMain}>{endCta}</View>
             </View>
@@ -438,7 +444,7 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
 }
 
 // Tap-to-select types auto-advance. Text and the types listed below
-// use the keyboard-safe footer in both orientations.
+// use a portrait footer or the landscape header action.
 function renderFooter(type: SurveyQuestion['type'] | undefined): boolean {
   if (!type) return false
   return (
@@ -641,6 +647,9 @@ const styles = StyleSheet.create({
   submitError: { marginTop: 20, padding: 16, gap: 12 },
   errorText: { fontSize: 15, lineHeight: 21 },
   header: { paddingHorizontal: 12, paddingBottom: 4 },
+  // Match the body's 24pt inset and 560pt readable measure, including when
+  // the safe area leaves less than the maximum width on a smaller phone.
+  landscapeHeader: { width: '100%', maxWidth: CONTENT_MAX_WIDTH + 48, alignSelf: 'center', paddingHorizontal: 24 },
   progressWrap: { width: '100%', maxWidth: 320, alignItems: 'center', paddingHorizontal: 8 },
   progressTrack: { height: 6, width: '100%', borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 3 },

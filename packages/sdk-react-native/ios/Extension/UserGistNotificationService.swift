@@ -103,7 +103,7 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
     if let deliveryId = extractDeliveryId(from: userInfo) {
       actionsReady.enter()
       UserGistBeaconClient.delivered(deliveryId: deliveryId) { actionsReady.leave() }
-      if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool != true {
+      if pushState.isEmpty && Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool != true {
         UserGistDeliveryLedger.recordDelivered(deliveryId: deliveryId)
       }
     }
@@ -212,7 +212,10 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
 enum UserGistBeaconClient {
 
   static func delivered(deliveryId: String, completion: @escaping () -> Void = {}) {
-    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true {
+    // React Native and Expo both configure the same identity-scoped state.
+    // Prefer its durable receipt queue over stale plist/defaults credentials,
+    // including when push was disabled (receipt() then fails closed).
+    if !UserGistPushState.snapshot.isEmpty || Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true {
       UserGistPushState.receipt("delivered", id: deliveryId) { _ in completion() }
       return
     }
@@ -235,7 +238,7 @@ enum UserGistBeaconClient {
   }
 
   static func silentAck(pingId: String, completion: @escaping () -> Void) {
-    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true {
+    if !UserGistPushState.snapshot.isEmpty || Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true {
       UserGistPushState.receipt("silent-ack", id: pingId) { _ in completion() }
       return
     }

@@ -8,6 +8,33 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 describe('browser presentation', () => {
+  it('keeps a typed answer through keyboard viewport shrink and cleans up on close', async () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'visualViewport')
+    const viewport = Object.assign(new EventTarget(), { height: 390 })
+    const remove = vi.spyOn(viewport, 'removeEventListener')
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport })
+    try {
+      const submit = vi.fn(async () => {})
+      renderer = new WebRenderer()
+      renderer.show({ pillar: 'feedback', questions: [
+        { id: 'answer', type: 'short_text', title: 'Your feedback', required: true },
+      ], onSubmit: submit })
+      const input = renderer.shadow.querySelector<HTMLTextAreaElement>('textarea')!
+      input.value = 'Keep the answer while the keyboard opens'
+      input.dispatchEvent(new Event('input'))
+      viewport.height = 150
+      viewport.dispatchEvent(new Event('resize'))
+      expect(renderer.shadow.querySelector('textarea')).toBe(input)
+      expect(input.value).toBe('Keep the answer while the keyboard opens')
+      renderer.shadow.querySelector<HTMLButtonElement>('.ug-footer button')!.click()
+      await vi.waitFor(() => expect(submit).toHaveBeenCalledWith({ answer: input.value }))
+      renderer.close()
+      expect(remove).toHaveBeenCalledWith('resize', expect.any(Function))
+    } finally {
+      if (original) Object.defineProperty(window, 'visualViewport', original)
+      else Reflect.deleteProperty(window, 'visualViewport')
+    }
+  })
   it('moves Back and Close into the header after advancing and keeps only the primary action below', async () => {
     const onClose = vi.fn()
     renderer = new WebRenderer()

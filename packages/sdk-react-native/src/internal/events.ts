@@ -21,6 +21,7 @@ export interface PushEventPayload {
 export interface SdkEvents {
   readonly promptShown: ShowPromptPayload
   readonly response: ResponseEmission
+  readonly feedbackSaved: { readonly promptId: string }
   readonly showPrompt: ShowPromptPayload
   readonly dismissPrompt: { readonly promptId: string }
   readonly showSurvey: {

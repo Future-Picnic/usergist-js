@@ -180,6 +180,7 @@ export class WebRenderer {
   private inert: Array<[HTMLElement, boolean]> = []
   private closeHandler?: () => void
   private dismissTimer?: ReturnType<typeof setTimeout>
+  private viewportCleanup?: () => void
   private themeOverrides?: PromptTheme
   constructor(
     private options: {
@@ -398,6 +399,18 @@ export class WebRenderer {
     const content = el('div', 'ug-content')
     const footer = el('div', 'ug-footer')
     surface.append(content, footer)
+    // A software keyboard can shrink the visual viewport without changing
+    // device orientation. Bound the existing landscape grid to that height;
+    // CSS alone relocates the controls, preserving input and navigation state.
+    const viewport = window.visualViewport
+    if (viewport && !this.options.preview) {
+      const updateViewport = () => {
+        this.root?.style.setProperty('--ug-visible-height', `${viewport.height}px`)
+      }
+      updateViewport()
+      viewport.addEventListener('resize', updateViewport)
+      this.viewportCleanup = () => viewport.removeEventListener('resize', updateViewport)
+    }
     const draw = () => {
       content.replaceChildren()
       footer.replaceChildren()
@@ -768,6 +781,8 @@ export class WebRenderer {
     parent.append(input)
   }
   close(notify = true) {
+    this.viewportCleanup?.()
+    this.viewportCleanup = undefined
     if (this.dismissTimer) clearTimeout(this.dismissTimer)
     this.dismissTimer = undefined
     const callback = this.closeHandler

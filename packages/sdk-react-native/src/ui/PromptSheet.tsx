@@ -2,7 +2,7 @@
 //
 // Supports rating, NPS, multiple_choice, short_text. Questions are shown
 // one at a time. Explicit actions stay outside the scrolling question:
-// a full-width keyboard-safe footer in either orientation. No Back button.
+// a full-width portrait footer or the landscape header. No Back button.
 // Mirrors the SurveyView rules so feedback and surveys feel identical.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
@@ -242,16 +242,17 @@ export function PromptSheet({
   const nextDisabled = Boolean(current && promptNextRequiresAnswer(current) && !answerHasValue(answers[current.id]))
   const nextLabel = isLast ? 'Submit' : 'Next'
   const nextAction = <SurfaceNext onPress={next} disabled={nextDisabled} theme={theme}
-    testID="feedback-next" label={nextLabel} />
-  const closeAction = <SurfaceClose onPress={() => close('dismiss')} color={theme.colors.text} testID="feedback-close" />
+    compact={landscape} testID="feedback-next" label={nextLabel} />
+  const closeAction = <SurfaceClose onPress={() => close('dismiss')} color={theme.colors.text}
+    size={landscape ? 'regular' : 'small'} testID="feedback-close" />
   const step = questions.length > 1 ? (
     <Text style={[styles.step, { color: theme.colors.subtext, fontFamily: theme.fontFamily }]}>
       {index + 1} of {questions.length}
     </Text>
   ) : null
   // A bottom sheet always spans the full screen width. The header sits at the
-  // safe-area edges with Close leading. The question and full-width action
-  // footer share one centred readable column in either orientation.
+  // safe-area edges in portrait. Landscape header controls and questions share
+  // the same readable column; the portrait footer stays with the question.
 
   return (
     <Modal transparent visible={visible && modalGranted} onRequestClose={() => close('dismiss')} animationType="none"
@@ -278,9 +279,11 @@ export function PromptSheet({
             },
           ]}
         >
-          <SurfaceHeader leading={closeAction} center={step} />
-          <View style={styles.measure}>
-          <ScrollView ref={fieldReveal.scrollRef} onLayout={fieldReveal.reveal} style={styles.scroll} contentContainerStyle={styles.questionContent}
+          <View style={landscape ? [styles.measure, styles.landscapeMeasure, styles.landscapeHeader] : undefined}>
+            <SurfaceHeader leading={closeAction} center={step} trailing={landscape && needsNext ? nextAction : null} balancedSides={landscape} />
+          </View>
+          <View style={[styles.measure, landscape && styles.landscapeMeasure]}>
+          <ScrollView ref={fieldReveal.scrollRef} onLayout={fieldReveal.reveal} style={styles.scroll} contentContainerStyle={[styles.questionContent, landscape && styles.landscapeQuestionContent]}
             keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
           <SurfaceFieldFocus.Provider value={fieldReveal.onFocus}>
           <View ref={fieldReveal.contentRef} collapsable={false} onLayout={fieldReveal.onContentLayout}>
@@ -297,7 +300,7 @@ export function PromptSheet({
           </View>
           </SurfaceFieldFocus.Provider>
           </ScrollView>
-          {needsNext ? <View style={styles.footer}>{nextAction}</View> : null}
+          {!landscape && needsNext ? <View style={styles.footer}>{nextAction}</View> : null}
           </View>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -316,8 +319,11 @@ const styles = StyleSheet.create({
   },
   // Question and footer share one readable column inside the full-width sheet.
   measure: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', flexShrink: 1 },
+  landscapeMeasure: { maxWidth: CONTENT_MAX_WIDTH + 24 },
+  landscapeHeader: { paddingHorizontal: 12, flexShrink: 0 },
   step: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },
   scroll: { flexShrink: 1 },
   questionContent: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 20 },
+  landscapeQuestionContent: { paddingTop: 8 },
   footer: { paddingHorizontal: 12, paddingTop: 4 },
 })

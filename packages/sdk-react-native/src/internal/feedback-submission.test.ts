@@ -7,6 +7,29 @@ import { createTransport } from './transport.js'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('feedback device context', () => {
+  it('does not acknowledge feedback when durable storage fails', async () => {
+    const storage = {
+      getJson: async () => null,
+      setJsonStrict: async () => { throw new Error('disk unavailable') },
+    } as unknown as StorageScope
+    const mutations = createMutationQueue(storage)
+    await mutations.hydrate()
+    const emit = vi.fn()
+    const engine = {
+      resetting: false, resetGeneration: 0, mutations,
+      identity: { get: () => ({ anonymousId: 'native-alias', externalId: null }) },
+      context: { build: () => ({ platform: 'ios' }) },
+      consent: { allowsFeedback: () => true },
+      events: { emit },
+    } as unknown as Engine
+    await expect(submitResponse(engine, {
+      promptId: 'prompt', answers: [{ questionId: 'rating', value: 5 }],
+      dismissed: false, latencyMs: 250,
+    }, 'feedback_requested', vi.fn())).rejects.toThrow('disk unavailable')
+    expect(emit).not.toHaveBeenCalledWith('feedbackSaved', expect.anything())
+    expect(mutations.size()).toBe(0)
+  })
+
   it.each(['ios', 'android'] as const)(
     'retains the submitting %s device and app version through an offline retry',
     async (platform) => {
@@ -37,6 +60,7 @@ describe('feedback device context', () => {
       }, 'feedback_requested', vi.fn())
       await engine.mutationFlushPromise
       const pending = mutations.peek()!
+      expect(engine.events.emit).toHaveBeenCalledWith('feedbackSaved', { promptId: 'prompt' })
       expect(pending.payload).toMatchObject({ platform, sdkVersion: 'test-sdk', appVersion: '1.2.3' })
 
       const restored = createMutationQueue(storage)

@@ -29,7 +29,7 @@ import type {
   RequestMutationResult,
 } from './types.js'
 
-const VERSION = '0.2.1'
+const VERSION = '0.2.2'
 const PII = new Set(['email', 'phone', 'ssn', 'tax_id'])
 export class WebSdkError extends Error {
   constructor(

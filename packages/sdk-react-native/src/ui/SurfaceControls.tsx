@@ -1,9 +1,10 @@
 // Shared chrome for every UserGist surface: one Close, one Back, one primary
 // action and one header layout. All colours derive from the campaign theme.
 //
-// Feedback/survey navigation: Back leads and Close trails when Back exists;
-// otherwise Close leads. Primary actions use a readable-width footer in both
-// orientations. Messages and requests reuse the same themed control faces.
+// Survey navigation groups Close then Back in landscape; portrait keeps Back
+// leading and Close trailing when Back exists. Primary actions use a readable-
+// width portrait footer and the trailing landscape header. Messages and
+// requests reuse the themed control faces without opting into landscape sizing.
 import React from 'react'
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
@@ -30,13 +31,15 @@ export function useSurfaceLayout() {
   }
 }
 
-function IconButton({ onPress, face, testID, label, children }: {
-  onPress: () => void; face: string; testID?: string; label: string; children: React.ReactNode
+type SurfaceIconSize = 'small' | 'regular'
+
+function IconButton({ onPress, face, size, testID, label, children }: {
+  onPress: () => void; face: string; size: SurfaceIconSize; testID?: string; label: string; children: React.ReactNode
 }) {
   return (
     <Pressable onPress={onPress} testID={testID} accessibilityRole="button" accessibilityLabel={label}
       hitSlop={4} style={({ pressed }) => [styles.iconHit, { opacity: pressed ? 0.6 : 1 }]}>
-      <View pointerEvents="none" style={[styles.iconFace, { backgroundColor: face }]}>
+      <View pointerEvents="none" style={[styles.iconFace, size === 'regular' && styles.regularIconFace, { backgroundColor: face }]}>
         {children}
       </View>
     </Pressable>
@@ -47,24 +50,24 @@ function IconButton({ onPress, face, testID, label, children }: {
  * The single Close control. `color` is the theme text colour; the face is a
  * quiet wash of that colour so it reads on any background.
  */
-export function SurfaceClose({ onPress, color, testID, label = 'Close' }: {
-  onPress: () => void; color: string; testID?: string; label?: string
+export function SurfaceClose({ onPress, color, size = 'small', testID, label = 'Close' }: {
+  onPress: () => void; color: string; size?: SurfaceIconSize; testID?: string; label?: string
 }) {
   return (
-    <IconButton onPress={onPress} face={withAlpha(color, 0.08)} testID={testID} label={label}>
-      <View style={[styles.stroke, { backgroundColor: color, transform: [{ rotate: '45deg' }] }]} />
-      <View style={[styles.stroke, { backgroundColor: color, transform: [{ rotate: '-45deg' }] }]} />
+    <IconButton onPress={onPress} face={withAlpha(color, 0.08)} size={size} testID={testID} label={label}>
+      <View style={[styles.stroke, size === 'regular' && styles.regularStroke, { backgroundColor: color, transform: [{ rotate: '45deg' }] }]} />
+      <View style={[styles.stroke, size === 'regular' && styles.regularStroke, { backgroundColor: color, transform: [{ rotate: '-45deg' }] }]} />
     </IconButton>
   )
 }
 
 /** Back uses the same face as Close, with a drawn chevron. */
-export function SurfaceBack({ onPress, color, testID, label = 'Back' }: {
-  onPress: () => void; color: string; testID?: string; label?: string
+export function SurfaceBack({ onPress, color, size = 'small', testID, label = 'Back' }: {
+  onPress: () => void; color: string; size?: SurfaceIconSize; testID?: string; label?: string
 }) {
   return (
-    <IconButton onPress={onPress} face={withAlpha(color, 0.08)} testID={testID} label={label}>
-      <View style={[styles.chevron, { borderColor: color }]} />
+    <IconButton onPress={onPress} face={withAlpha(color, 0.08)} size={size} testID={testID} label={label}>
+      <View style={[styles.chevron, size === 'regular' && styles.regularChevron, { borderColor: color }]} />
     </IconButton>
   )
 }
@@ -110,16 +113,17 @@ export function SurfaceSecondary({ onPress, theme, label, testID, compact = fals
 
 /**
  * Three-slot header. Leading and trailing slots size to their content; the
- * centre takes the remaining width (progress, title or grabber).
+ * centre takes the remaining width (progress, title or grabber). Landscape
+ * question headers can reserve equal sides for two 44pt icons and an 8pt gap.
  */
-export function SurfaceHeader({ leading, center, trailing }: {
-  leading?: React.ReactNode; center?: React.ReactNode; trailing?: React.ReactNode
+export function SurfaceHeader({ leading, center, trailing, balancedSides = false }: {
+  leading?: React.ReactNode; center?: React.ReactNode; trailing?: React.ReactNode; balancedSides?: boolean
 }) {
   return (
     <View style={styles.header}>
-      <View style={styles.side}>{leading}</View>
+      <View style={[styles.side, balancedSides && styles.balancedSide]}>{leading}</View>
       <View style={styles.center}>{center}</View>
-      <View style={[styles.side, styles.trailing]}>{trailing}</View>
+      <View style={[styles.side, balancedSides && styles.balancedSide, styles.trailing]}>{trailing}</View>
     </View>
   )
 }
@@ -127,8 +131,11 @@ export function SurfaceHeader({ leading, center, trailing }: {
 const styles = StyleSheet.create({
   iconHit: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   iconFace: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  regularIconFace: { width: 44, height: 44, borderRadius: 22 },
   stroke: { position: 'absolute', width: 13, height: 1.75, borderRadius: 1 },
+  regularStroke: { width: 16, height: 2 },
   chevron: { width: 9, height: 9, borderLeftWidth: 1.75, borderBottomWidth: 1.75, marginLeft: 3, transform: [{ rotate: '45deg' }] },
+  regularChevron: { width: 10, height: 10, borderLeftWidth: 2, borderBottomWidth: 2 },
   // Labels wrap instead of truncating; the fixed radius keeps a pill on one
   // line and a soft rounded rectangle when a long or enlarged label wraps.
   next: { minHeight: 50, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 25, alignItems: 'center', justifyContent: 'center' },
@@ -138,6 +145,7 @@ const styles = StyleSheet.create({
   compactLabel: { fontSize: 15 },
   header: { flexDirection: 'row', alignItems: 'center', minHeight: 48, gap: 8 },
   side: { minWidth: 44, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  balancedSide: { minWidth: 96, gap: 8 },
   // Long header action labels wrap within this width instead of squeezing the title.
   trailing: { justifyContent: 'flex-end', maxWidth: 320 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
