@@ -1,0 +1,90 @@
+{
+  "name": "@usergist/feedback-web",
+  "version": "0.1.1",
+  "description": "UserGist feedback, surveys, in-app messages and feature requests for websites",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/react.d.ts",
+        "default": "./dist/react.js"
+      },
+      "require": {
+        "types": "./dist/react.d.cts",
+        "default": "./dist/react.cjs"
+      }
+    },
+    "./preview": {
+      "import": {
+        "types": "./dist/preview.d.ts",
+        "default": "./dist/preview.js"
+      },
+      "require": {
+        "types": "./dist/preview.d.cts",
+        "default": "./dist/preview.cjs"
+      }
+    },
+    "./browser": "./dist/usergist.global.js"
+  },
+  "files": [
+    "dist/index*",
+    "dist/react*",
+    "dist/preview*",
+    "dist/renderer-*.d.*",
+    "dist/usergist.global.js",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": [
+    "./dist/usergist.global.js"
+  ],
+  "scripts": {
+    "build": "tsup && tsup --config tsup.react.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:check": "node scripts/check-package.mjs",
+    "prepack": "pnpm --filter @usergist/sdk-core build && pnpm build"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "happy-dom": "20.0.11",
+    "react": "18.3.1",
+    "tsup": "^8.3.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.0",
+    "@usergist/sdk-core": "workspace:^",
+    "fake-indexeddb": "6.2.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://usergist.com/docs/sdks/web",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Future-Picnic/usergist-js.git",
+    "directory": "packages/sdk-web"
+  }
+}

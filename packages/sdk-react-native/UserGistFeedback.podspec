@@ -1,0 +1,31 @@
+require 'json'
+
+package = JSON.parse(File.read(File.join(__dir__, 'package.json')))
+
+Pod::Spec.new do |s|
+  s.name             = 'UserGistFeedback'
+  s.version          = package['version']
+  s.summary          = package['description']
+  s.description      = package['description']
+  s.homepage         = 'https://github.com/Future-Picnic/usergist-js'
+  s.license          = { :type => 'MIT', :file => 'LICENSE' }
+  s.authors          = { 'userGist' => 'engineering@usergist.com' }
+  s.platforms        = { :ios => '13.0' }
+  s.source           = { :git => 'https://github.com/Future-Picnic/usergist-js.git', :tag => "v#{s.version}" }
+
+  s.requires_arc     = true
+  s.swift_version    = '5.7'
+
+  # Default subspec — what RN autolinking picks up for the host app target.
+  s.default_subspec = 'Core'
+
+  # ---------- Core subspec (for the main app target) ----------
+  # The RN bridge module: RCTBridgeModule, RCTEventEmitter, Swift impl.
+  # Pulls in React-Core because it imports <React/...> headers.
+  s.subspec 'Core' do |core|
+    core.source_files = 'ios/*.{h,m,mm,swift}'
+    core.frameworks   = 'UIKit', 'UserNotifications', 'Security'
+    core.dependency 'React-Core'
+  end
+
+end
