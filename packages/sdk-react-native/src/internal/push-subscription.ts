@@ -15,7 +15,7 @@ export function setPushSubscriptionStateHandler(next?: (value: PushSubscriptionS
 }
 function emit() { try { handler?.(state) } catch (error) { reportError('push observer failed', error) } }
 export function pushSubscriptionChanged(e: Engine) {
-  const id = e.identity.get(), optedIn = !e.resetting && e.consent.allowsPush()
+  const id = e.identity.get(), optedIn = !e.resetting && e.consent.allowsPush() && !e.pushPermissionDenied
   state = Object.freeze({ ...id, tokenAvailable: e.pushTokenAvailable ?? !!e.lastPushToken, optedIn,
     registered: optedIn && !!e.lastPushRegistrationKey?.startsWith(`${id.anonymousId}:${id.externalId ?? ''}:`) })
   emit()

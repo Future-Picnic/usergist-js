@@ -84,6 +84,21 @@ public final class UserGistPushImpl: NSObject {
     Self.installUNDelegateSwizzleIfNeeded()
   }
 
+  /// A previous explicit automatic integration must survive a process restart.
+  /// Restore before iOS dispatches the launch notification response, without
+  /// acquiring permission or taking over Expo Notifications' delegate.
+  @objc public static func restoreAutomaticIntegrationOnLaunch() {
+    guard Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool != true,
+          UserDefaults.standard.bool(forKey: "UserGistPushAutomaticIntegration"),
+          UserGistPushState.enabled else { return }
+    installUNDelegateSwizzleIfNeeded()
+    if let swizzler = NSClassFromString("UserGistPushSwizzle") {
+      let selector = NSSelectorFromString("installIfNeeded")
+      let target = swizzler as AnyObject
+      if target.responds(to: selector) { _ = target.perform(selector) }
+    }
+  }
+
   // MARK: - Exported (called from UserGistPush.mm)
 
   @objc public func enablePush(options: [String: Any],
@@ -97,6 +112,9 @@ public final class UserGistPushImpl: NSObject {
       return
     }
     let installDelegateProxy = mode == "expo-notifications" ? false : (options["installDelegateProxy"] as? Bool ?? true)
+    if !expo {
+      UserDefaults.standard.set(installDelegateProxy, forKey: "UserGistPushAutomaticIntegration")
+    }
     if installDelegateProxy {
       Self.installUNDelegateSwizzleIfNeeded()
       if !expo, let swizzler: AnyClass = NSClassFromString("UserGistPushSwizzle") {

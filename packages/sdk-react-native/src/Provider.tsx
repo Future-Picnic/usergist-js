@@ -106,11 +106,11 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
   const surveyReleaseRef = useRef<(() => void) | null>(null)
   const inAppReleaseRef = useRef<(() => void) | null>(null)
 
-  function enqueueModal(task: ModalTask, purpose: 'feedback' | 'survey' = 'feedback'): void {
+  function enqueueModal(task: ModalTask, purpose: 'feedback' | 'survey' = 'feedback', contextValid: () => boolean = () => true): void {
     const gate = UserGist.__internal_presentationGate()
     const eligible = gate.validator(purpose)
     const generation = surfaceGeneration.current
-    const valid = () => eligible() && generation === surfaceGeneration.current
+    const valid = () => eligible() && generation === surfaceGeneration.current && contextValid()
     modalQueueRef.current.enqueue((release) => {
       gate.runWhenReady(() => task(release), valid, release)
     })
@@ -184,7 +184,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
             // the analytics endpoint pivots on properties.message_id.
             safeTrack(INAPP_SHOWN_EVENT_NAME, { message_id: p.messageId })
             safeInAppHandlers().onShow?.(p.messageId)
-          })
+          }, 'feedback', () => UserGist.__internal_inAppScreenAllowed(p.message))
         })
         unsubResetSurfaces = bus.on('resetSurfaces', () => {
           surfaceGeneration.current++

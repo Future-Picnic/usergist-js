@@ -10,7 +10,6 @@
 
 import React, { useMemo } from 'react'
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,7 +24,8 @@ import type {
   SurveyQuestion,
 } from '@usergist/sdk-core/mobile'
 import { estimateProgress, nextQuestionId } from '@usergist/sdk-core/mobile'
-import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from '../ui/theme.js'
+import { DEFAULT_THEME, mergeTheme, surfaceTokens, type ResolvedTheme } from '../ui/theme.js'
+import { CONTENT_MAX_WIDTH, SurfaceBack, SurfaceClose, SurfaceHeader, SurfaceNext } from '../ui/SurfaceControls.js'
 import { RatingQuestion } from '../ui/questions/RatingQuestion.js'
 import { NpsQuestion } from '../ui/questions/NpsQuestion.js'
 import { ShortTextQuestion } from '../ui/questions/ShortTextQuestion.js'
@@ -82,29 +82,22 @@ export function SurveyShell({
   const isLastPossible =
     currentQuestion != null &&
     nextQuestionId(flow, currentQuestion.id, answers) === null
+  const explicit = currentQuestion && ['short_text', 'long_text', 'multi_choice', 'ranking', 'single_date', 'info_screen'].includes(currentQuestion.type)
+  const value = currentQuestion ? answers[currentQuestion.id] : undefined
+  const answered = Array.isArray(value) ? value.length > 0 : typeof value === 'string' ? value.trim().length > 0 : value !== undefined && value !== null
+  const canGoBack = !showEndScreen && flow.backNavigation && activeId !== flow.startQuestionId
+  const closeAction = <SurfaceClose onPress={onClose} color={resolvedTheme.colors.text} />
+  const action = <SurfaceNext onPress={onAdvance} theme={resolvedTheme}
+    label={isLastPossible ? 'Submit' : 'Next'}
+    disabled={Boolean(currentQuestion && (isTextInput(currentQuestion.type) || currentQuestion.required) && !answered)} />
 
   return (
     <View style={[styles.root, { backgroundColor: resolvedTheme.colors.background }]}>
       <View style={styles.header}>
-        <Pressable
-          onPress={onClose}
-          hitSlop={16}
-          accessibilityLabel="Close"
-          style={styles.closeBtn}
-        >
-          <Text
-            style={{
-              color: resolvedTheme.colors.text,
-              fontFamily: resolvedTheme.fontFamily,
-              fontSize: 14,
-              fontWeight: '600',
-              lineHeight: 18,
-            }}
-          >
-            ✕
-          </Text>
-        </Pressable>
-        <View style={styles.progressWrap}>
+        <SurfaceHeader
+          leading={canGoBack ? <SurfaceBack onPress={onBack} color={resolvedTheme.colors.text} /> : closeAction}
+          trailing={canGoBack ? closeAction : null}
+          center={!showEndScreen ? <View style={styles.progressWrap}>
           {flow.progressStyle === 'bar' ? (
             <View
               style={[
@@ -140,77 +133,26 @@ export function SurveyShell({
               ))}
             </View>
           ) : null}
-        </View>
-        <View style={{ width: 24 }} />
+        </View> : null} />
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
+        <View style={styles.measure}>
         {showEndScreen ? (
-          <EndScreen screen={survey.endScreen} theme={resolvedTheme} onClose={onClose} />
+          <EndScreen screen={survey.endScreen} theme={resolvedTheme} />
         ) : currentQuestion ? (
           <>
             {renderQuestion(currentQuestion, answers, onAnswerChange, resolvedTheme)}
-            {isTextInput(currentQuestion.type) ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={isLastPossible ? 'Submit' : 'Next'}
-                style={[
-                  styles.inlineNext,
-                  { backgroundColor: resolvedTheme.colors.primary, opacity: 0.4 },
-                ]}
-              >
-                <Text
-                  style={{
-                    color: '#ffffff',
-                    fontFamily: resolvedTheme.fontFamily,
-                    fontWeight: '700',
-                  }}
-                >
-                  {isLastPossible ? 'Submit' : 'Next'}
-                </Text>
-              </Pressable>
-            ) : null}
           </>
         ) : null}
+        </View>
       </ScrollView>
 
-      {!showEndScreen && currentQuestion && !isTextInput(currentQuestion.type) ? (
+      {showEndScreen || explicit ? (
         <View style={styles.footer}>
-          <Pressable
-            onPress={onBack}
-            disabled={!flow.backNavigation}
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            style={styles.back}
-          >
-            <Text
-              style={{
-                color: flow.backNavigation
-                  ? resolvedTheme.colors.primary
-                  : resolvedTheme.colors.subtext,
-                fontFamily: resolvedTheme.fontFamily,
-                fontSize: 16,
-              }}
-            >
-              Back
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={onAdvance}
-            accessibilityRole="button"
-            accessibilityLabel={isLastPossible ? 'Submit' : 'Next'}
-            style={[styles.next, { backgroundColor: resolvedTheme.colors.primary }]}
-          >
-            <Text
-              style={{
-                color: '#ffffff',
-                fontFamily: resolvedTheme.fontFamily,
-                fontWeight: '700',
-              }}
-            >
-              {isLastPossible ? 'Submit' : 'Next'}
-            </Text>
-          </Pressable>
+          <View style={styles.measure}>{showEndScreen
+            ? <SurfaceNext onPress={onClose} theme={resolvedTheme} disabled={false} label={survey.endScreen?.cta?.label ?? 'Done'} />
+            : action}</View>
         </View>
       ) : null}
     </View>
@@ -334,21 +276,18 @@ function renderQuestion(
 function EndScreen({
   screen,
   theme,
-  onClose,
 }: {
   readonly screen: SurveyEndScreen | null
   readonly theme: ResolvedTheme
-  readonly onClose: () => void
 }): React.ReactElement {
   const headline = screen?.headline ?? 'Thanks!'
   const body = screen?.body
-  const cta = screen?.cta
   return (
     <View style={styles.endRoot}>
       <View
-        style={[styles.endBadge, { backgroundColor: theme.colors.primary }]}
+        style={[styles.endBadge, { backgroundColor: surfaceTokens(theme).tint }]}
       >
-        <Text style={styles.endBadgeGlyph}>✓</Text>
+        <View style={[styles.endTick, { borderColor: theme.colors.primary }]} />
       </View>
       <Text
         style={[styles.endHeadline, { color: theme.colors.text, fontFamily: theme.fontFamily }]}
@@ -362,27 +301,13 @@ function EndScreen({
           {body}
         </Text>
       ) : null}
-      <Pressable
-        onPress={onClose}
-        style={[styles.cta, { backgroundColor: theme.colors.primary }]}
-      >
-        <Text
-          style={{
-            color: '#ffffff',
-            fontFamily: theme.fontFamily,
-            fontWeight: '700',
-            fontSize: 16,
-          }}
-        >
-          {cta?.label ?? 'Close'}
-        </Text>
-      </Pressable>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  measure: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center' },
   closeBtn: {
     width: 32,
     height: 32,
@@ -392,22 +317,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    gap: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
   },
-  progressWrap: { flex: 1 },
+  progressWrap: { width: '100%', maxWidth: 320 },
   progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 2 },
   dotsRow: { flexDirection: 'row', gap: 6 },
   dot: { width: 6, height: 6, borderRadius: 3 },
-  body: { padding: 20, paddingBottom: 40 },
+  body: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
   footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'stretch',
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
@@ -429,6 +349,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   endRoot: { alignItems: 'center', paddingVertical: 24 },
+  endTick: { width: 26, height: 14, borderLeftWidth: 3, borderBottomWidth: 3, transform: [{ rotate: '-45deg' }], marginTop: -5 },
   endBadge: {
     width: 88,
     height: 88,

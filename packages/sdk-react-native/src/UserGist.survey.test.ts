@@ -97,6 +97,14 @@ async function sdk() {
   await UserGist.initAsync(fixture.engine.config)
   return UserGist
 }
+it('includes the configured host version in the actual survey attempt request', async () => {
+  fixture.engine.config.appVersion = '3.2.1'
+  const client = await sdk()
+  await client.__internal_createAttempt('survey', 'triggered', undefined, 'context-attempt', survey as any)
+  expect(fixture.engine.transport.surveyCreateAttempt).toHaveBeenCalledWith('survey', expect.objectContaining({
+    appVersion: '3.2.1', platform: 'ios', sdkVersion: expect.stringMatching(/^rn-/),
+  }))
+})
 it('opens a deferred invitation with its original authorization and frozen movie content', async () => {
   const client = await sdk()
   const frozen = { ...survey, presentationId: 'presentation', flow: {

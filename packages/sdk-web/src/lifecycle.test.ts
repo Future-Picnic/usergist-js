@@ -70,6 +70,30 @@ async function client() {
 }
 
 describe('identity transitions with durable browser storage', () => {
+  it('emits one version transition across reloads and does not replay denied-period upgrades', async () => {
+    async function activate(appVersion: string, analytics = true) {
+      const sdk = createUserGist()
+      clients.push(sdk)
+      await sdk.init({ writeKey: 'test-public-key', apiUrl: 'https://api.example.test', allowAnonymous: true, appVersion })
+      await sdk.setConsent({ analytics })
+      expect(await sdk.startAnonymous()).toBe('synced')
+      await vi.advanceTimersByTimeAsync(0)
+      await sdk.flush()
+      await sdk.destroy()
+    }
+    const upgrades = () => calls.filter(call => call.path === '/v1/sdk/ingest')
+      .flatMap(call => call.body.events).filter(event => event.name === '$app_version_changed')
+    await activate('1.0')
+    expect(upgrades()).toHaveLength(0)
+    await activate('1.1')
+    expect(upgrades()).toHaveLength(1)
+    expect(upgrades()[0].properties).toEqual({ old_version: '1.0', new_version: '1.1' })
+    await activate('1.1')
+    await activate('1.2', false)
+    await activate('1.2')
+    expect(upgrades()).toHaveLength(1)
+  })
+
   it.each(['rejected', 'offline', 'missing'] as const)('retains anonymous ownership after %s identification', async failure => {
     const sdk = await client()
     await sdk.startAnonymous()
@@ -109,6 +133,21 @@ describe('identity transitions with durable browser storage', () => {
     expect(sdk.getSnapshot()).toMatchObject({ state: 'inactive', externalId: null })
     const cleanupKey = Object.keys(sessionStorage).find(key => key.endsWith(':revocations'))!
     expect(JSON.parse(sessionStorage.getItem(cleanupKey)!)).toEqual([])
+  })
+
+  it('retires forbidden logout credentials instead of retrying them on reconnect', async () => {
+    const sdk = await client()
+    await sdk.identify('customer', {}, 'token')
+    handler = async path => path.endsWith('/revoke') ? new Response('{}', { status: 403 }) : undefined
+    await sdk.reset()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls.filter(call => call.path.endsWith('/revoke'))).toHaveLength(1)
+    window.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls.filter(call => call.path.endsWith('/revoke'))).toHaveLength(1)
+    const cleanupKey = Object.keys(sessionStorage).find(key => key.endsWith(':revocations'))!
+    expect(JSON.parse(sessionStorage.getItem(cleanupKey)!)).toEqual([])
+    expect(sdk.getSnapshot()).toMatchObject({ state: 'inactive', externalId: null })
   })
 
   it('applies first-login properties only after server consent is acknowledged', async () => {

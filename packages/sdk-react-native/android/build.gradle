@@ -33,8 +33,14 @@ def isNewArchitectureEnabled() {
   return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
 }
 
-if (isNewArchitectureEnabled()) {
-  apply plugin: "com.facebook.react"
+// This bridge is registered through ReactPackage and the New Architecture's
+// legacy-module interop. It does not own generated Java/JNI bindings. Applying
+// the React plugin here scans workspace peers and generates their specs twice.
+
+// Workspace consumers can use different React Native versions and architectures.
+// Keep their native intermediates in the consuming app's build directory.
+if (project != rootProject) {
+  layout.buildDirectory.set(rootProject.layout.buildDirectory.dir("usergist-sdk-react-native"))
 }
 
 android {

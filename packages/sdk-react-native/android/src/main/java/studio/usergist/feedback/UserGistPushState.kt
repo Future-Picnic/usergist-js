@@ -1,6 +1,7 @@
 package studio.usergist.feedback
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -21,12 +22,41 @@ internal object UserGistPushState {
   fun enabled(context: Context): Boolean = !isExpo(context) || prefs(context).getBoolean("push", false)
   fun anonymousId(context: Context): String = JSONObject(prefs(context).getString("state", "{}")!!).optString("anonymousId")
   fun accepts(context: Context, scope: String?): Boolean = enabled(context) && (scope.isNullOrEmpty() || scope == anonymousId(context))
+  @Synchronized fun retainOpen(context: Context, intent: Intent): Boolean {
+    val extras = intent.extras ?: return false
+    val scope = extras.getString("usergist_anonymous_id")
+    if (!accepts(context, scope) || !extras.containsKey("usergist_campaign_id")) return false
+    val data = JSONObject()
+    extras.keySet().filter { it.startsWith("usergist_") }.forEach { key ->
+      extras.getString(key)?.let { data.put(key, it) }
+    }
+    val state = JSONObject(prefs(context).getString("state", "{}")!!)
+    val record = JSONObject().put("data", data).put("at", System.currentTimeMillis())
+      .put("writeKey", state.optString("writeKey"))
+    return prefs(context).edit().putString("pendingOpen", record.toString()).commit()
+  }
+  @Synchronized fun takeOpen(context: Context): Intent? {
+    val store = prefs(context)
+    val raw = store.getString("pendingOpen", null) ?: return null
+    if (!store.edit().remove("pendingOpen").commit()) return null
+    return runCatching {
+      val record = JSONObject(raw)
+      val age = System.currentTimeMillis() - record.getLong("at")
+      val state = JSONObject(store.getString("state", "{}")!!)
+      val data = record.getJSONObject("data")
+      if (age !in 0..300000 || record.optString("writeKey") != state.optString("writeKey") ||
+        !accepts(context, data.optString("usergist_anonymous_id"))) return null
+      Intent().apply { data.keys().forEach { key -> putExtra(key, data.getString(key)) } }
+    }.getOrNull()
+  }
   private fun receiptPrefix(state: JSONObject) = "receipt." + UUID.nameUUIDFromBytes((state.optString("writeKey") + ":" + state.optString("anonymousId")).toByteArray(Charsets.UTF_8)) + "."
   @Synchronized fun configure(context: Context, state: JSONObject) {
-    check(prefs(context).edit().putString("state", state.toString()).putBoolean("push", state.optBoolean("push")).commit())
+    val edit = prefs(context).edit().putString("state", state.toString()).putBoolean("push", state.optBoolean("push"))
+    if (!state.optBoolean("push")) edit.remove("pendingOpen")
+    check(edit.commit())
     if (state.optBoolean("push")) retry(context)
   }
-  fun disable(context: Context) { prefs(context).edit().putBoolean("push", false).commit() }
+  fun disable(context: Context) { prefs(context).edit().putBoolean("push", false).remove("pendingOpen").commit() }
   fun receipt(context: Context, kind: String, id: String) {
     if (id.isEmpty() || !enabled(context)) return
     val state = JSONObject(prefs(context).getString("state", "{}")!!)

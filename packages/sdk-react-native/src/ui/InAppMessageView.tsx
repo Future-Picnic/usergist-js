@@ -4,17 +4,17 @@ import {
   Animated,
   Dimensions,
   Easing,
-  Image,
   Modal,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native'
 import type { ArmedInAppMessage, InAppCta } from '@usergist/sdk-core/mobile'
-import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './theme.js'
+import { DEFAULT_THEME, mergeTheme, surfaceTokens, withAlpha, type ResolvedTheme } from './theme.js'
 import type { PromptTheme } from '@usergist/sdk-core/mobile'
 import { useModalSlot } from '../internal/modal-coordinator.js'
+import { CONTENT_MAX_WIDTH, useSurfaceLayout } from './SurfaceControls.js'
+import { InAppMessageLayout } from './InAppMessageLayout.js'
 
 interface Props {
   readonly message: ArmedInAppMessage | null
@@ -34,6 +34,7 @@ export function InAppMessageView({
   onDismiss,
 }: Props): React.ReactElement | null {
   const modalGranted = useModalSlot('inapp', Boolean(message))
+  const layout = useSurfaceLayout()
   const isFull = message?.format === 'modal_full'
   const isSlide = message?.format === 'slideup'
   const backdropEnabled = message?.backdropEnabled !== false
@@ -172,22 +173,32 @@ export function InAppMessageView({
     inputRange: [0, 1],
     outputRange: [Dimensions.get('window').height, 0],
   })
+  // Slide-up floats as a card above the home indicator, centred and capped
+  // to a readable width in landscape so it never meets the notch.
+  const slideAvailable = layout.width - layout.left - layout.right - 24
+  const slideWidth = layout.landscape ? Math.min(slideAvailable, CONTENT_MAX_WIDTH) : slideAvailable
 
   return (
     <Modal
       transparent={!isFull}
+      supportedOrientations={['portrait', 'landscape-left', 'landscape-right']}
       visible={modalGranted}
       animationType={isSlide ? 'none' : 'fade'}
       onRequestClose={() => dismiss('user')}
     >
-      <View style={isFull ? styles.fullRoot : styles.overlayRoot}>
+      <View style={[
+        isFull ? styles.fullRoot : styles.overlayRoot,
+        { paddingTop: layout.top + 8, paddingBottom: Math.max(layout.bottom, 12),
+          paddingLeft: layout.left + (isFull ? 0 : 16), paddingRight: layout.right + (isFull ? 0 : 16),
+          backgroundColor: isFull ? theme.colors.background : undefined },
+      ]}>
         {!isFull ? (
           <Animated.View
             style={[
               StyleSheet.absoluteFill,
               {
                 backgroundColor: backdropEnabled
-                  ? 'rgba(0,0,0,0.4)'
+                  ? surfaceTokens(theme).scrim
                   : 'transparent',
                 opacity: isSlide ? backdropProgress : 1,
               },
@@ -205,101 +216,29 @@ export function InAppMessageView({
             isFull ? styles.fullCard : isSlide ? styles.slideCard : styles.modalCard,
             {
               backgroundColor: theme.colors.background,
-              borderTopLeftRadius: isSlide ? theme.radius : undefined,
-              borderTopRightRadius: isSlide ? theme.radius : undefined,
-              borderRadius: isSlide || isFull ? undefined : theme.radius,
+              borderRadius: isFull ? undefined : theme.radius,
               transform: isSlide ? [{ translateY }] : undefined,
+              ...(!isFull ? { borderColor: withAlpha(theme.colors.text, 0.08) } : {}),
+              ...(!isFull && layout.landscape ? { maxWidth: CONTENT_MAX_WIDTH } : {}),
+              ...(isSlide ? {
+                width: slideWidth,
+                left: (layout.width - slideWidth) / 2,
+                // Stay within the safe height; long content scrolls inside.
+                maxHeight: Math.max(160, layout.height - layout.top - Math.max(layout.bottom, 12) - 24),
+                bottom: Math.max(layout.bottom, 12) + 4,
+              } : {}),
             },
           ]}
         >
-          {isSlide ? (
-            <View
-              style={[styles.handle, { backgroundColor: theme.colors.border }]}
-              aria-hidden
-            />
-          ) : null}
-          <Pressable
-            onPress={() => dismiss('user')}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            hitSlop={12}
-            style={styles.closeBtn}
-          >
-            <Text
-              style={{
-                color: theme.colors.text,
-                fontFamily: theme.fontFamily,
-                fontSize: 14,
-                fontWeight: '600',
-              }}
-            >
-              ✕
-            </Text>
-          </Pressable>
-
-          {message.imageUrl ? (
-            <Image
-              source={{ uri: message.imageUrl }}
-              style={isFull ? styles.fullImage : styles.cardImage}
-              resizeMode="cover"
-              accessibilityIgnoresInvertColors
-            />
-          ) : null}
-
-          <View style={styles.content}>
-            <Text
-              style={[
-                styles.title,
-                { color: theme.colors.text, fontFamily: theme.fontFamily },
-              ]}
-            >
-              {message.title}
-            </Text>
-            {message.body ? (
-              <Text
-                style={[
-                  styles.body,
-                  { color: theme.colors.subtext, fontFamily: theme.fontFamily },
-                ]}
-              >
-                {message.body}
-              </Text>
-            ) : null}
-          </View>
-
-          {message.ctas.length > 0 ? (
-            <View style={styles.ctaRow}>
-              {message.ctas.map((cta, i) => {
-                const isPrimary = i === 0
-                return (
-                  <Pressable
-                    key={i}
-                    onPress={() =>
-                      closeWithAnimation(() => onCtaPress(cta, i))
-                    }
-                    accessibilityRole="button"
-                    accessibilityLabel={cta.label}
-                    style={[
-                      styles.ctaButton,
-                      isPrimary
-                        ? { backgroundColor: theme.colors.primary }
-                        : { borderColor: theme.colors.primary, borderWidth: 1 },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        color: isPrimary ? '#ffffff' : theme.colors.primary,
-                        fontFamily: theme.fontFamily,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {cta.label}
-                    </Text>
-                  </Pressable>
-                )
-              })}
-            </View>
-          ) : null}
+          <InAppMessageLayout
+            message={message}
+            format={isFull ? 'full' : isSlide ? 'slide' : 'card'}
+            theme={theme}
+            landscape={layout.landscape}
+            maxFooterHeight={Math.max(120, Math.round(layout.height * 0.4))}
+            onClose={() => dismiss('user')}
+            onCta={(cta, i) => closeWithAnimation(() => onCtaPress(cta, i))}
+          />
         </Animated.View>
       </View>
     </Modal>
@@ -311,79 +250,25 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 16,
   },
   fullRoot: {
     flex: 1,
   },
   modalCard: {
     width: '100%',
-    maxWidth: 360,
+    maxWidth: 400,
     overflow: 'hidden',
-    paddingBottom: 16,
+    maxHeight: '100%',
+    flexShrink: 1,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   slideCard: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingTop: 12,
-    paddingHorizontal: 20,
-    paddingBottom: 32,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   fullCard: {
     flex: 1,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  closeBtn: {
-    position: 'absolute',
-    right: 12,
-    top: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-  cardImage: {
-    width: '100%',
-    height: 160,
-  },
-  fullImage: {
-    width: '100%',
-    height: 240,
-  },
-  content: {
-    padding: 20,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  body: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  ctaRow: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingBottom: 4,
-  },
-  ctaButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
   },
 })

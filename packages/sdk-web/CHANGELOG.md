@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — lifecycle and survey recovery
+
+- Restore unfinished survey answers when reopening a survey.
+- Harden session recovery, identity transitions and consent-aware delivery.
+- Update the bundled shared core to 0.2.1.
+
 ## 0.2.0 — aligned SDK release train
 
 - Align the Web SDK with core and the platform SDKs at 0.2.0, including the bundled core dependency.

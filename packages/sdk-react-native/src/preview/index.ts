@@ -13,4 +13,5 @@
 
 export { SurveyShell, type SurveyShellProps } from './SurveyShell.js'
 export { PromptShell, type PromptShellProps } from './PromptShell.js'
+export { InAppMessageShell, type InAppMessageShellProps } from './InAppMessageShell.js'
 export { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from '../ui/theme.js'

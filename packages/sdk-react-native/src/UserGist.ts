@@ -1,4 +1,5 @@
 import { drainRevocations, hasPendingRevocations } from './internal/session-revocations.js'
+import { inAppScreenAllowed } from './internal/inapp-screen.js'
 import { setPushSubscriptionStateHandler, pushSubscriptionChanged } from './internal/push-subscription.js'
 import { cancelIdentityRecovery, identityChanged, setIdentityStateHandler, setSubjectTokenProvider, getIdentityState } from './internal/identity-lifecycle.js'
 import { userPropertiesUpdateSchema } from '@usergist/sdk-core/mobile'
@@ -78,7 +79,7 @@ import {
   onNotificationDismissed,
   onTokenError,
 } from './native/push-bridge.js'
-import { Push } from './Push.js'
+import { Push, clearPendingPushCallbacks } from './Push.js'
 import type { NotificationPayload } from './native/events.js'
 import { AppState, Platform } from 'react-native'
 import {
@@ -371,6 +372,12 @@ function forwardToPushHandler(
   kind: 'received' | 'opened' | 'displayed' | 'dismissed',
 ): void {
   if (!engine?.consent.allowsPush() || engine.resetting) return
+  const owner = engine
+  const generation = owner.resetGeneration
+  const anonymousId = owner.identity.get().anonymousId
+  const isCurrent = () => engine === owner && !owner.resetting &&
+    owner.resetGeneration === generation && owner.consent.allowsPush() &&
+    owner.identity.get().anonymousId === anonymousId
   const data = p.data ?? {}
   if (
     data.usergist_anonymous_id &&
@@ -400,7 +407,7 @@ function forwardToPushHandler(
     } else if (kind === 'dismissed') {
       Push.handleDismissed({ userInfo })
     } else {
-      Push.handleOpened({ userInfo, actionIdentifier: p.actionIdentifier })
+      Push.handleOpened({ userInfo, actionIdentifier: p.actionIdentifier, isCurrent })
     }
   } else {
     const dataStr: Record<string, string> = {}
@@ -417,7 +424,7 @@ function forwardToPushHandler(
     } else if (kind === 'dismissed') {
       Push.handleDismissed({ data: dataStr })
     } else {
-      Push.handleOpened({ data: dataStr, actionIdentifier: p.actionIdentifier })
+      Push.handleOpened({ data: dataStr, actionIdentifier: p.actionIdentifier, isCurrent })
     }
   }
 }
@@ -458,7 +465,18 @@ export const UserGist = {
   pausePresentation(): void { engine?.presentation.setPaused(true) },
   /** Call after the host's loaded screen and navigation are ready. */
   resumePresentation(): void { engine?.presentation.setPaused(false) },
+
+  /** Report the host route used by campaign screen restrictions. */
+  setScreenName(screenName: string | null): void {
+    if (!engine) return
+    engine.screenName = typeof screenName === 'string' && screenName.trim()
+      ? screenName.trim().slice(0, 120) : undefined
+    void pollInstructions(engine)
+  },
   __internal_presentationGate() { return requireEngine().presentation },
+  __internal_inAppScreenAllowed(message: Parameters<typeof inAppScreenAllowed>[0]): boolean {
+    return Boolean(engine) && inAppScreenAllowed(message, engine?.screenName)
+  },
 
   async initAsync(
     config: SdkConfig,
@@ -477,6 +495,16 @@ export const UserGist = {
       }
       await hydratePushDedupe(e.config.writeKey, e.identity.get().anonymousId)
       await syncNativePushState(e)
+      // Restored native callbacks must work before the host calls enablePush
+      // again. Hydration/dedupe precede subscribing; each callback still checks
+      // current consent and installation ownership. This never prompts the OS.
+      attachEnginePushListeners()
+      // Android/Expo may receive the launch intent before React subscriptions
+      // exist. Pull its one-shot snapshot only after identity, consent and
+      // persisted delivery dedupe are hydrated. Live-event/pull overlap is
+      // deduplicated by Push.handleOpened, just like a repeated OS response.
+      const initialPush = await UserGist.getInitialPushNotification()
+      if (initialPush) forwardToPushHandler(initialPush, 'opened')
       await startRuntime(e)
       return 'synced'
     } catch (error) {
@@ -625,6 +653,13 @@ export const UserGist = {
     }
   },
 
+  /** Return the persisted consent choice after local state has hydrated. */
+  async getConsent(): Promise<ConsentState> {
+    const e = requireEngine()
+    await ensureHydrated(e)
+    return { ...e.consent.get() }
+  },
+
   async setConsent(purposes: Consent): Promise<boolean> {
     try {
       const e = requireEngine()
@@ -641,6 +676,7 @@ export const UserGist = {
       await syncNativePushState(e)
       if (e.resetting || next.version !== e.consent.get().version) return false
       if (purposes.push === false) {
+        clearPendingPushCallbacks()
         lastEnablePushOptions = null
         await pushRegistrationQueue
         if (e.resetting || next.version !== e.consent.get().version)
@@ -687,6 +723,7 @@ export const UserGist = {
       const e = requireEngine()
       if (resetPromise) return resetPromise
       e.resetting = true
+      clearPendingPushCallbacks()
       identityChanged(e, 'resetting')
       pushSubscriptionChanged(e)
       e.resetGeneration += 1
@@ -1359,6 +1396,7 @@ export const UserGist = {
           source,
           ...(language ? { language } : {}),
           sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
+          ...(e.config.appVersion ? { appVersion: e.config.appVersion } : {}),
           platform: e.context.platform(),
           ...(presentationId || grant || source === 'triggered' || source === 'scheduled'
             ? { resume: false, clientAttemptId: presentationId ?? generateEventId() }
@@ -1945,7 +1983,31 @@ async function registerPushDevice(
       await drainRevocations(e)
       if (await hasPendingRevocations(e) || e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
       const id = e.identity.get()
-      const registrationKey = [id.anonymousId, id.externalId ?? '', platform, environment, token].join(':')
+      const registrationKey = [id.anonymousId, id.externalId ?? '', platform, environment, token, e.config.appVersion ?? ''].join(':')
+      // Re-check before cached registration: OS Settings may have changed while
+      // the SDK still retains push consent and an APNs/FCM token.
+      const permission = await UserGistPushNative.getPermissionStatus()
+      if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+      e.pushPermissionDenied = permission === 'denied'
+      pushSubscriptionChanged(e)
+      if (e.pushPermissionDenied) {
+        const deniedKey = `denied:${registrationKey}`
+        if (e.lastPushRegistrationKey === deniedKey) return
+        e.lastPushRegistrationKey = null
+        e.lastPushRegistrationAt = 0
+        for (const retiredToken of new Set([token, e.lastPushToken].filter((value): value is string => !!value))) {
+          await e.transport.pushInvalidateToken({anonymousId:id.anonymousId,token:retiredToken})
+          if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+        }
+        await e.storage.setJsonStrict(STORAGE_KEYS.pushToken, null)
+        if (e.resetting || generation !== e.resetGeneration) return
+        e.lastPushToken = null
+        // Keep the device descriptor for automatic recovery after OS regrant,
+        // but memoize successful invalidation to avoid a network loop.
+        e.lastPushRegistrationKey = deniedKey
+        pushSubscriptionChanged(e)
+        return
+      }
       if (e.lastPushRegistrationKey === registrationKey && Date.now() - e.lastPushRegistrationAt < 24 * 60 * 60_000) return
       // Persist before delivery so logout still owns a token if its response is lost.
       e.lastPushToken = token
@@ -1955,6 +2017,7 @@ async function registerPushDevice(
         anonymousId: id.anonymousId, externalId: id.externalId ?? null,
         token, platform, environment, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         sdkVersion: `rn-${USERGIST_SDK_VERSION}`, optIn: true,
+        appVersion: e.config.appVersion ?? undefined,
       })
       if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
       if (!(registration && typeof registration === 'object' && 'registered' in registration && registration.registered === true)) {

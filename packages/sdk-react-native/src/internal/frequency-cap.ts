@@ -46,7 +46,7 @@ export function createFrequencyCapManager(
     const last = Date.parse(iso)
     if (Number.isNaN(last)) return false
     const cutoff = Date.now() - days * 86_400_000
-    return last >= cutoff
+    return last > cutoff
   }
 
   return {

@@ -1,8 +1,8 @@
 import React from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { RatingQuestion as RatingQ } from '@usergist/sdk-core/mobile'
-import type { ResolvedTheme } from '../theme.js'
-import { QuestionImageHeader } from '../QuestionImageHeader.js'
+import { surfaceTokens, withAlpha, type ResolvedTheme } from '../theme.js'
+import { QuestionHeader } from '../SurfacePrimitives.js'
 
 interface Props {
   readonly question: RatingQ
@@ -16,47 +16,33 @@ const EMOJI_5 = ['😡', '😕', '😐', '🙂', '😍'] as const
 /**
  * Rating question. Honours `question.display`:
  *   - 'stars'   → row of star glyphs (default)
- *   - 'numeric' → row of chips with the score
- *   - 'emoji'   → 5 emoji faces (only valid when scale=5; falls back
- *                 to stars otherwise so we never silently skip render)
+ *   - 'numeric' → row of score chips
+ *   - 'emoji'   → 5 faces (only valid when scale=5; falls back to stars)
  *
  * The row is centred so the dashboard preview and the device match.
  */
 export function RatingQuestion({ question, value, onChange, theme }: Props): React.ReactElement {
   const items = Array.from({ length: question.scale }, (_, i) => i + 1)
-  const display: 'stars' | 'numeric' | 'emoji' =
-    question.display ?? 'stars'
+  const display: 'stars' | 'numeric' | 'emoji' = question.display ?? 'stars'
   const renderEmoji = display === 'emoji' && question.scale === 5
+  const tokens = surfaceTokens(theme)
 
   return (
     <View>
-      {question.imageUrl ? (
-        <QuestionImageHeader uri={question.imageUrl} radius={theme.radius} />
-      ) : null}
-      <Text style={[styles.title, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
-        {question.title}
-      </Text>
-      {question.subtitle ? (
-        <Text style={[styles.subtitle, { color: theme.colors.subtext, fontFamily: theme.fontFamily }]}>
-          {question.subtitle}
-        </Text>
-      ) : null}
+      <QuestionHeader title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl}
+        theme={theme} align="center" />
       <View style={styles.row}>
         {items.map((n) => {
           const selected = value === n
           if (renderEmoji) {
             const glyph = EMOJI_5[n - 1] ?? '🙂'
             return (
-              <Pressable
-                key={n}
-                onPress={() => onChange(n)}
-                accessibilityRole="button"
-                accessibilityLabel={`Rate ${n}`}
-                style={[
-                  styles.emoji,
-                  { opacity: selected || value === null ? 1 : 0.35 },
-                ]}
-              >
+              <Pressable key={n} onPress={() => onChange(n)} accessibilityRole="radio"
+                accessibilityState={{ selected }} accessibilityLabel={`Rate ${n}`}
+                style={[styles.emoji, {
+                  backgroundColor: selected ? tokens.tint : 'transparent',
+                  opacity: selected || value === null ? 1 : 0.4,
+                }]}>
                 <Text style={styles.emojiGlyph}>{glyph}</Text>
               </Pressable>
             )
@@ -64,47 +50,26 @@ export function RatingQuestion({ question, value, onChange, theme }: Props): Rea
           if (display === 'stars') {
             const filled = value != null && n <= value
             return (
-              <Pressable
-                key={n}
-                onPress={() => onChange(n)}
-                accessibilityRole="button"
-                accessibilityLabel={`Rate ${n}`}
-                style={styles.starBtn}
-              >
-                <Text
-                  style={{
-                    fontSize: 28,
-                    lineHeight: 32,
-                    color: filled ? theme.colors.primary : theme.colors.border,
-                  }}
-                >
+              <Pressable key={n} onPress={() => onChange(n)} accessibilityRole="radio"
+                accessibilityState={{ selected }} accessibilityLabel={`Rate ${n}`} style={styles.starBtn}>
+                <Text style={[styles.star, { color: filled ? theme.colors.primary : withAlpha(theme.colors.text, 0.16) }]}>
                   ★
                 </Text>
               </Pressable>
             )
           }
-          // 'numeric' — chip with the score
           return (
-            <Pressable
-              key={n}
-              onPress={() => onChange(n)}
-              accessibilityRole="button"
-              accessibilityLabel={`Rate ${n}`}
-              style={[
-                styles.chip,
-                {
-                  borderColor: theme.colors.border,
-                  backgroundColor: selected ? theme.colors.primary : 'transparent',
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: selected ? theme.colors.background : theme.colors.text,
-                  fontFamily: theme.fontFamily,
-                  fontWeight: '600',
-                }}
-              >
+            <Pressable key={n} onPress={() => onChange(n)} accessibilityRole="radio"
+              accessibilityState={{ selected }} accessibilityLabel={`Rate ${n}`}
+              style={({ pressed }) => [styles.chip, {
+                borderRadius: Math.min(theme.radius, 12),
+                borderColor: selected ? theme.colors.primary : theme.colors.border,
+                backgroundColor: selected ? theme.colors.primary : pressed ? tokens.fill : 'transparent',
+              }]}>
+              <Text style={[styles.chipLabel, {
+                color: selected ? tokens.onPrimary : theme.colors.text,
+                fontFamily: theme.fontFamily,
+              }]}>
                 {n}
               </Text>
             </Pressable>
@@ -113,8 +78,8 @@ export function RatingQuestion({ question, value, onChange, theme }: Props): Rea
       </View>
       {(question.lowLabel || question.highLabel) && (
         <View style={styles.labelsRow}>
-          <Text style={[styles.endLabel, { color: theme.colors.subtext }]}>{question.lowLabel ?? ''}</Text>
-          <Text style={[styles.endLabel, { color: theme.colors.subtext }]}>{question.highLabel ?? ''}</Text>
+          <Text style={[styles.endLabel, { color: theme.colors.subtext, fontFamily: theme.fontFamily }]}>{question.lowLabel ?? ''}</Text>
+          <Text style={[styles.endLabel, { color: theme.colors.subtext, fontFamily: theme.fontFamily, textAlign: 'right' }]}>{question.highLabel ?? ''}</Text>
         </View>
       )}
     </View>
@@ -122,44 +87,13 @@ export function RatingQuestion({ question, value, onChange, theme }: Props): Rea
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 18, fontWeight: '700', marginBottom: 4, textAlign: 'center' },
-  subtitle: { fontSize: 14, marginBottom: 16, textAlign: 'center' },
-  row: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
-    justifyContent: 'center',
-  },
-  chip: {
-    minWidth: 40,
-    height: 40,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  starBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emoji: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emojiGlyph: {
-    fontSize: 30,
-    lineHeight: 36,
-  },
-  labelsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  endLabel: { fontSize: 12 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
+  chip: { minWidth: 48, height: 48, paddingHorizontal: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  chipLabel: { fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  starBtn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  star: { fontSize: 34, lineHeight: 40 },
+  emoji: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
+  emojiGlyph: { fontSize: 30, lineHeight: 36 },
+  labelsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, gap: 16 },
+  endLabel: { fontSize: 13, flex: 1 },
 })

@@ -29,7 +29,16 @@
 
 @implementation UserGistPushSwizzle
 
-+ (void)load { }
++ (void)load {
+    // Initial integration remains explicit. A later process restores only a
+    // persisted automatic opt-in with current push consent, before iOS sends
+    // the cold-start UNNotificationResponse.
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
+                                                    object:nil queue:[NSOperationQueue mainQueue]
+                                                usingBlock:^(NSNotification *note) {
+        [UserGistPushImpl restoreAutomaticIntegrationOnLaunch];
+    }];
+}
 
 + (void)installIfNeeded {
     static dispatch_once_t onceToken;

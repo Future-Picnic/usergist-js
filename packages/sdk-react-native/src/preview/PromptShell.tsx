@@ -6,7 +6,8 @@
 // the SDK ships on iOS / Android.
 
 import React, { useMemo } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { CONTENT_MAX_WIDTH, SurfaceClose, SurfaceHeader, SurfaceNext } from '../ui/SurfaceControls.js'
 import type { PromptTheme, Question } from '@usergist/sdk-core/mobile'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from '../ui/theme.js'
 import { RatingQuestion } from '../ui/questions/RatingQuestion.js'
@@ -22,10 +23,6 @@ export interface PromptShellProps {
   readonly questions: ReadonlyArray<Question>
   readonly currentQuestionId?: string | null
   readonly theme?: PromptTheme | null
-}
-
-function isTextInput(type: Question['type']): boolean {
-  return type === 'short_text'
 }
 
 export function PromptShell({
@@ -45,11 +42,10 @@ export function PromptShell({
         questions.findIndex((q) => q.id === current.id),
       )
     : 0
-  // currentIndex retained for potential progress display in future
-  // iterations; isLast is no longer needed since the button text is
-  // always 'Next' (the runtime fires submit when there's nowhere
-  // further to go).
-  void currentIndex
+  const needsNext = current && promptNeedsExplicitNext(current)
+  const action = <SurfaceNext onPress={() => undefined} theme={resolvedTheme}
+    disabled={Boolean(current && promptNextRequiresAnswer(current))}
+    label={currentIndex === questions.length - 1 ? 'Submit' : 'Next'} />
 
   return (
     <View style={styles.root}>
@@ -64,72 +60,18 @@ export function PromptShell({
           },
         ]}
       >
-        <View style={styles.headerRow}>
-          <View
-            style={[styles.handle, { backgroundColor: resolvedTheme.colors.border }]}
-          />
-          <View style={styles.closeBtn}>
-            <Text
-              style={{
-                color: resolvedTheme.colors.text,
-                fontFamily: resolvedTheme.fontFamily,
-                fontSize: 14,
-                fontWeight: '600',
-                lineHeight: 18,
-              }}
-            >
-              ✕
-            </Text>
-          </View>
-        </View>
+        <SurfaceHeader leading={<SurfaceClose onPress={() => undefined} color={resolvedTheme.colors.text} />}
+          center={questions.length > 1 ? <Text style={{ color: resolvedTheme.colors.subtext }}>{currentIndex + 1} of {questions.length}</Text> : null} />
+        <View style={styles.measure}>
         <ScrollView contentContainerStyle={styles.body}>
           {current ? (
             <>
               {renderQuestion(current, resolvedTheme)}
-              {isTextInput(current.type) ? (
-                <View
-                  style={[
-                    styles.next,
-                    { backgroundColor: resolvedTheme.colors.primary, opacity: 0.4 },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: '#ffffff',
-                      fontWeight: '700',
-                      fontFamily: resolvedTheme.fontFamily,
-                      fontSize: 16,
-                    }}
-                  >
-                    Next
-                  </Text>
-                </View>
-              ) : null}
             </>
           ) : null}
         </ScrollView>
-        {current && promptNeedsExplicitNext(current) && !isTextInput(current.type) ? (
-          <View
-            style={[
-              styles.next,
-              {
-                backgroundColor: resolvedTheme.colors.primary,
-                opacity: promptNextRequiresAnswer(current) ? 0.4 : 1,
-              },
-            ]}
-          >
-            <Text
-              style={{
-                color: '#ffffff',
-                fontWeight: '700',
-                fontFamily: resolvedTheme.fontFamily,
-                fontSize: 16,
-              }}
-            >
-              Next
-            </Text>
-          </View>
-        ) : null}
+        {needsNext ? <View style={styles.footer}>{action}</View> : null}
+        </View>
       </View>
     </View>
   )
@@ -188,11 +130,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   sheet: {
-    minHeight: 280,
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    paddingBottom: 30,
+    maxHeight: '100%',
+    flexShrink: 1,
+    width: '100%',
+    paddingTop: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 16,
   },
+  measure: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', flexShrink: 1 },
+  footer: { paddingHorizontal: 12, paddingTop: 4 },
   headerRow: {
     position: 'relative',
     height: 32,
@@ -217,7 +163,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   body: {
-    paddingBottom: 16,
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    paddingBottom: 20,
   },
   next: {
     alignSelf: 'stretch',

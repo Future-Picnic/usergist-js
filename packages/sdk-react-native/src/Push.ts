@@ -68,6 +68,15 @@ export interface PushHandlers {
 }
 
 let handlers: PushHandlers = {}
+let handlersRegistered = false
+let callbackGeneration = 0
+let pendingOpens: Array<{ generation: number; expiresAt: number; isCurrent: () => boolean; notify: () => void }> = []
+
+/** Cancel deferred host navigation when consent or the installation changes. */
+export function clearPendingPushCallbacks(): void {
+  callbackGeneration += 1
+  pendingOpens = []
+}
 
 function parseOpenAction(raw: unknown): PushOpenAction | undefined {
   try {
@@ -200,6 +209,12 @@ function parsePushArgs(args: PushHandlerArgs): UserGistPushMessage | null {
 export const Push = {
   setHandlers(h: PushHandlers): void {
     handlers = h
+    handlersRegistered = true
+    const pending = pendingOpens
+    pendingOpens = []
+    for (const open of pending) {
+      if (open.generation === callbackGeneration && open.expiresAt > Date.now() && open.isCurrent()) open.notify()
+    }
   },
 
   async registerDeviceToken(
@@ -309,53 +324,58 @@ export const Push = {
     handlers.onDismiss?.(msg)
   },
 
-  handleOpened(args: PushHandlerArgs & { actionIdentifier?: string }): void {
+  handleOpened(args: PushHandlerArgs & { actionIdentifier?: string; isCurrent?: () => boolean }): void {
     const msg = parsePushArgs(args)
     if (!msg) return
     if (!acceptPushEvent('$push_opened', msg.deliveryId, args.actionIdentifier))
       return
-    if (args.actionIdentifier) {
-      emitEvent('$push_action_clicked', msg, {
-        action_button: args.actionIdentifier,
-      })
-      try {
-        handlers.onAction?.(msg, args.actionIdentifier)
-      } catch {
-        // A host observer cannot prevent the configured action from running.
-      }
-      const actionJson = jsonActionForButton(
-        msg.actionButtons,
-        args.actionIdentifier,
-      )
-      if (actionJson) {
+    if (args.actionIdentifier) emitEvent('$push_action_clicked', msg, {action_button: args.actionIdentifier})
+    else emitEvent('$push_opened', msg)
+    const notify = () => {
+      if (args.actionIdentifier) {
         try {
-          handlers.onJsonAction?.(actionJson, {
-            source: 'push',
-            message: msg,
-            actionButton: args.actionIdentifier,
-          })
+          handlers.onAction?.(msg, args.actionIdentifier)
         } catch {
-          // Host action executors must not throw across the SDK boundary.
+          // A host observer cannot prevent the configured action from running.
         }
-      }
-    } else {
-      emitEvent('$push_opened', msg)
-      try {
-        handlers.onOpen?.(msg)
-      } catch {
-        /* Observer cannot prevent the configured action. */
-      }
-      if (msg.openAction?.action === 'json' && msg.openAction.actionJson) {
+        const actionJson = jsonActionForButton(
+          msg.actionButtons,
+          args.actionIdentifier,
+        )
+        if (actionJson) {
+          try {
+            handlers.onJsonAction?.(actionJson, {
+              source: 'push',
+              message: msg,
+              actionButton: args.actionIdentifier,
+            })
+          } catch {
+            // Host action executors must not throw across the SDK boundary.
+          }
+        }
+      } else {
         try {
-          handlers.onJsonAction?.(msg.openAction.actionJson, {
-            source: 'push',
-            message: msg,
-            actionButton: 'usergist_default',
-          })
+          handlers.onOpen?.(msg)
         } catch {
-          /* App callbacks must not escape the SDK. */
+          /* Observer cannot prevent the configured action. */
+        }
+        if (msg.openAction?.action === 'json' && msg.openAction.actionJson) {
+          try {
+            handlers.onJsonAction?.(msg.openAction.actionJson, {
+              source: 'push',
+              message: msg,
+              actionButton: 'usergist_default',
+            })
+          } catch {
+            /* App callbacks must not escape the SDK. */
+          }
         }
       }
     }
+    const isCurrent = args.isCurrent ?? (() => true)
+    if (!handlersRegistered) {
+      if (pendingOpens.length >= 100) pendingOpens.shift()
+      pendingOpens.push({generation:callbackGeneration,expiresAt:Date.now()+5*60_000,isCurrent,notify})
+    } else if (isCurrent()) notify()
   },
 }

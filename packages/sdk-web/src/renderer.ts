@@ -8,6 +8,8 @@ import {
   type WebPresentation,
 } from '@usergist/sdk-core/client'
 import { webStyles } from './styles.js'
+import { surfaceStyles } from './surface-styles.js'
+import { onPrimary } from './surface-theme.js'
 
 export type Answer = string | number | string[] | null
 export interface RenderQuestion {
@@ -75,6 +77,7 @@ export interface RenderExperience {
     answers: SurveyAnswerRecord,
     currentQuestionId: string | null
   ) => Promise<void>
+  onDraft?: (answers: SurveyAnswerRecord, currentQuestionId: string) => void
   onSubmit?: (answers: SurveyAnswerRecord) => Promise<void>
   onDismiss?: (answers: SurveyAnswerRecord) => void
   onCta?: (cta: NonNullable<RenderExperience['ctas']>[number]) => void
@@ -89,7 +92,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   if (text != null) node.textContent = text
   return node
 }
-function icon(kind: 'close' | 'check' | 'star') {
+function icon(kind: 'close' | 'back' | 'check' | 'star') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('width', kind === 'check' ? '40' : '20')
   svg.setAttribute('height', kind === 'check' ? '40' : '20')
@@ -103,6 +106,8 @@ function icon(kind: 'close' | 'check' | 'star') {
     'd',
     kind === 'close'
       ? 'M6 6l12 12M6 18L18 6'
+      : kind === 'back'
+      ? 'M14 6l-6 6 6 6'
       : kind === 'check'
       ? 'M5 12l4 4L19 6'
       : 'm12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z'
@@ -175,6 +180,7 @@ export class WebRenderer {
   private inert: Array<[HTMLElement, boolean]> = []
   private closeHandler?: () => void
   private dismissTimer?: ReturnType<typeof setTimeout>
+  private themeOverrides?: PromptTheme
   constructor(
     private options: {
       container?: HTMLElement
@@ -198,7 +204,7 @@ export class WebRenderer {
     this.shadow = this.host.attachShadow({ mode: 'open' })
     const style = el('style')
     if (options.nonce) style.nonce = options.nonce
-    style.textContent = webStyles
+    style.textContent = webStyles + surfaceStyles
     this.shadow.append(style)
     ;(options.container ?? document.body).append(this.host)
   }
@@ -208,7 +214,19 @@ export class WebRenderer {
   get consentPurpose() {
     return this.root ? this.purpose : undefined
   }
-  setTheme(theme?: PromptTheme | null) {
+  setThemeOverrides(theme: PromptTheme) {
+    this.themeOverrides = theme
+    this.setTheme()
+  }
+  setTheme(campaign?: PromptTheme | null) {
+    const theme: PromptTheme = {
+      ...this.themeOverrides,
+      ...campaign,
+      colors: {
+        ...this.themeOverrides?.colors,
+        ...Object.fromEntries(Object.entries(campaign?.colors ?? {}).filter(([, value]) => value != null)),
+      },
+    }
     const vars: Record<string, string> = {
       '--ug-primary': theme?.colors?.primary ?? '#6154E8',
       '--ug-bg': theme?.colors?.background ?? '#FFFFFF',
@@ -217,6 +235,7 @@ export class WebRenderer {
       '--ug-border': theme?.colors?.border ?? '#E3E4EE',
       '--ug-radius': `${Math.max(0, Math.min(theme?.radius ?? 20, 40))}px`,
       '--ug-font': `${theme?.fontFamily ?? 'Inter'},system-ui,sans-serif`,
+      '--ug-on-primary': onPrimary(theme?.colors?.primary ?? '#6154E8', theme?.colors?.background ?? '#FFFFFF'),
     }
     for (const [key, value] of Object.entries(vars))
       this.host.style.setProperty(key, value)
@@ -256,7 +275,9 @@ export class WebRenderer {
     close.setAttribute('aria-label', 'Close')
     close.append(icon('close'))
     close.onclick = () => this.close()
-    surface.append(close)
+    const chrome = el('header', 'ug-chrome')
+    chrome.append(close)
+    surface.append(chrome)
     root.append(surface)
     this.shadow.append(root)
     root.addEventListener('keydown', (event) => {
@@ -365,10 +386,15 @@ export class WebRenderer {
         experience.flow?.startQuestionId ??
         questions[0]?.id
     const history: string[] = []
-    const progress = el('div', 'ug-progress')
+    const dots = experience.flow?.progressStyle === 'dots'
+    const progress = el('div', dots ? 'ug-progress ug-dots' : 'ug-progress')
     const fill = el('span')
-    progress.append(fill)
-    if (experience.flow?.progressStyle !== 'none') surface.append(progress)
+    if (dots) questions.forEach(() => progress.append(el('span')))
+    else progress.append(fill)
+    const showProgress = (experience.pillar === 'survey' && experience.flow?.progressStyle !== 'none') || questions.length > 1
+    const chrome = surface.querySelector<HTMLElement>('.ug-chrome')!
+    const close = chrome.querySelector<HTMLButtonElement>('[aria-label="Close"]')!
+    if (showProgress) chrome.append(progress)
     const content = el('div', 'ug-content')
     const footer = el('div', 'ug-footer')
     surface.append(content, footer)
@@ -376,6 +402,9 @@ export class WebRenderer {
       content.replaceChildren()
       footer.replaceChildren()
       const q = questions.find((q) => q.id === current)
+      chrome.replaceChildren(close)
+      chrome.removeAttribute('data-has-back')
+      if (q && showProgress) chrome.append(progress)
       if (!q) {
         this.success(content, experience.endScreen)
         const cta = experience.endScreen?.cta
@@ -398,15 +427,28 @@ export class WebRenderer {
         return
       }
       const index = questions.indexOf(q)
+      progress.setAttribute('role', 'progressbar')
+      progress.setAttribute('aria-label', 'Survey progress')
+      progress.setAttribute('aria-valuemin', '1')
+      progress.setAttribute('aria-valuemax', String(questions.length))
+      progress.setAttribute('aria-valuenow', String(index + 1))
+      if (dots) Array.from(progress.children).forEach((dot, i) => {
+        ;(dot as HTMLElement).dataset.active = String(i <= index)
+      })
       fill.style.width = `${Math.round(
         ((index + 1) / Math.max(questions.length, 1)) * 100
       )}%`
-      content.append(
+      if (questions.length > 1) content.append(
         el('div', 'ug-step', `${index + 1} of ${questions.length}`)
       )
+      content.classList.toggle('ug-numeric', q.type === 'nps' || q.type === 'rating')
       this.header(content, q.title, q.subtitle ?? q.body, q.imageUrl)
+      let saving = false
+      let updateAction: () => void = () => undefined
       this.question(content, q, answers[q.id], (value) => {
         answers[q.id] = value
+        experience.onDraft?.(structuredClone(answers) as SurveyAnswerRecord, q.id)
+        updateAction()
       })
       if (q.type === 'nps' && q.followUp) {
         const label = el('label', '', q.followUp)
@@ -415,6 +457,7 @@ export class WebRenderer {
         follow.value = String(answers[`${q.id}__followUp`] ?? '')
         follow.oninput = () => {
           answers[`${q.id}__followUp`] = follow.value
+          experience.onDraft?.(structuredClone(answers) as SurveyAnswerRecord, q.id)
         }
         label.append(follow)
         content.append(label)
@@ -422,17 +465,16 @@ export class WebRenderer {
       const error = el('div', 'ug-error')
       error.setAttribute('role', 'alert')
       content.append(error)
-      if (history.length && experience.flow?.backNavigation !== false)
-        footer.append(
-          this.button(
-            'Back',
-            () => {
-              current = history.pop()
-              draw()
-            },
-            true
-          )
-        )
+      if (history.length && experience.flow?.backNavigation !== false) {
+        const back = el('button', 'ug-back')
+        back.type = 'button'
+        back.setAttribute('aria-label', 'Back')
+        back.append(icon('back'))
+        back.onclick = () => { current = history.pop(); draw() }
+        chrome.prepend(back)
+        chrome.append(close)
+        chrome.dataset.hasBack = 'true'
+      }
       const next = experience.flow
         ? nextQuestionId(experience.flow, q.id, answers as SurveyAnswerRecord)
         : questions[index + 1]?.id ?? null
@@ -443,6 +485,7 @@ export class WebRenderer {
           return
         }
         submit.disabled = true
+        saving = true
         submit.textContent = 'Saving…'
         try {
           const destination = experience.flow
@@ -471,10 +514,13 @@ export class WebRenderer {
         } catch (e) {
           error.textContent =
             e instanceof Error ? e.message : 'Unable to save. Please try again.'
-          submit.disabled = false
+          saving = false
+          updateAction()
           submit.textContent = next ? 'Continue' : 'Submit'
         }
       })
+      updateAction = () => { submit.disabled = saving || Boolean(validateAnswer(q, answers[q.id])) }
+      updateAction()
       footer.append(submit)
     }
     draw()

@@ -8,12 +8,14 @@
  * this themselves. They open it with `UserGist.openRequestsBoard()`.
  */
 import React, { useEffect, useState } from 'react'
-import { Modal, SafeAreaView, StatusBar, StyleSheet } from 'react-native'
+import { Modal, StatusBar, StyleSheet } from 'react-native'
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { UserGist } from '../../UserGist.js'
 import { BoardView } from './BoardView.js'
 import { DetailView } from './DetailView.js'
 import { SubmitView } from './SubmitView.js'
-import { useBranding } from './shared.js'
+import { useBranding, useRequestsTheme } from './shared.js'
+import { readableOn } from '../color.js'
 import { useModalSlot } from '../../internal/modal-coordinator.js'
 
 type ViewState =
@@ -25,6 +27,7 @@ type ViewState =
 export function RequestsHost(): React.ReactElement | null {
   const [view, setView] = useState<ViewState>({ kind: 'closed' })
   const branding = useBranding()
+  const theme = useRequestsTheme(branding)
 
   useEffect(() => {
     let unsubBoard: (() => void) | null = null
@@ -68,10 +71,13 @@ export function RequestsHost(): React.ReactElement | null {
       animationType="slide"
       presentationStyle="fullScreen"
       onRequestClose={close}
+      supportedOrientations={['portrait', 'landscape-left', 'landscape-right']}
       statusBarTranslucent={false}
     >
-      <StatusBar barStyle="dark-content" />
-      <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle={readableOn(theme.colors.background) === '#FFFFFF' ? 'light-content' : 'dark-content'} />
+      {/* A native Modal has its own screen bounds; measure its safe area here. */}
+      <SafeAreaProvider>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
         {view.kind === 'board' ? (
           <BoardView
             branding={branding}
@@ -93,10 +99,11 @@ export function RequestsHost(): React.ReactElement | null {
           />
         ) : null}
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   )
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fafafa' },
+  safe: { flex: 1 },
 })

@@ -105,6 +105,7 @@ export interface Engine {
   readonly context: ContextProvider
   readonly events: EventBus
   readonly presentation: PresentationGate
+  screenName?: string
   hydrated: boolean
   hydratingPromise: Promise<void> | null
   flushTimer: ReturnType<typeof setTimeout> | null
@@ -117,8 +118,8 @@ export interface Engine {
   resetGeneration: number
   resetting: boolean
   readonly localInstructionDedupe: LocalInstructionDedupe
-  /** Survey campaigns rendered immediately on-device; suppresses the later
-   * offer-ledger poll for the same campaign. */
+  /** Campaigns delivered by local matching or durable instructions; suppresses
+   * the legacy offer-ledger notification for the same campaign. */
   readonly locallyHandledSurveyIds: Set<string>
   themeOverride: ResolvedTheme | null
   /** Last push token registered with the server. Used by `rebindPushToken`. */
@@ -127,6 +128,7 @@ export interface Engine {
   lastPushRegistrationAt: number
   pendingReset?: { subjectToken: string; anonymousId: string }
   pushTokenAvailable?: boolean
+  pushPermissionDenied?: boolean
   retryPushRegistration?: () => Promise<void>
 }
 
@@ -225,6 +227,11 @@ export function createEngine(
   }
 
   const lifecycle = createLifecycleManager({
+    onInstructionPoll: () => {
+      const e = eng()
+      const consent = e.consent.get()
+      if (consent.feedback || consent.survey) void pollInstructions(e)
+    },
     onForeground: () => {
       const e = eng()
       void ensureHydrated(e).then(async () => {
@@ -495,6 +502,9 @@ function needsImmediateDelivery(
   eventName: string
 ): boolean {
   return !!(
+    // State-specific cooldowns must see a close/click before a subsequent
+    // trigger is authorized, rather than waiting for background projection.
+    ['$inapp_dismissed', '$inapp_auto_dismissed', '$inapp_cta_clicked'].includes(eventName) ||
     engine.rules?.needsServer?.(eventName) ||
     engine.surveyRules?.needsServer?.(eventName) ||
     engine.inAppRules?.needsServer?.(eventName)
@@ -572,7 +582,7 @@ async function performFlush(engine: Engine): Promise<void> {
       const deliverySubjectToken = engine.subjectToken
       const payload: SdkIngestRequest = {
         ...(deliveryEventIds.length
-          ? { delivery: { eventIds: deliveryEventIds } }
+          ? { delivery: { eventIds: deliveryEventIds, screenName: engine.screenName } }
           : {}),
         events: ingestEvents,
         context: engine.context.build({
@@ -847,12 +857,22 @@ export async function pollSurveyOffers(engine: Engine): Promise<void> {
     if (!engine.consent.get().survey) return
 
     const presentationIsValid = engine.presentation.validator('survey')
+    // The inbox and the legacy ledger can describe the same delivery. Drain
+    // an existing/in-flight inbox request before deciding which legacy offers
+    // still need UI. Later event-scoped instructions remain repeatable.
+    await pollInstructions(engine)
+    if (!presentationIsValid() || !engine.consent.allowsSurvey()) return
     const id = engine.identity.get()
     const res = await engine.transport.surveysAvailable({
       anonymousId: id.anonymousId,
       externalId: id.externalId ?? null,
     })
-    const surveys = res.surveys ?? []
+    // Discovery also returns manual and link-only surveys. Availability is not
+    // an invitation: only automatic deliveries may enter the modal queue.
+    const surveys = (res.surveys ?? []).filter(
+      survey => survey.mode !== 'on_demand' && survey.mode !== 'link_only' &&
+        survey.source !== 'on_demand' && survey.source !== 'link'
+    )
     if (surveys.length === 0) return
 
     const seen =
@@ -912,6 +932,8 @@ async function performInstructionPoll(engine: Engine): Promise<void> {
       anonymousId: engine.identity.get().anonymousId,
       platform: engine.context.platform(),
       sdkVersion: engine.context.sdkVersion(),
+      appVersion: engine.config.appVersion ?? undefined,
+      screenName: engine.screenName,
     })
     await consumeInstructions(
       engine,
@@ -978,7 +1000,15 @@ export function consumeInstructions(
           STORAGE_KEYS.seenInstructions,
           [...seen].slice(-200)
         )
-        if (!isCurrent()) return
+        if (!isCurrent()) {
+          // A same-install token renewal can race this durable write. Do not
+          // permanently consume an instruction that never reached the UI.
+          if (!engine.resetting && engine.resetGeneration === generation) {
+            seen.delete(instruction.id)
+            await engine.storage.setJsonStrict(STORAGE_KEYS.seenInstructions, [...seen].slice(-200))
+          }
+          return
+        }
         dispatchInstruction(engine, instruction.type, instruction.payload)
       }
       if (!isCurrent()) return
@@ -1064,6 +1094,7 @@ function dispatchInstruction(
       })
       return
     }
+    engine.locallyHandledSurveyIds.add(payload.surveyId)
     engine.events.emit('surveyInvite', {
       attempt: payload.attempt as
         | import('@usergist/sdk-core/mobile').CreateSurveyAttemptResponse
@@ -1086,6 +1117,9 @@ function dispatchInstruction(
     const message = payload.message
     if (!message || typeof message !== 'object') return
     const typed = message as ArmedInAppMessage
+    const screen = engine.screenName ?? ''
+    if ((typed.screenAllowlist?.length && !typed.screenAllowlist.includes(screen)) ||
+        typed.screenDenylist?.includes(screen)) return
     const triggerEventId = payload.triggerEventId
     if (
       typeof triggerEventId === 'string' &&
@@ -1142,6 +1176,13 @@ export function enqueueAndEvaluate(
   properties: Readonly<Record<string, EventPropertyValue>> | undefined,
   purpose: QueuedEvent['purpose'] = 'analytics'
 ): void {
+  // Denied-period events must never enter the retry queue or local targeting
+  // history: a later grant cannot authorize collection retroactively.
+  const allowsPurpose = () => {
+    const consent = engine.consent.get()
+    return purpose === 'analytics' ? consent.analytics : consent.feedback
+  }
+  if (engine.hydrated && !allowsPurpose()) return
   const now = Date.now()
   const id = engine.identity.get()
   const base: QueuedEvent = {
@@ -1166,6 +1207,7 @@ export function enqueueAndEvaluate(
     return
   }
   void ensureHydrated(engine).then(() => {
+    if (!allowsPurpose()) return
     const fresh = engine.identity.get()
     const withId: QueuedEvent = {
       ...base,

@@ -49,9 +49,35 @@ async function client(extra: Record<string, unknown> = {}) {
   })
   return c
 }
+it('reopens an authorized survey draft without treating it as an instruction replay', async () => {
+  const c = await client({allowAnonymous:true,appVersion:'1.2.3'})
+  await c.setConsent({survey:true})
+  await c.startAnonymous()
+  const original = fetch
+  vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit)=>{
+    if(url.endsWith('/authorize'))return ok({status:'authorized',presentationId:'saved-survey',content:{flow:{startQuestionId:'text',questions:[{id:'text',type:'long_text',title:'Saved answer'}],branches:[]}}})
+    if(url.endsWith('/attempts'))return ok({attemptId:'saved-attempt',startQuestionId:'text',currentQuestionId:'text',progressSnapshot:{text:'Previously saved draft'},resumed:true})
+    return original(url,init)
+  }))
+  expect(await c.openSurvey('campaign')).toMatchObject({status:'opened'})
+  const firstShadow=document.querySelector('[data-usergist]')!.shadowRoot!
+  const draft=firstShadow.querySelector<HTMLTextAreaElement>('textarea')!
+  draft.value='Edited without pressing Next'
+  draft.dispatchEvent(new Event('input'))
+  await Promise.resolve()
+  // Host teardown, without an explicit abandon action, preserves the draft.
+  ;(c as any).renderer.close(false)
+  expect(await c.openSurvey('campaign')).toMatchObject({status:'opened'})
+  const shadow=document.querySelector('[data-usergist]')!.shadowRoot!
+  expect(shadow.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Edited without pressing Next')
+  await c.flush()
+  expect(calls.filter(call=>call.path.endsWith('/complete'))).toHaveLength(0)
+  expect(calls.filter(call=>call.path.endsWith('/attempts/saved-attempt'))).toHaveLength(0)
+})
+
 describe('feedback outcomes', () => {
   async function open(anonymous = false) {
-    const c = await client({ allowAnonymous: true })
+    const c = await client({ allowAnonymous: true, appVersion: '1.2.3' })
     await c.setConsent({ feedback: true })
     if (anonymous) await c.startAnonymous()
     else await c.identify('customer', {}, 'token')
@@ -97,7 +123,7 @@ describe('feedback outcomes', () => {
     const { c, shadow } = await open()
     shadow.querySelector<HTMLButtonElement>('.ug-close')!.click()
     await c.flush()
-    expect(calls.find(call => call.path === '/v1/sdk/responses')?.body).toMatchObject({ dismissed: true, answers: [] })
+    expect(calls.find(call => call.path === '/v1/sdk/responses')?.body).toMatchObject({ dismissed: true, answers: [], appVersion: '1.2.3', sdkVersion: expect.any(String) })
   })
 
   it('saves completion once even if close overlaps queue persistence', async () => {

@@ -34,9 +34,10 @@ export function drainRevocations(e: Engine): Promise<void> {
       transport.setSubjectToken(item.subjectToken)
       try { await transport.revokeSession(item.anonymousId) }
       catch (error) {
-        // Unknown/deleted credentials cannot authorize any more work. Other
+        // Unknown credentials or an alias they no longer own cannot authorize
+        // this cleanup on a later retry. Other
         // failures leave the cleanup record in secure storage for a later run.
-        if (!(error instanceof PermanentHttpError && error.status === 401)) return
+        if (!(error instanceof PermanentHttpError && [401, 403].includes(error.status))) return
       }
       await serial(e, async () => {
         const current = await e.storage.getJson<Revocation[]>(STORAGE_KEYS.sessionRevocations) ?? []

@@ -24,6 +24,7 @@ describe('engine repeat delivery', () => {
     const remember = vi.fn()
     const engine = {
       hydrated: true,
+      consent: { get: () => ({ analytics: true, feedback: true }) },
       identity: { get: () => ({ anonymousId: 'anonymous-acceptance', externalId: null }) },
       queue: { enqueue, size: () => 0 },
       userState: { recordEvent: vi.fn() },
@@ -49,7 +50,31 @@ describe('engine repeat delivery', () => {
 })
 
 describe('survey offer reconciliation', () => {
+  it('only invites automatic deliveries, leaving on-demand and link surveys for explicit opening', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'))
+    const emit = vi.fn()
+    const engine = {
+      presentation: new PresentationGate(),
+      consent: { get: () => ({ survey: true }), allowsSurvey: () => true },
+      identity: { get: () => ({ anonymousId: 'anonymous-manual', externalId: null }) },
+      transport: { surveysAvailable: vi.fn(async () => ({ surveys: [
+        { id: 'manual', name: 'Manual', mode: 'on_demand', source: 'on_demand' },
+        { id: 'link', name: 'Link', mode: 'link_only', source: 'link' },
+        { id: 'trigger', name: 'Trigger', mode: 'triggered', source: 'triggered' },
+        { id: 'schedule', name: 'Schedule', mode: 'scheduled', source: 'scheduled' },
+      ] })) },
+      storage: { getJson: vi.fn(async () => []), setJson: vi.fn(async () => undefined) },
+      events: { emit },
+      locallyHandledSurveyIds: new Set<string>(),
+    } as unknown as Engine
+    await pollSurveyOffers(engine)
+    expect(emit.mock.calls.map(call => call[1].surveyId)).toEqual(['trigger', 'schedule'])
+    expect(engine.storage.setJson).toHaveBeenCalledWith('surveys:seen-offers', ['trigger', 'schedule'])
+  })
   it('does not reopen a server offer already rendered immediately on-device', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2030-01-01T00:00:06Z'))
     const emit = vi.fn()
     const setJson = vi.fn(async () => undefined)
     const engine = {
@@ -79,7 +104,7 @@ describe('survey offer reconciliation', () => {
 describe('survey offer readiness', () => {
   it('drops an offer fetched before consent was withdrawn and restored', async () => {
     vi.useFakeTimers()
-    vi.setSystemTime(new Date('2030-01-01'))
+    vi.setSystemTime(new Date('2030-01-01T00:00:12Z'))
     const presentation = new PresentationGate(true)
     const emit = vi.fn()
     const engine = {

@@ -1,38 +1,62 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native'
 import { UserGist } from '../../UserGist.js'
-import type { Branding } from './shared.js'
+import { useRequestsTheme, type Branding } from './shared.js'
+import { CONTENT_MAX_WIDTH, SurfaceClose, SurfaceHeader, SurfaceNext } from '../SurfaceControls.js'
+import { SurfaceField } from '../SurfacePrimitives.js'
+import { surfaceTokens, type ResolvedTheme } from '../theme.js'
 
 export interface SubmitViewProps {
   readonly branding: Branding
   readonly onCancel: () => void
   readonly onPosted: (requestId: string) => void
+  /** Base theme override (design preview); defaults to the app's SDK theme. */
+  readonly themeOverride?: ResolvedTheme | null
 }
 
-export function SubmitView({ branding, onCancel, onPosted }: SubmitViewProps) {
-  const accent = branding.accentColor
+const TITLE_MAX = 120
+const DESCRIPTION_MAX = 1500
+
+export function SubmitView({ branding, onCancel, onPosted, themeOverride }: SubmitViewProps) {
+  const theme = useRequestsTheme(branding, themeOverride)
+  const tokens = surfaceTokens(theme)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const scroll = useRef<ScrollView>(null)
+  const focusedField = useRef<'title' | 'description' | null>(null)
+  const fieldOffsets = useRef({ title: 0, description: 0 })
+  const revealFocusedField = useCallback(() => {
+    const field = focusedField.current
+    if (field) scroll.current?.scrollTo({ y: fieldOffsets.current[field], animated: false })
+  }, [])
+  const focusField = (field: 'title' | 'description') => {
+    focusedField.current = field
+    requestAnimationFrame(revealFocusedField)
+  }
+  useEffect(() => {
+    const shown = Keyboard.addListener('keyboardDidShow', revealFocusedField)
+    const changed = Keyboard.addListener('keyboardDidChangeFrame', revealFocusedField)
+    return () => { shown.remove(); changed.remove() }
+  }, [revealFocusedField])
 
   const trimmedTitle = title.trim()
   const trimmedDesc = description.trim()
   const canSubmit = useMemo(
     () =>
       trimmedTitle.length >= 1 &&
-      trimmedTitle.length <= 120 &&
+      trimmedTitle.length <= TITLE_MAX &&
       trimmedDesc.length >= 1 &&
-      trimmedDesc.length <= 1500 &&
+      trimmedDesc.length <= DESCRIPTION_MAX &&
       !submitting,
     [trimmedTitle, trimmedDesc, submitting],
   )
@@ -40,10 +64,11 @@ export function SubmitView({ branding, onCancel, onPosted }: SubmitViewProps) {
   const handleSubmit = () => {
     if (!canSubmit) return
     setSubmitting(true)
+    setError(null)
     UserGist.submitRequest(trimmedTitle, trimmedDesc, (err, req) => {
       setSubmitting(false)
       if (err) {
-        Alert.alert('Could not submit', err.message)
+        setError(`Your suggestion wasn't posted. ${err.message}`)
         return
       }
       if (req) onPosted(req.id)
@@ -51,88 +76,76 @@ export function SubmitView({ branding, onCancel, onPosted }: SubmitViewProps) {
     })
   }
 
+  const label = (text: string) => (
+    <Text style={[styles.label, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>{text}</Text>
+  )
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={styles.container}
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
-      <View style={styles.header}>
-        <Pressable onPress={onCancel} hitSlop={12} style={styles.cancelBtn}>
-          <Text style={styles.cancelText}>Cancel</Text>
-        </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>New suggestion</Text>
-        </View>
-        <Pressable
-          onPress={handleSubmit}
-          hitSlop={12}
-          disabled={!canSubmit}
-          style={[
-            styles.postBtn,
-            { backgroundColor: canSubmit ? accent : '#e5e7eb' },
-          ]}
-        >
-          <Text
-            style={[
-              styles.postBtnText,
-              { color: canSubmit ? '#fff' : '#9ca3af' },
-            ]}
-          >
-            {submitting ? 'Posting…' : 'Post'}
-          </Text>
-        </Pressable>
+      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+        <SurfaceHeader
+          leading={<SurfaceClose onPress={onCancel} color={theme.colors.text} label="Cancel new suggestion"
+            testID="request-submit-cancel" />}
+          center={
+            <Text numberOfLines={1} style={[styles.headerTitle, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
+              New suggestion
+            </Text>
+          }
+          trailing={<SurfaceNext onPress={handleSubmit} disabled={!canSubmit} loading={submitting} compact
+            theme={theme} label="Post" testID="request-submit-post" />}
+        />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.body}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text style={styles.intro}>
-          Tell us what you&apos;d like to see. Other users can upvote your
-          idea, and the team will respond as work progresses.
-        </Text>
+      <ScrollView ref={scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled"
+        onLayout={() => requestAnimationFrame(revealFocusedField)}
+        keyboardDismissMode="interactive">
+        <View style={styles.measure}>
+          <Text style={[styles.intro, { color: theme.colors.subtext, fontFamily: theme.fontFamily }]}>
+            Share an idea. Others can upvote it, and the team posts updates as work moves forward.
+          </Text>
 
-        <View style={styles.field}>
-          <View style={styles.fieldHeader}>
-            <Text style={styles.label}>Title</Text>
-            <Text style={styles.counter}>{title.length}/120</Text>
-          </View>
-          <TextInput
-            accessibilityLabel="Suggestion title"
-            value={title}
-            onChangeText={setTitle}
-            maxLength={120}
-            style={[
-              styles.input,
-              title.length > 0 && { borderColor: accent + '55' },
-            ]}
-            placeholder="A short, clear title"
-            placeholderTextColor="#9ca3af"
-            autoFocus
-          />
-        </View>
+          {error ? (
+            <View accessibilityRole="alert" style={[styles.error, {
+              backgroundColor: tokens.fill, borderRadius: Math.min(theme.radius, 14),
+            }]}>
+              <Text style={[styles.errorText, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>{error}</Text>
+            </View>
+          ) : null}
 
-        <View style={styles.field}>
-          <View style={styles.fieldHeader}>
-            <Text style={styles.label}>Description</Text>
-            <Text style={styles.counter}>{description.length}/1500</Text>
+          <View style={styles.field} onLayout={event => { fieldOffsets.current.title = event.nativeEvent.layout.y + 20 }}>
+            {label('Title')}
+            <SurfaceField
+              theme={theme}
+              accessibilityLabel="Suggestion title"
+              value={title}
+              onChangeText={setTitle}
+              maxLength={TITLE_MAX}
+              placeholder="A short, clear title"
+              returnKeyType="next"
+              autoFocus
+              onFocus={() => focusField('title')}
+              onBlur={() => { focusedField.current = null }}
+            />
           </View>
-          <TextInput
-            accessibilityLabel="Suggestion description"
-            value={description}
-            onChangeText={setDescription}
-            maxLength={1500}
-            multiline
-            numberOfLines={6}
-            style={[
-              styles.input,
-              styles.textarea,
-              description.length > 0 && { borderColor: accent + '55' },
-            ]}
-            placeholder="What does this do? Who is it for? Why does it matter?"
-            placeholderTextColor="#9ca3af"
-            textAlignVertical="top"
-          />
+
+          <View style={styles.field} onLayout={event => { fieldOffsets.current.description = event.nativeEvent.layout.y + 20 }}>
+            {label('Description')}
+            <SurfaceField
+              theme={theme}
+              accessibilityLabel="Suggestion description"
+              value={description}
+              onChangeText={setDescription}
+              maxLength={DESCRIPTION_MAX}
+              multiline
+              onFocus={() => focusField('description')}
+              onBlur={() => { focusedField.current = null }}
+              minHeight={140}
+              placeholder="What should it do, who is it for, and why does it matter?"
+            />
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -140,48 +153,14 @@ export function SubmitView({ branding, onCancel, onPosted }: SubmitViewProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fafafa' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e5e7eb',
-  },
-  headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#111' },
-  cancelBtn: { minWidth: 60, paddingVertical: 8 },
-  cancelText: { fontSize: 14, color: '#6b7280', fontWeight: '500' },
-  postBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-    minWidth: 60,
-    alignItems: 'center',
-  },
-  postBtnText: { fontSize: 13, fontWeight: '600' },
-  body: { padding: 16, gap: 20 },
-  intro: { fontSize: 13, color: '#6b7280', lineHeight: 18 },
-  field: { gap: 6 },
-  fieldHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  label: { fontSize: 13, fontWeight: '600', color: '#111' },
-  counter: { fontSize: 11, color: '#9ca3af', fontWeight: '500' },
-  input: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1.5,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    fontSize: 15,
-    color: '#111',
-    backgroundColor: '#fff',
-  },
-  textarea: { minHeight: 140 },
+  container: { flex: 1 },
+  header: { paddingHorizontal: 12, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTitle: { fontSize: 17, fontWeight: '700' },
+  body: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 32 },
+  measure: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', gap: 20 },
+  intro: { fontSize: 15, lineHeight: 22 },
+  error: { padding: 14 },
+  errorText: { fontSize: 15, lineHeight: 21 },
+  field: { gap: 8 },
+  label: { fontSize: 15, fontWeight: '600' },
 })

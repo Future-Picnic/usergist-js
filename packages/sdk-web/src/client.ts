@@ -29,7 +29,7 @@ import type {
   RequestMutationResult,
 } from './types.js'
 
-const VERSION = '0.2.0'
+const VERSION = '0.2.1'
 const PII = new Set(['email', 'phone', 'ssn', 'tax_id'])
 export class WebSdkError extends Error {
   constructor(
@@ -510,6 +510,18 @@ export class UserGistClient {
       }
       this.changed()
       this.mountLauncher()
+      const currentVersion = this.config.appVersion
+      if (currentVersion) {
+        // Installation/write-key scope survives identity changes, as on native.
+        const lifecycleStore = new WebStore(`${scope(this.config.writeKey)}:lifecycle`,
+          (message) => this.diagnostic('storage_fallback', message))
+        const previousVersion = await lifecycleStore.get<string>('appVersion')
+        assertCurrent()
+        await lifecycleStore.set('appVersion', currentVersion)
+        assertCurrent()
+        if (previousVersion && previousVersion !== currentVersion && this.consent.analytics)
+          this.track('$app_version_changed', { old_version: previousVersion, new_version: currentVersion })
+      }
       this.track('$app_open')
       this.schedule(0)
       this.emit('activated', this.snapshot)
@@ -966,6 +978,7 @@ export class UserGistClient {
           instructionId,
           screenName: this.screenName,
           prepareSurvey: pillar === 'survey' && instructionId !== undefined,
+          appVersion: this.config?.appVersion,
         }))
       if (result.status !== 'authorized')
         return {
@@ -987,7 +1000,10 @@ export class UserGistClient {
       )
         return { status: 'inactive' }
       if (this.presentation.isPaused) return defer(result)
-      if (shown.includes(presentationId)) return { status: 'unavailable' }
+      // Explicit survey reopening may resume the same authorized presentation.
+      // Automatic instruction replay must still remain suppressed.
+      if (shown.includes(presentationId) && !(pillar === 'survey' && instructionId === undefined))
+        return { status: 'unavailable' }
       let content = result.content
       const started = Date.now()
       const receipt = (event: string) =>
@@ -1013,6 +1029,7 @@ export class UserGistClient {
               resume: true,
               platform: 'web',
               sdkVersion: VERSION,
+              appVersion: this.config?.appVersion,
             }
           ))
         if (generation !== this.generation) return { status: 'inactive' }
@@ -1052,6 +1069,13 @@ export class UserGistClient {
               'survey',
               'PATCH'
             )
+          },
+          onDraft: (answers: SurveyAnswerRecord, currentQuestionId: string) => {
+            if (!valid()) return
+            // Keep unfinished input durable without posting on every keystroke.
+            void this.store?.set(`survey:${attempt.attemptId}`, {
+              answers, currentQuestionId, at: Date.now(),
+            })
           },
           onSubmit: async (answers: SurveyAnswerRecord) => {
             await this.enqueue(
@@ -1099,6 +1123,8 @@ export class UserGistClient {
                 })),
                 latencyMs: Math.min(3600000, Math.max(0, Date.now() - started)),
                 platform: 'web',
+                sdkVersion: VERSION,
+                appVersion: this.config?.appVersion,
               },
               'feedback'
             )
@@ -1596,7 +1622,7 @@ export class UserGistClient {
     if (this.config) this.config = { ...this.config, debug }
   }
   setThemeOverrides(theme: NonNullable<RenderExperience['theme']>) {
-    this.getRenderer().setTheme(theme)
+    this.getRenderer().setThemeOverrides(theme)
   }
 }
 export const UserGist = new UserGistClient()

@@ -77,8 +77,7 @@ private class UserGistMessageHandler(context: Context) : android.content.Context
       checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
     ) return
     val channelId = resolveChannel(this, data["usergist_channel_id"] ?: data["channel_id"])
-    val launchIntent = packageManager?.getLaunchIntentForPackage(packageName)?.apply {
-      flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+    val launchIntent = Intent(this, UserGistNotificationOpenActivity::class.java).apply {
       // Forward delivery_id + usergist_delivery_id so when the user taps and
       // the app launches we can fire `$push_opened` with the right id.
       data.forEach { (k, v) ->

@@ -36,11 +36,13 @@ export function createLifecycleManager(params: {
   readonly onForeground: () => void
   readonly onBackground: () => void
   readonly onSyncTick: () => void
+  readonly onInstructionPoll?: () => void
   readonly syncIntervalMs: number
 }): LifecycleManager {
   const { onForeground, onBackground, onSyncTick, syncIntervalMs } = params
   let subscription: { remove: () => void } | (() => void) | null = null
   let timer: ReturnType<typeof setInterval> | null = null
+  let instructionTimer: ReturnType<typeof setInterval> | null = null
   let foreground = true
   let started = false
 
@@ -65,6 +67,12 @@ export function createLifecycleManager(params: {
   }
 
   function ensureTimer(): void {
+    if (!instructionTimer && params.onInstructionPoll) {
+      instructionTimer = setInterval(() => {
+        try { params.onInstructionPoll?.() }
+        catch (error) { reportError('lifecycle.onInstructionPoll failed', error) }
+      }, Math.min(syncIntervalMs, 5_000))
+    }
     if (timer) return
     timer = setInterval(() => {
       try {
@@ -76,6 +84,10 @@ export function createLifecycleManager(params: {
   }
 
   function stopTimer(): void {
+    if (instructionTimer) {
+      clearInterval(instructionTimer)
+      instructionTimer = null
+    }
     if (timer) {
       clearInterval(timer)
       timer = null

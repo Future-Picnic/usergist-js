@@ -103,7 +103,9 @@ AppRegistry.registerComponent('app', () => App)
 | `await UserGist.setUserProperties(values, unsetKeys?)` | Saves flat properties for the current anonymous or identified user; returns `synced`, `queued`, or `rejected`. Requires analytics consent. |
 | `await UserGist.identifyAsync(userId, props?, subjectToken)` | Backward-compatible async identity API returning `synced`, `queued`, or `rejected`. |
 | `UserGist.track(name, props?)` | Enqueues a stable event id and immediately evaluates only server-authorized client-side campaigns; all other decisions remain server-authoritative. |
+| `UserGist.setScreenName(nameOrNull)` | Reports the current host route for campaign screen restrictions. Call after navigation; pass `null` when no screen is active. Names are trimmed and limited to 120 characters. Unknown screens do not match an allowlist. |
 | `await UserGist.setConsent({ analytics?, feedback?, push?, survey? })` | Persists and synchronizes the transition, refreshes targeting rules, then resolves with `true`; returns `false` when synchronization fails. |
+| `await UserGist.getConsent()` | Reads the hydrated saved choice and its revision without changing it. Preserve an existing choice across host relaunches; revision zero means no choice has been saved. |
 | `await UserGist.reset()` | Cancels in-flight, clears queue, rotates anonymous id, wipes caches, and resolves after local cleanup; remote logout and new-session setup retry independently. |
 | `UserGist.setThemeOverrides(theme)` | Global theme applied under per-prompt theme. |
 | `UserGist.flush()` | Best-effort flush. |

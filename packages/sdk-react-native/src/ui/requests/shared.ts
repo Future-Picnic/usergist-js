@@ -3,6 +3,7 @@
  * Internal to the SDK — not exported from the package root.
  */
 import { useEffect, useState } from 'react'
+import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from '../theme.js'
 import type {
   Request as RequestDto,
   RequestStatus,
@@ -71,6 +72,25 @@ export function useBranding(): Branding {
   }, [])
 
   return branding
+}
+
+/**
+ * Requests reuse the app's SDK theme (font, colours, radius) and take the
+ * primary colour from the requests branding accent, so the board matches
+ * feedback and surveys instead of using fixed greys.
+ */
+export function useRequestsTheme(branding: Branding, baseOverride?: ResolvedTheme | null): ResolvedTheme {
+  // The engine's app theme can change between board opens without a branding
+  // change. Resolve it on render instead of caching a pre-initialization theme.
+  let base: ResolvedTheme = baseOverride ?? DEFAULT_THEME
+  if (!baseOverride) {
+    try {
+      base = UserGist.__internal_theme() ?? DEFAULT_THEME
+    } catch {
+      base = DEFAULT_THEME
+    }
+  }
+  return mergeTheme(base, { colors: { primary: branding.accentColor } })
 }
 
 /**

@@ -31,11 +31,24 @@ try {
   for (const target of targets(manifest.exports)) {
     assert.ok(existsSync(join(installed, target)), `Missing export: ${target}`)
   }
-  for (const name of readdirSync(join(installed, 'dist'))) {
-    if (!/\.(?:[cm]?js|d\.[cm]?ts)$/.test(name)) continue
-    const content = readFileSync(join(installed, 'dist', name), 'utf8')
-    assert.doesNotMatch(content, /(?:from\s*|import\s*|require\s*\()['"]@usergist\/sdk-core/, `Unbundled core import: ${name}`)
+  // Non-clean incremental builds can retain older, unreachable declaration
+  // chunks. Audit the exported dependency graph consumers actually resolve;
+  // strict isolated TypeScript compilation below verifies its resolution.
+  const visited = new Set()
+  function audit(file) {
+    if (visited.has(file)) return
+    visited.add(file)
+    const content = readFileSync(file, 'utf8')
+    assert.doesNotMatch(content, /(?:from\s*|import\s*|require\s*\()['"]@usergist\/sdk-core/, `Unbundled core import: ${file}`)
+    for (const match of content.matchAll(/(?:from\s*|import\s*|require\s*\()['"](\.[^'"]+)/g)) {
+      const target = resolve(dirname(file), match[1])
+      const candidates = [target, target.replace(/\.js$/, '.d.ts').replace(/\.cjs$/, '.d.cts')]
+      const dependency = candidates.find(existsSync)
+      assert.ok(dependency, `Missing exported dependency: ${target}`)
+      audit(dependency)
+    }
   }
+  for (const target of targets(manifest.exports)) audit(join(installed, target))
   const smoke = `
     import assert from 'node:assert/strict';
     import { createRequire } from 'node:module';

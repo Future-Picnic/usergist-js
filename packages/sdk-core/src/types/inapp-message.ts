@@ -137,12 +137,15 @@ export interface InAppMessageAnalytics {
     readonly dismissed: number
     readonly autoDismissed: number
     readonly ctaClicked: number
+    /** Impressions with a matching goal inside the configured window. */
+    readonly conversions?: number
   }
   readonly timeline: ReadonlyArray<{
     readonly day: string
     readonly impressions: number
     readonly dismissed: number
     readonly ctaClicked: number
+    readonly conversions?: number
   }>
 }
 

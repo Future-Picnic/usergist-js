@@ -18,6 +18,37 @@ const actionJson = { type: 'enable_feature', feature: 'priority_checkout' }
 
 afterEach(() => Push.setHandlers({}))
 
+it('delivers a cold JSON open to late host handlers once without retracking it', async () => {
+  vi.resetModules();vi.clearAllMocks()
+  const {Push: cold} = await import('./Push.js')
+  const {UserGist} = await import('./UserGist.js')
+  const payload={usergist:{deliveryId:'late-host-json',openAction:{action:'json',actionJson:{type:'qa',id:'00123',amount:1234,optional:null,nested:{flag:false}}}}}
+  cold.handleOpened({userInfo:payload})
+  cold.handleOpened({userInfo:payload})
+  const onOpen=vi.fn(),onJsonAction=vi.fn()
+  cold.setHandlers({onOpen,onJsonAction})
+  cold.setHandlers({onOpen,onJsonAction})
+  expect(onOpen).toHaveBeenCalledOnce()
+  expect(onJsonAction).toHaveBeenCalledOnce()
+  expect(onJsonAction).toHaveBeenCalledWith(payload.usergist.openAction.actionJson,expect.objectContaining({source:'push',actionButton:'usergist_default'}))
+  expect(UserGist.track).toHaveBeenCalledOnce()
+})
+
+it.each(['reset','revoked','expired'])('discards a queued cold callback after %s', async (reason) => {
+  vi.resetModules();vi.clearAllMocks();vi.useFakeTimers()
+  try {
+    const {Push:cold,clearPendingPushCallbacks}=await import('./Push.js')
+    let current=true
+    cold.handleOpened({userInfo:{usergist:{deliveryId:'late-host-'+reason}},isCurrent:()=>current})
+    if(reason==='reset')clearPendingPushCallbacks()
+    if(reason==='revoked')current=false
+    if(reason==='expired')vi.advanceTimersByTime(5*60_000)
+    const onOpen=vi.fn()
+    cold.setHandlers({onOpen})
+    expect(onOpen).not.toHaveBeenCalled()
+  }finally{vi.useRealTimers()}
+})
+
 describe('push JSON actions', () => {
   it('routes the default notification tap once with typed movie JSON', () => {
     const onJsonAction = vi.fn()

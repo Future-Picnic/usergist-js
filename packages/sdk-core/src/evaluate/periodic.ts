@@ -1,4 +1,5 @@
 import type { PeriodicFrequency } from '../types/campaign.js'
+import { zonedDateTimeParts, zonedDateTimeToUtc } from '../timezone.js'
 
 export interface PeriodicSchedule {
   readonly frequency: PeriodicFrequency
@@ -20,16 +21,45 @@ export interface PeriodicSchedule {
  * check) and client-side (dashboard "Next occurrence" preview). Keep
  * deterministic for a given (schedule, now) tuple — no randomness.
  *
- * The walk is bounded — daily 2 iters, weekly 8, monthly 13 — so DST
- * gaps and short-month overflows can't loop forever.
+ * The calendar walk is bounded. Missing spring-forward times are skipped;
+ * repeated fall-back times use the earlier instant, and short months clamp
+ * the selected day to their final date.
  */
 export function nextPeriodicFire(
   schedule: PeriodicSchedule,
   now: Date = new Date(),
 ): Date {
   const tz = schedule.tz || 'UTC'
-  const start = startCandidate(schedule, now, tz)
-  return walkForward(start, schedule, now, tz)
+  const local = zonedDateTimeParts(now, tz)
+  const cursor = new Date(local.date + 'T00:00:00.000Z')
+  const requestedDay = schedule.dayOfMonth ?? cursor.getUTCDate()
+  const time = String(schedule.hourLocal).padStart(2, '0') + ':' +
+    String(schedule.minuteLocal).padStart(2, '0')
+  // Walk calendar dates, not fixed 24-hour instants. Offset changes must
+  // preserve the selected local hour. Monthly dates clamp to short months.
+  const limit = schedule.frequency === 'daily' ? 3 : 15
+  for (let i = 0; i < limit; i++) {
+    if (schedule.frequency === 'monthly') {
+      cursor.setUTCDate(Math.min(requestedDay,
+        lastDayOfMonth(cursor.getUTCFullYear(), cursor.getUTCMonth())))
+    }
+    if (schedule.frequency !== 'weekly' || schedule.weekday === undefined ||
+        cursor.getUTCDay() === schedule.weekday) {
+      try {
+        const candidate = zonedDateTimeToUtc(cursor.toISOString().slice(0, 10), time, tz)
+        if (candidate.getTime() > now.getTime()) return candidate
+      } catch (error) {
+        // A recurring occurrence in a spring-forward gap is skipped. Never
+        // silently move it to a different local hour or emit it twice in a fold.
+        if (!(error instanceof RangeError) || !error.message.includes('does not exist')) throw error
+      }
+    }
+    if (schedule.frequency === 'monthly') {
+      cursor.setUTCDate(1)
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1)
+    } else cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  throw new RangeError('No next periodic occurrence within the calendar search window')
 }
 
 /**
@@ -60,86 +90,8 @@ export function tzOffsetMinutes(at: Date, tz: string): number {
   }
 }
 
-function startCandidate(
-  schedule: PeriodicSchedule,
-  now: Date,
-  tz: string,
-): Date {
-  const localNow = wallClock(now, tz)
-  const target = new Date(localNow)
-  // `wallClock` is an artificial UTC-backed view of the target timezone.
-  // Always use UTC accessors so this calculation cannot inherit the host's
-  // timezone (the browser for previews, or the server for delivery).
-  target.setUTCHours(schedule.hourLocal, schedule.minuteLocal, 0, 0)
-  return localToUtc(target, tz)
-}
-
-function walkForward(
-  candidate: Date,
-  schedule: PeriodicSchedule,
-  now: Date,
-  tz: string,
-): Date {
-  let cursor = candidate
-  const max = schedule.frequency === 'daily' ? 2 : schedule.frequency === 'weekly' ? 8 : 13
-  for (let i = 0; i < max; i++) {
-    const local = wallClock(cursor, tz)
-    if (matchesFrequency(local, schedule) && cursor.getTime() > now.getTime()) {
-      return cursor
-    }
-    cursor = step(cursor, local, schedule, tz)
-  }
-  return cursor
-}
-
-function matchesFrequency(local: Date, schedule: PeriodicSchedule): boolean {
-  if (schedule.frequency === 'daily') return true
-  if (schedule.frequency === 'weekly') {
-    return schedule.weekday === undefined || local.getUTCDay() === schedule.weekday
-  }
-  return schedule.dayOfMonth === undefined || local.getUTCDate() === schedule.dayOfMonth
-}
-
-function step(
-  cursor: Date,
-  cursorLocal: Date,
-  schedule: PeriodicSchedule,
-  tz: string,
-): Date {
-  if (schedule.frequency === 'daily' || schedule.frequency === 'weekly') {
-    return addDays(cursor, 1)
-  }
-  // Monthly: jump to the next month at the same dayOfMonth (or last day if shorter).
-  const next = new Date(cursorLocal)
-  next.setUTCMonth(next.getUTCMonth() + 1)
-  if (schedule.dayOfMonth !== undefined) {
-    const lastDay = lastDayOfMonth(next.getUTCFullYear(), next.getUTCMonth())
-    next.setUTCDate(Math.min(schedule.dayOfMonth, lastDay))
-  }
-  next.setUTCHours(schedule.hourLocal, schedule.minuteLocal, 0, 0)
-  return localToUtc(next, tz)
-}
-
-function addDays(d: Date, days: number): Date {
-  const next = new Date(d.getTime())
-  next.setUTCDate(next.getUTCDate() + days)
-  return next
-}
-
 function lastDayOfMonth(year: number, monthIndex: number): number {
   return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate()
-}
-
-/** Returns a UTC-backed Date whose `getUTCX()` methods read in `tz`'s wall clock. */
-function wallClock(d: Date, tz: string): Date {
-  const offsetMin = tzOffsetMinutes(d, tz)
-  return new Date(d.getTime() + offsetMin * 60_000)
-}
-
-/** Inverse of `wallClock` — given a Date whose getX reads in `tz`, return UTC. */
-function localToUtc(localView: Date, tz: string): Date {
-  const offsetMin = tzOffsetMinutes(localView, tz)
-  return new Date(localView.getTime() - offsetMin * 60_000)
 }
 
 // `Intl.DateTimeFormat` construction dominates this module's cost (~100 µs

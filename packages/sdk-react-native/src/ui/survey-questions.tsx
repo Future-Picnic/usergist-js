@@ -1,8 +1,8 @@
-// Survey-specific question widgets.
-// Kept in one file since each is small (~30-60 lines) and they share helpers.
+// Survey-specific question widgets, built on the shared surface primitives so
+// surveys and feedback share one visual language.
 
 import React, { useMemo, useState } from 'react'
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type {
   InfoScreenQuestion as IQ,
   LikertQuestion as LQ,
@@ -13,8 +13,8 @@ import type {
   SingleDateQuestion as SDQ,
   SurveyAnswerValue,
 } from '@usergist/sdk-core/mobile'
-import type { ResolvedTheme } from './theme.js'
-import { QuestionImageHeader } from './QuestionImageHeader.js'
+import { surfaceTokens, withAlpha, type ResolvedTheme } from './theme.js'
+import { ChoiceRow, QuestionHeader, SurfaceField } from './SurfacePrimitives.js'
 
 const DEFAULT_LIKERT: readonly [string, string, string, string, string] = [
   'Strongly disagree',
@@ -23,37 +23,6 @@ const DEFAULT_LIKERT: readonly [string, string, string, string, string] = [
   'Agree',
   'Strongly agree',
 ]
-
-function TitleBlock({
-  title,
-  subtitle,
-  imageUrl,
-  theme,
-}: {
-  readonly title: string
-  readonly subtitle?: string
-  readonly imageUrl?: string
-  readonly theme: ResolvedTheme
-}): React.ReactElement {
-  return (
-    <View>
-      {imageUrl ? <QuestionImageHeader uri={imageUrl} radius={theme.radius} /> : null}
-      <Text style={[styles.title, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
-        {title}
-      </Text>
-      {subtitle ? (
-        <Text
-          style={[
-            styles.subtitle,
-            { color: theme.colors.subtext, fontFamily: theme.fontFamily },
-          ]}
-        >
-          {subtitle}
-        </Text>
-      ) : null}
-    </View>
-  )
-}
 
 export interface SurveyQuestionProps<Q, V> {
   readonly question: Q
@@ -72,36 +41,12 @@ export function SingleChoiceQuestionView({
 }: SurveyQuestionProps<SCQ, string | null>): React.ReactElement {
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
+      <QuestionHeader title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
       <View style={styles.list}>
-        {question.options.map((o) => {
-          const selected = value === o.id
-          return (
-            <Pressable
-              key={o.id}
-              onPress={() => onChange(o.id)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected }}
-              style={[
-                styles.choice,
-                {
-                  borderColor: selected ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: selected ? theme.colors.primary : 'transparent',
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: selected ? theme.colors.background : theme.colors.text,
-                  fontFamily: theme.fontFamily,
-                  fontWeight: selected ? '700' : '500',
-                }}
-              >
-                {o.label}
-              </Text>
-            </Pressable>
-          )
-        })}
+        {question.options.map((o) => (
+          <ChoiceRow key={o.id} label={o.label} selected={value === o.id} kind="radio"
+            onPress={() => onChange(o.id)} theme={theme} />
+        ))}
       </View>
     </View>
   )
@@ -115,45 +60,23 @@ export function MultiChoiceQuestionView({
   onChange,
   theme,
 }: SurveyQuestionProps<MCQ, ReadonlyArray<string>>): React.ReactElement {
-  const set = new Set(value)
+  const selected = new Set(value)
   function toggle(id: string): void {
-    if (set.has(id)) set.delete(id)
-    else set.add(id)
+    const next = selected.has(id) ? value.filter((v) => v !== id) : [...value, id]
     const max = question.maxSelections
-    if (max && set.size > max) return
-    onChange(Array.from(set))
+    if (max && next.length > max) return
+    onChange(next)
   }
+  const hint = question.subtitle
+    ?? (question.maxSelections ? `Choose up to ${question.maxSelections}` : 'Choose all that apply')
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
+      <QuestionHeader title={question.title} subtitle={hint} imageUrl={question.imageUrl} theme={theme} />
       <View style={styles.list}>
-        {question.options.map((o) => {
-          const selected = set.has(o.id)
-          return (
-            <Pressable
-              key={o.id}
-              onPress={() => toggle(o.id)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: selected }}
-              style={[
-                styles.choice,
-                {
-                  borderColor: selected ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: selected ? theme.colors.primary : 'transparent',
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: selected ? theme.colors.background : theme.colors.text,
-                  fontFamily: theme.fontFamily,
-                }}
-              >
-                {o.label}
-              </Text>
-            </Pressable>
-          )
-        })}
+        {question.options.map((o) => (
+          <ChoiceRow key={o.id} label={o.label} selected={selected.has(o.id)} kind="checkbox"
+            onPress={() => toggle(o.id)} theme={theme} />
+        ))}
       </View>
     </View>
   )
@@ -170,36 +93,13 @@ export function LikertQuestionView({
   const labels = question.labels ?? DEFAULT_LIKERT
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
-      <View style={styles.likertRow}>
-        {labels.map((label, idx) => {
-          const score = idx + 1
-          const selected = value === score
-          return (
-            <Pressable
-              key={label}
-              onPress={() => onChange(score)}
-              style={[
-                styles.likertCell,
-                {
-                  borderColor: selected ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: selected ? theme.colors.primary : 'transparent',
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: selected ? theme.colors.background : theme.colors.text,
-                  fontSize: 14,
-                  textAlign: 'left',
-                  fontFamily: theme.fontFamily,
-                }}
-              >
-                {label}
-              </Text>
-            </Pressable>
-          )
-        })}
+      <QuestionHeader title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
+      {/* Vertical: five long labels never fit a phone row without truncating. */}
+      <View style={styles.list}>
+        {labels.map((label, idx) => (
+          <ChoiceRow key={label} label={label} selected={value === idx + 1} kind="radio"
+            onPress={() => onChange(idx + 1)} theme={theme} />
+        ))}
       </View>
     </View>
   )
@@ -215,38 +115,23 @@ export function LongTextQuestionView({
 }: SurveyQuestionProps<LTQ, string>): React.ReactElement {
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
-      <TextInput
+      <QuestionHeader title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
+      <SurfaceField
+        theme={theme}
         accessibilityLabel={question.title}
         testID={`survey-question-${question.id}-input`}
-        value={value}
+        value={value ?? ''}
         onChangeText={onChange}
         placeholder={question.placeholder ?? ''}
-        placeholderTextColor={theme.colors.subtext}
         maxLength={question.maxLength}
         multiline
-        numberOfLines={6}
-        style={[
-          styles.longTextInput,
-          {
-            borderColor: theme.colors.border,
-            color: theme.colors.text,
-            fontFamily: theme.fontFamily,
-          },
-        ]}
+        minHeight={132}
       />
-      {question.maxLength ? (
-        <Text
-          style={[styles.counter, { color: theme.colors.subtext, fontFamily: theme.fontFamily }]}
-        >
-          {(value ?? '').length} / {question.maxLength}
-        </Text>
-      ) : null}
     </View>
   )
 }
 
-// ---------- Ranking (up/down arrows — simpler than gestures; sufficient for v1) ----------
+// ---------- Ranking (move buttons — accessible without drag gestures) ----------
 
 export function RankingQuestionView({
   question,
@@ -254,84 +139,45 @@ export function RankingQuestionView({
   onChange,
   theme,
 }: SurveyQuestionProps<RQ, ReadonlyArray<string>>): React.ReactElement {
+  const tokens = surfaceTokens(theme)
   const ordered = useMemo<ReadonlyArray<string>>(() => {
     if (value && value.length === question.items.length) return value
     return question.items.map((i) => i.id)
   }, [value, question.items])
 
   function move(idx: number, dir: -1 | 1): void {
-    const next = [...ordered]
     const target = idx + dir
-    if (target < 0 || target >= next.length) return
-    const tmp = next[idx]
-    const other = next[target]
-    if (tmp === undefined || other === undefined) return
-    next[idx] = other
-    next[target] = tmp
-    onChange(next)
+    const a = ordered[idx]
+    const b = ordered[target]
+    if (a === undefined || b === undefined) return
+    onChange(ordered.map((id, i) => (i === idx ? b : i === target ? a : id)))
   }
 
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
+      <QuestionHeader title={question.title} subtitle={question.subtitle ?? 'Most important first'}
+        imageUrl={question.imageUrl} theme={theme} />
       <View style={styles.list}>
         {ordered.map((id, idx) => {
           const item = question.items.find((x) => x.id === id)
           if (!item) return null
+          const first = idx === 0
+          const last = idx === ordered.length - 1
           return (
-            <View
-              key={id}
-              style={[styles.rankRow, { borderColor: theme.colors.border }]}
-            >
-              <Text
-                style={{
-                  width: 24,
-                  color: theme.colors.subtext,
-                  fontFamily: theme.fontFamily,
-                }}
-              >
-                {idx + 1}.
-              </Text>
-              <Text
-                style={{
-                  flex: 1,
-                  color: theme.colors.text,
-                  fontFamily: theme.fontFamily,
-                }}
-              >
+            <View key={id} style={[styles.rankRow, {
+              borderColor: theme.colors.border,
+              borderRadius: Math.min(theme.radius, 16),
+            }]}>
+              <View style={[styles.rankBadge, { backgroundColor: tokens.tint }]}>
+                <Text style={[styles.rankNumber, { color: theme.colors.primary, fontFamily: theme.fontFamily }]}>
+                  {idx + 1}
+                </Text>
+              </View>
+              <Text style={[styles.rankLabel, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
                 {item.label}
               </Text>
-              <Pressable
-                onPress={() => move(idx, -1)}
-                disabled={idx === 0}
-                style={styles.rankBtn}
-                accessibilityLabel="Move up"
-              >
-                <Text
-                  style={{
-                    color: idx === 0 ? theme.colors.border : theme.colors.primary,
-                    fontSize: 18,
-                  }}
-                >
-                  ↑
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => move(idx, 1)}
-                disabled={idx === ordered.length - 1}
-                style={styles.rankBtn}
-                accessibilityLabel="Move down"
-              >
-                <Text
-                  style={{
-                    color:
-                      idx === ordered.length - 1 ? theme.colors.border : theme.colors.primary,
-                    fontSize: 18,
-                  }}
-                >
-                  ↓
-                </Text>
-              </Pressable>
+              <RankMove dir="up" disabled={first} onPress={() => move(idx, -1)} theme={theme} label={`Move ${item.label} up`} />
+              <RankMove dir="down" disabled={last} onPress={() => move(idx, 1)} theme={theme} label={`Move ${item.label} down`} />
             </View>
           )
         })}
@@ -340,7 +186,23 @@ export function RankingQuestionView({
   )
 }
 
-// ---------- Single date (simple text input; host apps can register a native picker later) ----------
+function RankMove({ dir, disabled, onPress, theme, label }: {
+  dir: 'up' | 'down'; disabled: boolean; onPress: () => void; theme: ResolvedTheme; label: string
+}): React.ReactElement {
+  const color = disabled ? withAlpha(theme.colors.text, 0.2) : theme.colors.text
+  return (
+    <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={label}
+      accessibilityState={{ disabled }} style={({ pressed }) => [styles.rankBtn, pressed && { opacity: 0.5 }]}>
+      <View style={[styles.rankChevron, {
+        borderColor: color,
+        transform: [{ rotate: dir === 'up' ? '135deg' : '-45deg' }],
+        marginTop: dir === 'up' ? 4 : -4,
+      }]} />
+    </Pressable>
+  )
+}
+
+// ---------- Single date (text input; host apps can register a native picker later) ----------
 
 export function SingleDateQuestionView({
   question,
@@ -351,8 +213,9 @@ export function SingleDateQuestionView({
   const [local, setLocal] = useState<string>(value ?? '')
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
-      <TextInput
+      <QuestionHeader title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
+      <SurfaceField
+        theme={theme}
         accessibilityLabel={question.title}
         testID={`survey-question-${question.id}-input`}
         value={local}
@@ -361,23 +224,14 @@ export function SingleDateQuestionView({
           onChange(s)
         }}
         placeholder="YYYY-MM-DD"
-        placeholderTextColor={theme.colors.subtext}
         autoCapitalize="none"
         keyboardType="numbers-and-punctuation"
-        style={[
-          styles.dateInput,
-          {
-            borderColor: theme.colors.border,
-            color: theme.colors.text,
-            fontFamily: theme.fontFamily,
-          },
-        ]}
       />
     </View>
   )
 }
 
-// ---------- Info screen (no answer collected; auto-advance via Next) ----------
+// ---------- Info screen (no answer collected; continue via Next) ----------
 
 export function InfoScreenView({
   question,
@@ -388,11 +242,9 @@ export function InfoScreenView({
 }): React.ReactElement {
   return (
     <View>
-      <TitleBlock title={question.title} imageUrl={question.imageUrl} theme={theme} />
+      <QuestionHeader title={question.title} imageUrl={question.imageUrl} theme={theme} />
       {question.body ? (
-        <Text
-          style={[styles.body, { color: theme.colors.text, fontFamily: theme.fontFamily }]}
-        >
+        <Text style={[styles.body, { color: theme.colors.subtext, fontFamily: theme.fontFamily }]}>
           {question.body}
         </Text>
       ) : null}
@@ -401,58 +253,15 @@ export function InfoScreenView({
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  subtitle: { fontSize: 14, marginBottom: 12 },
-  body: { fontSize: 16, lineHeight: 24, marginTop: 8 },
-  list: { marginTop: 12, gap: 8 },
-  choice: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  longTextInput: {
-    minHeight: 120,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 12,
-    textAlignVertical: 'top',
-  },
-  counter: { fontSize: 12, marginTop: 4, textAlign: 'right' },
-  likertRow: {
-    // Stack the 5 options vertically. Five chips in a row don't fit
-    // long labels like "Strongly disagree" — they truncate / wrap and
-    // the row spills off the phone preview. A vertical list reads
-    // cleanly on every screen size.
-    flexDirection: 'column',
-    gap: 8,
-    marginTop: 16,
-  },
-  likertCell: {
-    width: '100%',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 12,
-    minHeight: 48,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-  },
+  body: { fontSize: 16, lineHeight: 24, marginTop: -4 },
+  list: { gap: 8 },
   rankRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    gap: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5,
+    minHeight: 56, paddingLeft: 12, paddingRight: 4,
   },
-  rankBtn: { paddingHorizontal: 8, paddingVertical: 4 },
-  dateInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 12,
-  },
+  rankBadge: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  rankNumber: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  rankLabel: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: '500', paddingVertical: 12 },
+  rankBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
+  rankChevron: { width: 9, height: 9, borderLeftWidth: 1.75, borderBottomWidth: 1.75 },
 })

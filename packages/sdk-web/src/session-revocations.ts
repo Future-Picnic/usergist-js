@@ -27,7 +27,7 @@ export function drainRevocations(key: string, config: Config): Promise<void> {
           headers: { Authorization: `Bearer ${config.writeKey}`, 'Content-Type': 'application/json', 'X-UserGist-Subject-Token': entry.token },
           body: JSON.stringify({ anonymousId: entry.anonymousId }),
         })
-        if (!response.ok && response.status !== 401) return
+        if (!response.ok && response.status !== 401 && response.status !== 403) return
         write(key, read(key).filter(item => item.id !== entry.id))
       } catch { return } finally { clearTimeout(timeout) }
     }

@@ -8,6 +8,55 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 describe('browser presentation', () => {
+  it('moves Back and Close into the header after advancing and keeps only the primary action below', async () => {
+    const onClose = vi.fn()
+    renderer = new WebRenderer()
+    renderer.show({ pillar: 'survey', flow: {
+      startQuestionId: 'q1', questions: [
+        { id: 'q1', type: 'short_text', title: 'First answer', required: true },
+        { id: 'q2', type: 'short_text', title: 'Second answer', required: true },
+      ], branches: [], progressStyle: 'bar', backNavigation: true,
+    }, onDismiss: onClose })
+    const headerLabels = () => Array.from(renderer!.shadow.querySelectorAll('.ug-chrome button')).map(b => b.getAttribute('aria-label'))
+    expect(headerLabels()).toEqual(['Close'])
+    const input = renderer.shadow.querySelector<HTMLTextAreaElement>('textarea')!
+    input.value = 'Keep this answer when going back'
+    input.dispatchEvent(new Event('input'))
+    renderer.shadow.querySelector<HTMLButtonElement>('.ug-footer button')!.click()
+    await vi.waitFor(() => expect(renderer!.shadow.querySelector('h2')?.textContent).toBe('Second answer'))
+    expect(headerLabels()).toEqual(['Back', 'Close'])
+    expect(renderer.shadow.querySelectorAll('.ug-footer button')).toHaveLength(1)
+    renderer.shadow.querySelector<HTMLButtonElement>('.ug-back')!.click()
+    expect(headerLabels()).toEqual(['Close'])
+    expect(renderer.shadow.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Keep this answer when going back')
+    renderer.shadow.querySelector<HTMLButtonElement>('.ug-chrome [aria-label="Close"]')!.click()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+  it('keeps required text submission disabled until a valid answer, then submits once', async () => {
+    const submit = vi.fn(async () => {})
+    renderer = new WebRenderer()
+    renderer.show({ pillar: 'feedback', questions: [{ id: 'q', type: 'short_text', title: 'Your feedback', required: true }], onSubmit: submit })
+    const action = renderer.shadow.querySelector<HTMLButtonElement>('.ug-footer .ug-button')!
+    expect(action.disabled).toBe(true)
+    const input = renderer.shadow.querySelector<HTMLTextAreaElement>('textarea')!
+    input.value = 'Clear controls with enough room to type.'
+    input.dispatchEvent(new Event('input'))
+    expect(action.disabled).toBe(false)
+    action.click()
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    expect(submit).toHaveBeenCalledWith({ q: input.value })
+  })
+  it('retains app theme across surfaces and uses legible action labels on light brands', () => {
+    renderer = new WebRenderer()
+    renderer.setThemeOverrides({ colors: { background: '#111827', text: '#F3F4F6', primary: '#FACC15' }, radius: 16 })
+    renderer.show({ pillar: 'feedback', questions: [{ id: 'q', type: 'short_text', title: 'Your feedback' }] })
+    expect(renderer.host.style.getPropertyValue('--ug-bg')).toBe('#111827')
+    expect(renderer.host.style.getPropertyValue('--ug-on-primary')).toBe('#000000')
+    renderer.show({ pillar: 'inapp', title: 'An update', accentColor: '#D97706' })
+    expect(renderer.host.style.getPropertyValue('--ug-bg')).toBe('#111827')
+    expect(renderer.host.style.getPropertyValue('--ug-on-primary')).toBe('#000000')
+    expect(renderer.shadow.querySelector('.ug-chrome button')?.getAttribute('aria-label')).toBe('Close')
+  })
   it('isolates styles, treats content as text, and restores host focus/inert state', () => {
     const host = document.createElement('button')
     document.body.append(host)

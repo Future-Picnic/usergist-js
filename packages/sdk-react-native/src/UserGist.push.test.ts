@@ -1,6 +1,6 @@
 import { PresentationGate } from '@usergist/sdk-core/mobile'
 import { beforeEach, expect, it, vi } from 'vitest'
-const fixture = vi.hoisted(() => ({ engine: null as any }))
+const fixture = vi.hoisted(() => ({ engine: null as any, permission: 'authorized' as 'authorized' | 'denied' }))
 vi.mock('react-native', () => ({ Platform: { OS: 'ios' }, AppState: { addEventListener: vi.fn() } }))
 vi.mock('./internal/engine.js', () => ({
   createEngine: () => fixture.engine,
@@ -11,7 +11,7 @@ vi.mock('./internal/engine.js', () => ({
 vi.mock('./internal/survey-store.js', () => ({ createSurveyStore: () => ({ clear: async () => {} }) }))
 vi.mock('./internal/push-dedupe.js', () => ({ hydratePushDedupe: async () => {}, acceptPushEvent: () => true }))
 vi.mock('./native/push-bridge.js', () => ({
-  UserGistPushNative: { syncState: async () => {}, disablePush: vi.fn(async () => {}), enablePush: vi.fn(), defaultEnvironment: async () => 'production' },
+  UserGistPushNative: { syncState: async () => {}, disablePush: vi.fn(async () => {}), enablePush: vi.fn(), defaultEnvironment: async () => 'production', getPermissionStatus: vi.fn(async () => fixture.permission) },
   onTokenReceived: vi.fn(), onTokenError: vi.fn(), onNotificationReceived: vi.fn(),
   onNotificationDisplayed: vi.fn(), onNotificationDismissed: vi.fn(), onNotificationOpened: vi.fn(),
 }))
@@ -19,6 +19,7 @@ vi.mock('./native/push-bridge.js', () => ({
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
+  fixture.permission = 'authorized'
   let push = true
   let feedback = true
   let version = 0
@@ -32,6 +33,33 @@ beforeEach(() => {
     resetting: false, resetGeneration: 0, lastPushToken: null, lastPushRegistrationKey: null, lastPushRegistrationAt: 0,
     transport: { cancelAll: vi.fn(), pushRegisterToken: vi.fn(async () => ({ registered: true })), pushInvalidateToken: vi.fn(async () => {}), consent: vi.fn(async () => {}) },
   }
+})
+
+it('invalidates a denied OS binding once and restores it after regrant without changing SDK consent', async () => {
+  const { UserGist } = await import('./UserGist.js')
+  await UserGist.initAsync(fixture.engine.config)
+  const states=vi.fn()
+  UserGist.setPushSubscriptionStateHandler(states)
+  await UserGist.registerPushToken('device', 'ios')
+  fixture.permission = 'denied'
+  await UserGist.registerPushToken('device', 'ios')
+  await UserGist.registerPushToken('device', 'ios')
+  expect(fixture.engine.transport.pushInvalidateToken).toHaveBeenCalledTimes(1)
+  expect(fixture.engine.transport.pushRegisterToken).toHaveBeenCalledTimes(1)
+  expect(fixture.engine.consent.allowsPush()).toBe(true)
+  expect(states).toHaveBeenLastCalledWith(expect.objectContaining({registered:false,optedIn:false,tokenAvailable:true}))
+  fixture.permission = 'authorized'
+  await UserGist.registerPushToken('device', 'ios')
+  expect(fixture.engine.transport.pushRegisterToken).toHaveBeenCalledTimes(2)
+  expect(states).toHaveBeenLastCalledWith(expect.objectContaining({registered:true,optedIn:true}))
+})
+
+it('registers the configured app version for version targeting', async () => {
+  fixture.engine.config.appVersion = '1.2.3'
+  const { UserGist } = await import('./UserGist.js')
+  await UserGist.initAsync(fixture.engine.config)
+  await UserGist.registerPushToken('device', 'ios')
+  expect(fixture.engine.transport.pushRegisterToken).toHaveBeenCalledWith(expect.objectContaining({ appVersion: '1.2.3' }))
 })
 
 it('logout finishes locally and ignores an old registration completion', async () => {

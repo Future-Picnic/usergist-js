@@ -155,7 +155,7 @@ export interface Transport {
   readonly revokeSession: (anonymousId?: string) => Promise<{ ok: true }>
   readonly instructions: (
     after: number,
-    client?: { anonymousId: string; platform: string; sdkVersion: string },
+    client?: { anonymousId: string; platform: string; sdkVersion: string; screenName?: string; appVersion?: string },
   ) => Promise<{
     readonly instructions: ReadonlyArray<{
       readonly id: number
@@ -494,7 +494,7 @@ export function createTransport(cfg: TransportConfig): Transport {
                 client.anonymousId,
               )}&platform=${encodeURIComponent(
                 client.platform,
-              )}&sdkVersion=${encodeURIComponent(client.sdkVersion)}`
+              )}&sdkVersion=${encodeURIComponent(client.sdkVersion)}${client.screenName ? `&screenName=${encodeURIComponent(client.screenName)}` : ''}${client.appVersion ? `&appVersion=${encodeURIComponent(client.appVersion)}` : ''}`
             : ''
         }`,
         idempotent: true,

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 — release QA fixes
+
+- Ship the reviewed shared targeting, delivery and survey contracts used by the updated platform SDKs.
+- Keep anonymous and identified users supported across the release train.
+
 ## 0.2.0 — aligned SDK release train
 
 - Align the shared core version with the platform SDKs at 0.2.0. This release preserves the contracts and runtime APIs from 0.1.6.

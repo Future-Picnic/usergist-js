@@ -73,6 +73,7 @@ export function mountPreview(
   })
   const show = (value: RenderExperience) => {
     if (value.pillar === 'requests') {
+      renderer.setThemeOverrides(value.theme ?? {})
       void showRequestBoard(requestPreview(value), renderer)
       return
     }

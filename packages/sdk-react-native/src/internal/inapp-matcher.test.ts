@@ -38,6 +38,19 @@ function matcherFor(message: ArmedInAppMessage) {
 }
 
 describe('in-app matcher delivery lifecycle', () => {
+  it('fails closed for old eligibility payloads and screen-restricted messages', () => {
+    for (const message of [
+      { ...armed(true), clientSideEligible: undefined },
+      { ...armed(true), screenAllowlist: ['never-visited'] },
+      { ...armed(true), screenDenylist: ['checkout'] },
+    ]) {
+      const { events, matcher } = matcherFor(message)
+      const shown = vi.fn()
+      events.on('showInAppMessage', shown)
+      expect(matcher.evaluate('inapp.requested')).toBeNull()
+      expect(shown).not.toHaveBeenCalled()
+    }
+  })
   it('opens an eligible message on every repeated event when uncapped', () => {
     const { events, matcher } = matcherFor(armed(true))
     const shown = vi.fn()

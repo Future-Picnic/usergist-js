@@ -71,6 +71,7 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
 
   override fun onHostResume() {
     UserGistPushState.retry(reactApplicationContext)
+    UserGistPushState.takeOpen(reactApplicationContext)?.let { consumeNotificationIntent(it) }
     reactApplicationContext.currentActivity?.intent?.let { consumeNotificationIntent(it) }
   }
 
@@ -218,7 +219,14 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun getInitialNotification(promise: Promise) {
-    promise.resolve(UserGistPushEventBus.takeInitialNotification())
+    // A lazy React module can be created after the Activity's initial resume.
+    // Inspect its launch intent on the UI thread as well as consuming the
+    // cached event. Ownership/consent checks still guard intent consumption.
+    com.facebook.react.bridge.UiThreadUtil.runOnUiThread {
+      UserGistPushState.takeOpen(reactApplicationContext)?.let { consumeNotificationIntent(it) }
+      reactApplicationContext.currentActivity?.intent?.let { consumeNotificationIntent(it) }
+      promise.resolve(UserGistPushEventBus.takeInitialNotification())
+    }
   }
 
   @ReactMethod

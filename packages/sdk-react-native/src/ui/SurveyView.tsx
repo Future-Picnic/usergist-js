@@ -16,13 +16,20 @@ import {
   Linking,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
-import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
+import {
+  CONTENT_MAX_WIDTH,
+  SurfaceBack,
+  SurfaceClose,
+  SurfaceHeader,
+  SurfaceNext,
+  SurfaceSecondary,
+  useSurfaceLayout,
+} from './SurfaceControls.js'
 import type {
   SurveyAnswerRecord,
   SurveyAnswerValue,
@@ -33,7 +40,9 @@ import type {
 } from '@usergist/sdk-core/mobile'
 import { estimateProgress, nextQuestionId } from '@usergist/sdk-core/mobile'
 import type { ResolvedTheme } from './theme.js'
-import { DEFAULT_THEME, mergeTheme } from './theme.js'
+import { DEFAULT_THEME, mergeTheme, surfaceTokens } from './theme.js'
+import { SurfaceFieldFocus, useSurfaceFieldReveal } from './useSurfaceFieldReveal.js'
+import { SurfaceModalFrame, type SurfaceModalLayout } from './SurfaceModalFrame.js'
 import { RatingQuestion } from './questions/RatingQuestion.js'
 import { NpsQuestion } from './questions/NpsQuestion.js'
 import { ShortTextQuestion } from './questions/ShortTextQuestion.js'
@@ -75,6 +84,7 @@ export interface SurveyViewProps extends SurveyLifecycleCallbacks {
 }
 
 export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
+  const fieldReveal = useSurfaceFieldReveal()
   const {
     survey,
     attemptId,
@@ -102,12 +112,9 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
   // component between its idle (survey=null) and visible states. Reading the
   // context below the early return caused React's development warning and can
   // corrupt later hook state on repeated opens.
-  const insets = React.useContext(SafeAreaInsetsContext) ?? {
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-  }
+  const hostLayout = useSurfaceLayout()
+  const [modalLayout, setModalLayout] = useState<SurfaceModalLayout | null>(null)
+  const layout = modalLayout ?? hostLayout
 
   const theme = useMemo<ResolvedTheme>(() => {
     // Priority: explicit per-app override > the survey's own theme
@@ -317,102 +324,64 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
   }
 
   const progress = estimateProgress(flow, currentId)
+  const needsNext = !ended && currentQuestion && (isTextInput(currentQuestion.type) || renderFooter(currentQuestion.type))
+  const nextDisabled = Boolean(currentQuestion &&
+    (isTextInput(currentQuestion.type) || currentQuestion.required === true) && !isAnswered(answers[currentQuestion.id]))
+  const landscape = layout.landscape
+  const isFinal = Boolean(currentQuestion && !nextQuestionId(flow, currentQuestion.id, answers))
+  const nextAction = <SurfaceNext onPress={advance} disabled={nextDisabled} loading={submitting}
+    theme={theme} testID="survey-next" label={isFinal ? 'Submit' : 'Next'} />
+  const canGoBack = flow.backNavigation && history.length > 0 && !ended && !submitting
+  const backAction = canGoBack
+    ? <SurfaceBack onPress={goBack} color={theme.colors.text} testID="survey-back" />
+    : null
+  const stepIndex = flow.questions.findIndex((x) => x.id === currentId)
+  const progressView = ended ? null : flow.progressStyle === 'bar' ? (
+    <View style={[styles.progressTrack, { backgroundColor: surfaceTokens(theme).fillStrong }]}
+      accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }}>
+      <View style={[styles.progressFill, { backgroundColor: theme.colors.primary, width: `${Math.round(progress * 100)}%` }]} />
+    </View>
+  ) : flow.progressStyle === 'dots' ? (
+    <View style={styles.dotsRow}>
+      {flow.questions.map((q, i) => (
+        <View key={q.id} style={[styles.dot, i === stepIndex && styles.dotActive, {
+          backgroundColor: i <= stepIndex ? theme.colors.primary : surfaceTokens(theme).fillStrong,
+        }]} />
+      ))}
+    </View>
+  ) : null
+  const showFooter = !ended && needsNext
+  const endCta = ended ? (
+    <EndAction screen={surveyLocal.endScreen} theme={theme} compact={false} onClose={onDismissRequest} />
+  ) : null
 
   return (
     <Modal
       visible={modalGranted}
       animationType="slide"
       presentationStyle="fullScreen"
+      supportedOrientations={['portrait', 'landscape-left', 'landscape-right']}
       onRequestClose={() => dismiss()}
     >
-      <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
-        <View
-          style={[
-            styles.header,
-            // Push the close X + progress bar below the iPhone notch /
-            // status bar / Android nav bar. iOS Modal sometimes hands
-            // back insets.top = 0 inside the modal context, so we
-            // hard-floor the padding to a value that clears the
-            // iPhone status bar regardless.
-            {
-              paddingTop: Math.max(
-                insets.top,
-                Platform.OS === 'ios' ? 50 : 24,
-              ),
-            },
-          ]}
-        >
-          <Pressable
-            onPress={() => dismiss()}
-            accessibilityLabel="Close"
-            testID="survey-close"
-            hitSlop={16}
-            style={styles.closeBtn}
-          >
-            <Text
-              style={{
-                color: theme.colors.text,
-                fontFamily: theme.fontFamily,
-                fontSize: 14,
-                fontWeight: '600',
-                lineHeight: 18,
-              }}
-            >
-              ✕
-            </Text>
-          </Pressable>
-          <View style={styles.progressWrap}>
-            {flow.progressStyle === 'bar' ? (
-              <View style={[styles.progressTrack, { backgroundColor: theme.colors.border }]}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { backgroundColor: theme.colors.primary, width: `${Math.round(progress * 100)}%` },
-                  ]}
-                />
-              </View>
-            ) : flow.progressStyle === 'dots' ? (
-              <View style={styles.dotsRow}>
-                {flow.questions.map((q, i) => (
-                  <View
-                    key={q.id}
-                    style={[
-                      styles.dot,
-                      {
-                        backgroundColor:
-                          i <= flow.questions.findIndex((x) => x.id === currentId)
-                            ? theme.colors.primary
-                            : theme.colors.border,
-                      },
-                    ]}
-                  />
-                ))}
-              </View>
-            ) : null}
-          </View>
-          {flow.backNavigation && history.length > 0 && !ended && !submitting ? (
-            <Pressable
-              onPress={goBack}
-              accessibilityRole="button"
-              accessibilityLabel="Back"
-              testID="survey-back"
-              hitSlop={16}
-              style={styles.closeBtn}
-            >
-              <Text style={{ color: theme.colors.text, fontFamily: theme.fontFamily, fontSize: 18, lineHeight: 20 }}>
-                ‹
-              </Text>
-            </Pressable>
-          ) : (
-            <View style={{ width: 32 }} />
-          )}
+      <SurfaceModalFrame onChange={setModalLayout}>
+      <View style={[styles.root, { backgroundColor: theme.colors.background, paddingLeft: layout.left, paddingRight: layout.right }]}>
+        {/* Keep actions inside the live safe area in either orientation. */}
+        <View style={[styles.header, { paddingTop: layout.top + (landscape ? 8 : 4) }]}>
+          <SurfaceHeader
+            leading={backAction ?? <SurfaceClose onPress={dismiss} color={theme.colors.text} testID="survey-close" />}
+            center={<View style={styles.progressWrap}>{progressView}</View>}
+            trailing={canGoBack ? <SurfaceClose onPress={dismiss} color={theme.colors.text} testID="survey-close" /> : null}
+          />
         </View>
 
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
         >
-          <ScrollView contentContainerStyle={styles.body}>
+          <ScrollView ref={fieldReveal.scrollRef} onLayout={fieldReveal.reveal} contentContainerStyle={[styles.body, landscape && styles.landscapeBody, ended && styles.endBody]}
+            keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+            <SurfaceFieldFocus.Provider value={fieldReveal.onFocus}>
+            <View ref={fieldReveal.contentRef} collapsable={false} onLayout={fieldReveal.onContentLayout} style={styles.measure}>
             {ended ? (
               <Animated.View
                 style={{
@@ -420,11 +389,7 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
                   transform: [{ scale: endScale }],
                 }}
               >
-                <EndScreen
-                  screen={surveyLocal.endScreen}
-                  theme={theme}
-                  onClose={onDismissRequest}
-                />
+                <EndScreen screen={surveyLocal.endScreen} theme={theme} />
               </Animated.View>
             ) : currentQuestion ? (
               <Animated.View
@@ -435,115 +400,45 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
               >
                 {renderQuestion(currentQuestion, answers, setAnswerFor, theme)}
                 {submitError ? (
-                  <View accessibilityRole="alert" style={styles.submitError}>
-                    <Text style={{ color: theme.colors.text, fontFamily: theme.fontFamily }}>
+                  <View accessibilityRole="alert" style={[styles.submitError, {
+                    backgroundColor: surfaceTokens(theme).fill,
+                    borderRadius: Math.min(theme.radius, 14),
+                  }]}>
+                    <Text style={[styles.errorText, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
                       {submitError}
                     </Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Retry survey submission"
-                      onPress={() => { void submitAndComplete() }}
-                      style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
-                    >
-                      <Text style={{ color: '#ffffff', fontWeight: '700' }}>Retry</Text>
-                    </Pressable>
+                    <SurfaceSecondary onPress={() => { void submitAndComplete() }} theme={theme}
+                      label="Try again" compact testID="survey-retry" />
                   </View>
-                ) : null}
-                {isTextInput(currentQuestion.type) ? (
-                  <Pressable
-                    onPress={advance}
-                    disabled={
-                      submitting || !isAnswered(answers[currentQuestion.id])
-                    }
-                    accessibilityRole="button"
-                    accessibilityLabel="Next"
-                    testID="survey-next"
-                    style={[
-                      styles.inlineNext,
-                      {
-                        backgroundColor: theme.colors.primary,
-                        opacity: isAnswered(answers[currentQuestion.id]) ? 1 : 0.4,
-                      },
-                    ]}
-                  >
-                    {submitting ? (
-                      <ActivityIndicator color="#ffffff" />
-                    ) : (
-                      <Text
-                        style={{
-                          color: '#ffffff',
-                          fontFamily: theme.fontFamily,
-                          fontWeight: '700',
-                        }}
-                      >
-                        Next
-                      </Text>
-                    )}
-                  </Pressable>
                 ) : null}
               </Animated.View>
             ) : (
-              <ActivityIndicator />
+              <ActivityIndicator color={theme.colors.primary} />
             )}
+            </View>
+            </SurfaceFieldFocus.Provider>
           </ScrollView>
 
-          {!ended && renderFooter(currentQuestion?.type) ? (
-            <View
-              style={[
-                styles.footer,
-                // Lift the Next button above the iPhone home indicator
-                // (and any Android nav gesture bar) so it stays tappable.
-                { paddingBottom: Math.max(insets.bottom, 16) },
-              ]}
-            >
-              <Pressable
-                onPress={advance}
-                disabled={
-                  submitting ||
-                  (currentQuestion?.required === true &&
-                    !isAnswered(answers[currentQuestion.id]))
-                }
-                accessibilityRole="button"
-                accessibilityLabel="Next"
-                style={[
-                  styles.next,
-                  {
-                    backgroundColor: theme.colors.primary,
-                    opacity:
-                      currentQuestion?.required === true &&
-                      !isAnswered(answers[currentQuestion.id])
-                        ? 0.4
-                        : 1,
-                  },
-                ]}
-              >
-                {submitting ? (
-                  <ActivityIndicator color={theme.colors.background} />
-                ) : (
-                  <Text
-                    style={{
-                      color: theme.colors.background,
-                      fontFamily: theme.fontFamily,
-                      fontWeight: '700',
-                    }}
-                  >
-                    Next
-                  </Text>
-                )}
-              </Pressable>
+          {showFooter ? (
+            // Lift actions above the home indicator / gesture bar.
+            <View style={[styles.footer, { paddingBottom: Math.max(layout.bottom, 16) }]}>
+              <View style={styles.footerMain}>{needsNext ? nextAction : null}</View>
+            </View>
+          ) : null}
+          {ended ? (
+            <View style={[styles.footer, { paddingBottom: Math.max(layout.bottom, 16) }]}>
+              <View style={styles.footerMain}>{endCta}</View>
             </View>
           ) : null}
         </KeyboardAvoidingView>
       </View>
+      </SurfaceModalFrame>
     </Modal>
   )
 }
 
-// Tap-to-select question types auto-advance — they don't need a
-// Next button. Text inputs render their OWN inline Next button right
-// under the field (see body block below), so they don't need the
-// global footer either. multi_choice / ranking / single_date /
-// info_screen keep the bottom footer.
+// Tap-to-select types auto-advance. Text and the types listed below
+// use the keyboard-safe footer in both orientations.
 function renderFooter(type: SurveyQuestion['type'] | undefined): boolean {
   if (!type) return false
   return (
@@ -684,14 +579,42 @@ function renderQuestion(
 function EndScreen({
   screen,
   theme,
+}: {
+  readonly screen: SurveyEndScreen | null
+  readonly theme: ResolvedTheme
+}): React.ReactElement {
+  const headline = screen?.headline ?? 'Thanks!'
+  const body = screen?.body
+  const tokens = surfaceTokens(theme)
+  return (
+    <View style={styles.endRoot}>
+      <View style={[styles.endBadge, { backgroundColor: tokens.tint }]}>
+        <View style={[styles.endTick, { borderColor: theme.colors.primary }]} />
+      </View>
+      <Text accessibilityRole="header"
+        style={[styles.endHeadline, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
+        {headline}
+      </Text>
+      {body ? (
+        <Text style={[styles.endText, { color: theme.colors.subtext, fontFamily: theme.fontFamily }]}>
+          {body}
+        </Text>
+      ) : null}
+    </View>
+  )
+}
+
+function EndAction({
+  screen,
+  theme,
+  compact,
   onClose,
 }: {
   readonly screen: SurveyEndScreen | null
   readonly theme: ResolvedTheme
+  readonly compact: boolean
   readonly onClose: () => void
 }): React.ReactElement {
-  const headline = screen?.headline ?? 'Thanks!'
-  const body = screen?.body
   const cta = screen?.cta
   function onPressCta(): void {
     if (!cta) {
@@ -708,125 +631,31 @@ function EndScreen({
     onClose()
   }
   return (
-    <View style={styles.endRoot}>
-      <View
-        style={[
-          styles.endBadge,
-          { backgroundColor: theme.colors.primary },
-        ]}
-      >
-        <Text style={styles.endBadgeGlyph}>✓</Text>
-      </View>
-      <Text
-        style={[styles.endHeadline, { color: theme.colors.text, fontFamily: theme.fontFamily }]}
-      >
-        {headline}
-      </Text>
-      {body ? (
-        <Text
-          style={[styles.endBody, { color: theme.colors.subtext, fontFamily: theme.fontFamily }]}
-        >
-          {body}
-        </Text>
-      ) : null}
-      <Pressable
-        onPress={onPressCta}
-        accessibilityLabel="Close completed survey"
-        testID="survey-complete-close"
-        style={[styles.cta, { backgroundColor: theme.colors.primary }]}
-      >
-        <Text
-          style={{
-            // Hardcoded white because theme.colors.background tends to
-            // be a light tint of primary (e.g. Candy: pink primary,
-            // light-pink background) — using it for button text on a
-            // primary-colored fill makes the label invisible.
-            color: '#ffffff',
-            fontFamily: theme.fontFamily,
-            fontWeight: '700',
-            fontSize: 16,
-          }}
-        >
-          {cta?.label ?? 'Close'}
-        </Text>
-      </Pressable>
-    </View>
+    <SurfaceNext onPress={onPressCta} disabled={false} compact={compact} theme={theme}
+      testID="survey-complete-close" label={cta?.label ?? 'Done'} />
   )
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  submitError: { marginTop: 20, gap: 12 },
-  retryButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressWrap: { flex: 1 },
-  progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 2 },
-  dotsRow: { flexDirection: 'row', gap: 6 },
+  submitError: { marginTop: 20, padding: 16, gap: 12 },
+  errorText: { fontSize: 15, lineHeight: 21 },
+  header: { paddingHorizontal: 12, paddingBottom: 4 },
+  progressWrap: { width: '100%', maxWidth: 320, alignItems: 'center', paddingHorizontal: 8 },
+  progressTrack: { height: 6, width: '100%', borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 3 },
+  dotsRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   dot: { width: 6, height: 6, borderRadius: 3 },
-  body: { padding: 20, paddingTop: 28, paddingBottom: 40 },
-  footer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  inlineNext: {
-    alignSelf: 'stretch',
-    marginTop: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 52,
-  },
-  next: {
-    alignSelf: 'stretch',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 52,
-  },
+  dotActive: { width: 18 },
+  body: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40, flexGrow: 1 },
+  landscapeBody: { paddingTop: 8, paddingBottom: 24 },
+  endBody: { justifyContent: 'center' },
+  measure: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center' },
+  footer: { width: '100%', maxWidth: CONTENT_MAX_WIDTH + 40, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 8 },
+  footerMain: { flex: 1 },
   endRoot: { alignItems: 'center', paddingVertical: 24 },
-  endBadge: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  endBadgeGlyph: {
-    color: '#ffffff',
-    fontSize: 48,
-    lineHeight: 56,
-    fontWeight: '700',
-  },
-  endHeadline: { fontSize: 24, fontWeight: '700', textAlign: 'center' },
-  endBody: { fontSize: 16, marginTop: 12, lineHeight: 24, textAlign: 'center' },
-  cta: {
-    alignSelf: 'stretch',
-    marginTop: 32,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 52,
-  },
+  endBadge: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  endTick: { width: 26, height: 14, borderLeftWidth: 3.5, borderBottomWidth: 3.5, transform: [{ rotate: '-45deg' }], marginTop: -6 },
+  endHeadline: { fontSize: 24, lineHeight: 30, fontWeight: '700', letterSpacing: -0.3, textAlign: 'center' },
+  endText: { fontSize: 16, marginTop: 10, lineHeight: 24, textAlign: 'center', maxWidth: 420 },
 })

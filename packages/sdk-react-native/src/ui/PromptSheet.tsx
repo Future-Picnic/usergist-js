@@ -1,29 +1,29 @@
 // Bottom-sheet modal that renders an armed prompt and collects answers.
 //
 // Supports rating, NPS, multiple_choice, short_text. Questions are shown
-// one at a time. Tap-to-select types auto-advance; text inputs render
-// an inline full-width Next button under the field. The X close at the
-// top-right is the only dismiss path. There's no Back button anywhere.
+// one at a time. Explicit actions stay outside the scrolling question:
+// a full-width keyboard-safe footer in either orientation. No Back button.
 // Mirrors the SurveyView rules so feedback and surveys feel identical.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ActivityIndicator,
   Animated,
-  Dimensions,
   Easing,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
-import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
+import { CONTENT_MAX_WIDTH, SurfaceClose, SurfaceHeader, SurfaceNext, useSurfaceLayout } from './SurfaceControls.js'
+import { SurfaceFieldFocus, useSurfaceFieldReveal } from './useSurfaceFieldReveal.js'
+import { SurfaceModalFrame, type SurfaceModalLayout } from './SurfaceModalFrame.js'
 import type { Question } from '@usergist/sdk-core/mobile'
 import type { ShowPromptPayload, ResponseEmission } from '../internal/types.js'
-import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './theme.js'
+import { DEFAULT_THEME, mergeTheme, surfaceTokens, type ResolvedTheme } from './theme.js'
 import { animateIn, animateOut } from './animations.js'
 import { RatingQuestion } from './questions/RatingQuestion.js'
 import { NpsQuestion } from './questions/NpsQuestion.js'
@@ -43,12 +43,6 @@ import {
 } from '../internal/prompt-flow.js'
 
 type AnswerRecord = PromptAnswerRecord
-
-// Text inputs render their OWN inline Next button under the field
-// (full-width, disabled until the user types something).
-function isTextInput(type: Question['type']): boolean {
-  return type === 'short_text'
-}
 
 function answerHasValue(v: number | string | ReadonlyArray<string> | null | undefined): boolean {
   if (v === null || v === undefined) return false
@@ -70,6 +64,7 @@ export function PromptSheet({
   onSubmit,
   onDismiss,
 }: Props): React.ReactElement | null {
+  const fieldReveal = useSurfaceFieldReveal()
   const [visible, setVisible] = useState<boolean>(false)
   const [index, setIndex] = useState<number>(0)
   const [answers, setAnswers] = useState<AnswerRecord>({})
@@ -78,17 +73,10 @@ export function PromptSheet({
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const modalGranted = useModalSlot('prompt', Boolean(payload))
   const translate = useRef(new Animated.Value(0)).current
-  const height = Dimensions.get('window').height
-  // Read insets from context directly rather than useSafeAreaInsets(), which
-  // THROWS when no <SafeAreaProvider> is mounted above us. The SDK Provider
-  // renders this component unconditionally, so a host app that hasn't wrapped
-  // its tree in a SafeAreaProvider would otherwise crash on mount.
-  const insets = React.useContext(SafeAreaInsetsContext) ?? {
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-  }
+  const hostLayout = useSurfaceLayout()
+  const [modalLayout, setModalLayout] = useState<SurfaceModalLayout | null>(null)
+  const layout = modalLayout ?? hostLayout
+  const { height, landscape } = layout
 
   const theme: ResolvedTheme = useMemo(() => {
     if (themeOverride) return mergeTheme(themeOverride, payload?.theme)
@@ -250,13 +238,30 @@ export function PromptSheet({
     outputRange: [0, 1],
   })
 
+  const needsNext = current && promptNeedsExplicitNext(current)
+  const nextDisabled = Boolean(current && promptNextRequiresAnswer(current) && !answerHasValue(answers[current.id]))
+  const nextLabel = isLast ? 'Submit' : 'Next'
+  const nextAction = <SurfaceNext onPress={next} disabled={nextDisabled} theme={theme}
+    testID="feedback-next" label={nextLabel} />
+  const closeAction = <SurfaceClose onPress={() => close('dismiss')} color={theme.colors.text} testID="feedback-close" />
+  const step = questions.length > 1 ? (
+    <Text style={[styles.step, { color: theme.colors.subtext, fontFamily: theme.fontFamily }]}>
+      {index + 1} of {questions.length}
+    </Text>
+  ) : null
+  // A bottom sheet always spans the full screen width. The header sits at the
+  // safe-area edges with Close leading. The question and full-width action
+  // footer share one centred readable column in either orientation.
+
   return (
-    <Modal transparent visible={visible && modalGranted} onRequestClose={() => close('dismiss')} animationType="none">
+    <Modal transparent visible={visible && modalGranted} onRequestClose={() => close('dismiss')} animationType="none"
+      supportedOrientations={['portrait', 'landscape-left', 'landscape-right']}>
+      <SurfaceModalFrame onChange={setModalLayout}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={[styles.container, { paddingTop: layout.top + (landscape ? 12 : 16) }]}
       >
-        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.4)', opacity }]}>
+        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: surfaceTokens(theme).scrim, opacity }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => close('dismiss')} accessibilityLabel="Dismiss" />
         </Animated.View>
         <Animated.View
@@ -266,34 +271,19 @@ export function PromptSheet({
               backgroundColor: theme.colors.background,
               borderTopLeftRadius: theme.radius,
               borderTopRightRadius: theme.radius,
-              paddingBottom: Math.max(insets.bottom, 30) + 16,
+              paddingBottom: landscape ? Math.max(layout.bottom, 12) : Math.max(layout.bottom, 16),
+              paddingLeft: layout.left + 12,
+              paddingRight: layout.right + 12,
               transform: [{ translateY }],
             },
           ]}
         >
-          <View style={styles.headerRow}>
-            <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
-            <Pressable
-              onPress={() => close('dismiss')}
-              testID="feedback-close"
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              hitSlop={12}
-              style={styles.closeBtn}
-            >
-              <Text
-                style={{
-                  color: theme.colors.text,
-                  fontFamily: theme.fontFamily,
-                  fontSize: 14,
-                  fontWeight: '600',
-                  lineHeight: 18,
-                }}
-              >
-                ✕
-              </Text>
-            </Pressable>
-          </View>
+          <SurfaceHeader leading={closeAction} center={step} />
+          <View style={styles.measure}>
+          <ScrollView ref={fieldReveal.scrollRef} onLayout={fieldReveal.reveal} style={styles.scroll} contentContainerStyle={styles.questionContent}
+            keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+          <SurfaceFieldFocus.Provider value={fieldReveal.onFocus}>
+          <View ref={fieldReveal.contentRef} collapsable={false} onLayout={fieldReveal.onContentLayout}>
           {current ? (
             <Animated.View
               style={{
@@ -302,130 +292,32 @@ export function PromptSheet({
               }}
             >
               {renderQuestion(current)}
-              {/* Text inputs: full-width inline Next directly under
-                  the field, disabled until the user types. */}
-              {isTextInput(current.type) ? (
-                <Pressable
-                  onPress={next}
-                  testID="feedback-next"
-                  disabled={!answerHasValue(answers[current.id])}
-                  accessibilityRole="button"
-                  accessibilityLabel="Next"
-                  style={[
-                    styles.next,
-                    {
-                      backgroundColor: theme.colors.primary,
-                      opacity: answerHasValue(answers[current.id]) ? 1 : 0.4,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: '#ffffff',
-                      fontWeight: '700',
-                      fontFamily: theme.fontFamily,
-                      fontSize: 16,
-                    }}
-                  >
-                    Next
-                  </Text>
-                </Pressable>
-              ) : null}
             </Animated.View>
           ) : null}
-          {/* Footer Next for non-text, non-auto-advance types
-              (multi_choice). Full-width pill, no Back. */}
-          {current && promptNeedsExplicitNext(current) && !isTextInput(current.type) ? (
-            <Pressable
-              onPress={next}
-              testID="feedback-next"
-              disabled={
-                promptNextRequiresAnswer(current) &&
-                !answerHasValue(answers[current.id])
-              }
-              accessibilityRole="button"
-              accessibilityLabel="Next"
-              style={[
-                styles.next,
-                {
-                  backgroundColor: theme.colors.primary,
-                  opacity:
-                    promptNextRequiresAnswer(current) &&
-                    !answerHasValue(answers[current.id])
-                      ? 0.4
-                      : 1,
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: '#ffffff',
-                  fontWeight: '700',
-                  fontFamily: theme.fontFamily,
-                  fontSize: 16,
-                }}
-              >
-                Next
-              </Text>
-            </Pressable>
-          ) : null}
+          </View>
+          </SurfaceFieldFocus.Provider>
+          </ScrollView>
+          {needsNext ? <View style={styles.footer}>{nextAction}</View> : null}
+          </View>
         </Animated.View>
       </KeyboardAvoidingView>
+      </SurfaceModalFrame>
     </Modal>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'flex-end' },
+  container: { flex: 1, justifyContent: 'flex-end', alignItems: 'center' },
   sheet: {
-    // Sit somewhere between "tiny single-question pill" and "fills
-    // half the screen". 280pt gives the title + answers + endpoint
-    // labels a comfortable amount of vertical breathing room without
-    // pushing them too far up the device. paddingTop reserves space
-    // above the drag handle / X close so neither hugs the rounded
-    // top edge of the sheet.
-    minHeight: 280,
-    paddingTop: 20,
-    paddingHorizontal: 20,
+    width: '100%',
+    maxHeight: '100%',
+    flexShrink: 1,
+    paddingTop: 8,
   },
-  headerRow: {
-    // Position the close button absolutely so the drag handle stays
-    // perfectly centred regardless of the X's width. The bottom
-    // margin pushes the question title down so it doesn't crowd the
-    // X — gives the eye a clear separation between the dismiss
-    // affordance and the actual content.
-    position: 'relative',
-    height: 32,
-    marginBottom: 24,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginTop: 6,
-  },
-  closeBtn: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    // Subtle gray pill behind the X — gives the dismiss target a
-    // visual affordance without competing with the primary action.
-    backgroundColor: 'rgba(0,0,0,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  next: {
-    alignSelf: 'stretch',
-    marginTop: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 52,
-  },
+  // Question and footer share one readable column inside the full-width sheet.
+  measure: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', flexShrink: 1 },
+  step: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  scroll: { flexShrink: 1 },
+  questionContent: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 20 },
+  footer: { paddingHorizontal: 12, paddingTop: 4 },
 })

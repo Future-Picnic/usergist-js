@@ -2,6 +2,9 @@
 // bottom sheet & question components can consume without null-checks.
 
 import type { PromptTheme } from '@usergist/sdk-core/mobile'
+import { readableOn, withAlpha } from './color.js'
+
+export { withAlpha }
 
 export interface ResolvedTheme {
   readonly colors: {
@@ -27,6 +30,33 @@ export const DEFAULT_THEME: ResolvedTheme = {
   // Brand font. Host apps must register/bundle the font under this exact
   // family name; if missing the platform falls back to its default sans.
   fontFamily: 'Plus Jakarta Sans',
+}
+
+/**
+ * Colours derived from the five campaign colours. Every SDK surface reads
+ * these instead of fixed greys or white, so any dashboard theme (light,
+ * dark, pastel or saturated) stays legible without extra configuration.
+ */
+export interface SurfaceTokens {
+  /** Readable label colour on a primary fill (black or white by contrast). */
+  readonly onPrimary: string
+  /** Quiet primary wash for selected options. */
+  readonly tint: string
+  /** Neutral wash for inputs, Close and disabled actions. */
+  readonly fill: string
+  /** Slightly stronger neutral, used for pressed states. */
+  readonly fillStrong: string
+  readonly scrim: string
+}
+
+export function surfaceTokens(theme: ResolvedTheme): SurfaceTokens {
+  return {
+    onPrimary: readableOn(theme.colors.primary),
+    tint: withAlpha(theme.colors.primary, 0.1),
+    fill: withAlpha(theme.colors.text, 0.06),
+    fillStrong: withAlpha(theme.colors.text, 0.12),
+    scrim: 'rgba(0,0,0,0.45)',
+  }
 }
 
 export function mergeTheme(

@@ -22,7 +22,7 @@ export function createInAppMatcher(params: {
   const { rulesCache, consent, events } = params
 
   function tryFire(message: ArmedInAppMessage, eventName: string): boolean {
-    if (message.clientSideEligible === false) {
+    if (message.clientSideEligible !== true || message.screenAllowlist.length || message.screenDenylist.length) {
       logTrace({
         eventName,
         outcome: 'blocked-no-trigger',

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0-beta.5 — release QA and surface design
+
+- Refresh themed feedback, survey, in-app message and requests surfaces, with consistent navigation and keyboard-safe landscape layouts.
+- Preserve cold-start Android notification actions in React Native and Expo; deliver typed JSON callbacks once after startup restores the current installation and consent.
+- Harden consent cancellation, identity changes, pending screen eligibility and session recovery.
+- Remain on npm's `next` channel; this release does not promote the Expo beta to stable.
+
 ## 0.2.0-beta.4 — aligned SDK release train
 
 - Align with the 0.2.0 SDK train while retaining the prerelease `next` channel. Stable promotion still requires the signed-device acceptance evidence described in EXPO-ACCEPTANCE.md.

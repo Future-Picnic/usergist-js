@@ -43,6 +43,7 @@ function harness(data = new Map<string, unknown>([['instructionCursor', 4]])) {
       get: () => ({ feedback: true }),
     },
     localInstructionDedupe: { consume: () => false },
+    locallyHandledSurveyIds: new Set<string>(),
     transport: { acknowledgeInstructions: acknowledge },
   } as unknown as Engine
   Object.assign(engine, {
@@ -57,6 +58,19 @@ afterEach(() => {
 })
 
 describe('immediate instruction reconciliation', () => {
+  it('retries an undisplayed instruction when a token renewal races its durable write', async () => {
+    const { engine, emit, data } = harness()
+    const persist = engine.storage.setJsonStrict
+    vi.mocked(engine.storage.setJsonStrict).mockImplementationOnce(async (key, value) => {
+      await persist(key, value)
+      engine.subjectToken = 'renewed-subject-a'
+    })
+    await consumeInstructions(engine, [instruction(9)], false)
+    expect(emit).not.toHaveBeenCalled()
+    expect(data.get('seenInstructions')).toEqual([])
+    await consumeInstructions(engine, [instruction(9)], false)
+    expect(emit).toHaveBeenCalledOnce()
+  })
   it('persists a personalized invitation before notifying the host and survives SDK recreation', async () => {
     const { engine, emit } = harness()
     const offer = { ...instruction(9), type: 'survey.offer', payload: {
@@ -215,7 +229,26 @@ describe('immediate instruction reconciliation', () => {
 })
 
 describe('server-dependent trigger timing', () => {
-  it('uploads a known server trigger without advancing the analytics flush timer', async () => {
+  it('does not collect denied-purpose events for later consent regrant', () => {
+    const enqueue = vi.fn(), recordEvent = vi.fn(), evaluate = vi.fn()
+    const consent = { analytics: false, feedback: true }
+    const engine = {
+      hydrated: true,
+      consent: { get: () => consent },
+      queue: { enqueue },
+      userState: { recordEvent },
+      matcher: { evaluate },
+    } as unknown as Engine
+    enqueueAndEvaluate(engine, 'denied-event', { private: 'denied' })
+    consent.analytics = true
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(recordEvent).not.toHaveBeenCalled()
+    expect(evaluate).not.toHaveBeenCalled()
+    consent.feedback = false
+    enqueueAndEvaluate(engine, '$app_open', undefined, 'feedback')
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+  it.each(['checkout', '$inapp_dismissed', '$inapp_auto_dismissed', '$inapp_cta_clicked'])('uploads %s immediately without advancing the analytics flush timer', async (eventName) => {
     vi.useFakeTimers()
     const queued: any[] = []
     const ingest = vi.fn(async (_batch: unknown) => ({
@@ -267,14 +300,14 @@ describe('server-dependent trigger timing', () => {
       enqueueAndEvaluate(engine, 'watch-history', { order: i })
     }
     const analyticsTimer = engine.flushTimer
-    enqueueAndEvaluate(engine, 'checkout', { show_id: '00123' })
+    enqueueAndEvaluate(engine, eventName, { show_id: '00123' })
     await engine.flushPromise
     expect(ingest).toHaveBeenCalledOnce()
     expect(ingest.mock.calls[0]![0]).toMatchObject({
       delivery: { eventIds: [expect.any(String)] },
       events: expect.arrayContaining([
         expect.objectContaining({
-          name: 'checkout',
+          name: eventName,
           properties: { show_id: '00123' },
           anonymousId: 'anonymous-a',
         }),

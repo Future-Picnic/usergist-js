@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
+        <activity android:name="studio.usergist.feedback.UserGistNotificationOpenActivity"
+            android:exported="false" android:noHistory="true"
+            android:excludeFromRecents="true" android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <receiver android:name="studio.usergist.feedback.UserGistNotificationDismissReceiver" android:exported="false" />
         <!-- Library-supplied FirebaseMessagingService. Hosts that already own
              FCM delivery must set userGistFirebaseServiceEnabled=false and
