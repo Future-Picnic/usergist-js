@@ -29,7 +29,7 @@ import type {
   RequestMutationResult,
 } from './types.js'
 
-const VERSION = '0.1.4'
+const VERSION = '0.1.5'
 const PII = new Set(['email', 'phone', 'ssn', 'tax_id'])
 export class WebSdkError extends Error {
   constructor(
@@ -1079,17 +1079,21 @@ export class UserGistClient {
           },
         })
       } else if (pillar === 'feedback') {
-        this.getRenderer().show({
-          ...content,
-          pillar,
-          onSubmit: async (answers: SurveyAnswerRecord) => {
+        let outcome: Promise<void> | undefined
+        const respond = (answers: SurveyAnswerRecord, dismissed: boolean) => {
+          if (!valid()) return Promise.resolve()
+          // Submit and close can overlap while the durable queue is being saved.
+          if (outcome) return outcome
+          const savedAnswers = structuredClone(answers)
+          outcome = (async () => {
             await this.enqueue(
               '/v1/sdk/responses',
               {
                 idempotencyKey: presentationId,
                 promptId: id,
                 ...this.identity(),
-                answers: Object.entries(answers).map(([questionId, value]) => ({
+                dismissed,
+                answers: Object.entries(savedAnswers).map(([questionId, value]) => ({
                   questionId,
                   value,
                 })),
@@ -1098,11 +1102,23 @@ export class UserGistClient {
               },
               'feedback'
             )
-            await receipt('completed')
-            this.emit('response', { promptId: id, answers })
-          },
-          onDismiss: () => {
-            void receipt('dismissed')
+            if (!valid()) return
+            await receipt(dismissed ? 'dismissed' : 'completed')
+            this.emit('response', { promptId: id, answers: savedAnswers, dismissed })
+          })().catch((error) => {
+            outcome = undefined
+            throw error
+          })
+          return outcome
+        }
+        this.getRenderer().show({
+          ...content,
+          pillar,
+          onSubmit: (answers: SurveyAnswerRecord) => respond(answers, false),
+          onDismiss: (answers: SurveyAnswerRecord) => {
+            void respond(answers, true).catch((error) =>
+              this.diagnostic('response_pending', error instanceof Error ? error.message : 'Response not saved')
+            )
           },
         })
       } else {

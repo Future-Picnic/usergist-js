@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Preserve answers when feedback is dismissed before the final question, including anonymous users. Record a single outcome if submission overlaps dismissal.
+
 ## 0.1.4 — identity lifecycle
 
 - Preserve anonymous ownership proof after rejected identification so a fresh token can be retried; retry pending logout revocation on reconnect while the client is inactive.

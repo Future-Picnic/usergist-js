@@ -73,6 +73,13 @@ export interface UserPropertyCondition {
   readonly value?: string | number | boolean | ReadonlyArray<string | number>
 }
 
+/** Exact, case-sensitive identity matching, independent of custom properties. */
+export interface UserIdCondition {
+  readonly kind: 'user_id' | 'anonymous_id'
+  readonly op: 'is_any_of' | 'is_none_of'
+  readonly values: ReadonlyArray<string>
+}
+
 export interface EventPropertyFilter {
   readonly key: string
   readonly op: ComparisonOp
@@ -106,6 +113,7 @@ export type AudienceCondition =
   | InstallDateCondition
   | PlatformCondition
   | UserPropertyCondition
+  | UserIdCondition
   | EventPerformedCondition
   | AppVersionCondition
 

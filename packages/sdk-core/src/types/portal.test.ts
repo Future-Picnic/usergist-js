@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { buildPortalUrl, suggestPortalSlug, validPortalSlug } from './portal'
+import { buildPortalUrl, suggestPortalSlug, validPortalSlug, resolvePortalColors, DEFAULT_PORTAL_COLORS } from './portal'
+import { THEME_PRESETS } from './themes'
 import { portalSubmissionSchema, portalAuthStartSchema, portalVoteSchema } from '../schemas/portal'
 describe('portal addresses and participant input boundaries', () => {
+  it('follows the complete app theme and ignores detached colors when reset', () => {
+    const colors = THEME_PRESETS.find((preset) => preset.id === 'midnight')!.colors
+    expect(resolvePortalColors('app_default', colors, DEFAULT_PORTAL_COLORS, '#FF0000')).toEqual(colors)
+  })
+  it('retains all custom colors independently of app defaults and supports old accent-only settings', () => {
+    const colors = THEME_PRESETS.find((preset) => preset.id === 'ocean')!.colors
+    expect(resolvePortalColors('custom', DEFAULT_PORTAL_COLORS, colors, '#FF0000')).toEqual({ ...colors, primary: '#FF0000' })
+    expect(resolvePortalColors('custom', colors, null, '#123456')).toEqual({ ...DEFAULT_PORTAL_COLORS, primary: '#123456' })
+  })
   it('validates and resolves company and app addresses on the owned domain', () => {
     expect(buildPortalUrl('acme-team', undefined, 'notes')).toBe('https://acme-team.usergist.com/notes/requests')
     expect(suggestPortalSlug('Acme & Team')).toBe('acme-team')

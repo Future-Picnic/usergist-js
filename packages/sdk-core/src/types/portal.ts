@@ -1,5 +1,18 @@
 import type { PortalSection } from './portal-content.js'
 import type { RequestStatus } from './request.js'
+import type { BrandThemeTokens, ThemeMode } from './brand.js'
+
+export type PortalColors = BrandThemeTokens['colors']
+
+export const DEFAULT_PORTAL_COLORS: PortalColors = {
+  primary: '#6C5CE7', background: '#F5F5FA', text: '#15151D', subtext: '#74748B', border: '#E2E4EE',
+}
+
+/** Old accent-only customizations keep neutral surfaces; linked themes use all five colors. */
+export function resolvePortalColors(mode: ThemeMode, defaults: PortalColors | undefined, custom: PortalColors | null | undefined, accent: string | null | undefined): PortalColors {
+  if (mode === 'app_default') return defaults ?? DEFAULT_PORTAL_COLORS
+  return { ...(custom ?? DEFAULT_PORTAL_COLORS), primary: accent ?? custom?.primary ?? DEFAULT_PORTAL_COLORS.primary }
+}
 
 export interface PortalApp {
   appId: string
@@ -8,7 +21,7 @@ export interface PortalApp {
   enabled: boolean
   firstPublishedAt: string | null
   url: string | null
-  branding: { accentColor: string; logoUrl: string | null; introCopy: string | null }
+  branding: { accentColor: string; colors?: PortalColors; logoUrl: string | null; introCopy: string | null }
 }
 export interface PortalSettings {
   baseDomain: string
@@ -27,7 +40,12 @@ export interface PublicPortal {
   slug: string
   displayName: string
   url: string
-  apps: (Pick<PortalApp, 'name' | 'slug' | 'url' | 'branding'> & { sections?: PortalSection[]; urls?: Record<PortalSection, string> })[]
+  apps: (Pick<PortalApp, 'name' | 'slug' | 'url' | 'branding'> & {
+    sections?: PortalSection[]
+    urls?: Record<PortalSection | 'support', string>
+    supportAvailable?: boolean
+    supportEnabled?: boolean
+  })[]
 }
 export interface PortalRequest {
   id: string

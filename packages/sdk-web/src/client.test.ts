@@ -49,6 +49,87 @@ async function client(extra: Record<string, unknown> = {}) {
   })
   return c
 }
+describe('feedback outcomes', () => {
+  async function open(anonymous = false) {
+    const c = await client({ allowAnonymous: true })
+    await c.setConsent({ feedback: true })
+    if (anonymous) await c.startAnonymous()
+    else await c.identify('customer', {}, 'token')
+    const original = fetch
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/authorize')) return ok({
+        status: 'authorized', presentationId: 'partial-feedback',
+        content: { questions: [
+          { id: 'q1', type: 'nps', title: 'Recommend us?' },
+          { id: 'q2', type: 'short_text', title: 'Tell us more' },
+        ] },
+      })
+      return original(url, init)
+    }))
+    expect(await c.openFeedback('campaign')).toMatchObject({ status: 'opened' })
+    return { c, shadow: document.querySelector('[data-usergist]')!.shadowRoot! }
+  }
+
+  async function answerFirst(shadow: ShadowRoot) {
+    shadow.querySelector<HTMLButtonElement>('[role=radio]')!.click()
+    shadow.querySelector<HTMLButtonElement>('.ug-footer .ug-button:last-child')!.click()
+    await vi.waitFor(() => expect(shadow.textContent).toContain('Tell us more'))
+  }
+
+  it.each([true, false])('saves Q1 when Q2 is dismissed (anonymous=%s)', async (anonymous) => {
+    const { c, shadow } = await open(anonymous)
+    await answerFirst(shadow)
+    if (anonymous) shadow.querySelector<HTMLButtonElement>('.ug-close')!.click()
+    else shadow.querySelector('[role=dialog]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await c.flush()
+    const responses = calls.filter(call => call.path === '/v1/sdk/responses')
+    expect(responses).toHaveLength(1)
+    expect(responses[0]!.body).toMatchObject({
+      idempotencyKey: 'partial-feedback', promptId: 'campaign', dismissed: true,
+      answers: [{ questionId: 'q1', value: 0 }],
+      anonymousId: c.getAnonymousId(),
+      ...(anonymous ? {} : { externalId: 'customer' }),
+    })
+    expect(calls.filter(call => call.path.endsWith('/receipt')).map(call => call.body.event)).toContain('dismissed')
+  })
+
+  it('records an empty dismissal without inventing answers', async () => {
+    const { c, shadow } = await open()
+    shadow.querySelector<HTMLButtonElement>('.ug-close')!.click()
+    await c.flush()
+    expect(calls.find(call => call.path === '/v1/sdk/responses')?.body).toMatchObject({ dismissed: true, answers: [] })
+  })
+
+  it('saves completion once even if close overlaps queue persistence', async () => {
+    const { c, shadow } = await open()
+    await answerFirst(shadow)
+    const text = shadow.querySelector<HTMLTextAreaElement>('textarea')!
+    text.value = 'Helpful'
+    text.dispatchEvent(new Event('input'))
+    shadow.querySelector<HTMLButtonElement>('.ug-footer .ug-button:last-child')!.click()
+    // Let the renderer enter onSubmit, then close while its async save continues.
+    await Promise.resolve()
+    shadow.querySelector<HTMLButtonElement>('.ug-close')!.click()
+    await c.flush()
+    const responses = calls.filter(call => call.path === '/v1/sdk/responses')
+    expect(responses).toHaveLength(1)
+    expect(responses[0]!.body).toMatchObject({ dismissed: false, answers: [
+      { questionId: 'q1', value: 0 }, { questionId: 'q2', value: 'Helpful' },
+    ] })
+    const outcomes = calls.filter(call => call.path.endsWith('/receipt') && ['dismissed', 'completed'].includes(call.body.event))
+    expect(outcomes.map(call => call.body.event)).toEqual(['completed'])
+  })
+
+  it.each(['reset', 'consent'] as const)('does not submit a dismissal when participation changes through %s', async (change) => {
+    const { c, shadow } = await open()
+    await answerFirst(shadow)
+    if (change === 'reset') await c.reset()
+    else await c.setConsent({ feedback: false })
+    await c.flush()
+    expect(calls.filter(call => call.path === '/v1/sdk/responses')).toEqual([])
+  })
+})
+
 describe('explicit browser activation', () => {
   it('declares JSON only when sending a body', async () => {
     const c = await client()

@@ -76,7 +76,7 @@ export interface RenderExperience {
     currentQuestionId: string | null
   ) => Promise<void>
   onSubmit?: (answers: SurveyAnswerRecord) => Promise<void>
-  onDismiss?: () => void
+  onDismiss?: (answers: SurveyAnswerRecord) => void
   onCta?: (cta: NonNullable<RenderExperience['ctas']>[number]) => void
 }
 export function el<K extends keyof HTMLElementTagNameMap>(
@@ -311,12 +311,16 @@ export class WebRenderer {
         : { backdrop: experience.backdropEnabled ?? true }),
       ...experience.webPresentation,
     }
+    const answers: Record<string, Answer> = { ...experience.answers } as Record<
+      string,
+      Answer
+    >
     const surface = this.frame(
       experience.pillar,
       experience.title ??
         (experience.pillar === 'survey' ? 'Survey' : 'Feedback'),
       presentation,
-      experience.onDismiss
+      () => experience.onDismiss?.(structuredClone(answers) as SurveyAnswerRecord)
     )
     if (experience.pillar === 'inapp') {
       const content = el('div', 'ug-content')
@@ -355,10 +359,6 @@ export class WebRenderer {
         | ReadonlyArray<RenderQuestion>
         | undefined) ??
       []
-    const answers: Record<string, Answer> = { ...experience.answers } as Record<
-      string,
-      Answer
-    >
     let current = experience.showEndScreen
       ? '__end__'
       : experience.currentQuestionId ??
@@ -456,12 +456,14 @@ export class WebRenderer {
             answers as SurveyAnswerRecord,
             destination
           )
+          if (!surface.isConnected) return
           if (destination) {
             history.push(q.id)
             current = destination
             draw()
           } else {
             await experience.onSubmit?.(answers as SurveyAnswerRecord)
+            if (!surface.isConnected) return
             this.closeHandler = undefined
             current = undefined
             draw()

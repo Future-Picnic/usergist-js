@@ -22,6 +22,7 @@ import type {
 } from '../types/prompt.js'
 import type { Segment } from '../types/segment.js'
 import type * as Portal from '../types/portal.js'
+import type * as Support from '../types/portal-support.js'
 import type { SegmentDsl } from '../types/segment-dsl.js'
 import type { AudienceSpec } from '../types/targeting.js'
 import type {
@@ -633,6 +634,53 @@ export const endpoints = {
       Portal.PortalVote,
       { upvoted: boolean; upvoteCount: number }
     >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/support/tickets': {} as Endpoint<
+    Support.SupportPageQuery,
+    Support.SupportTicketPage
+  >,
+  'POST /v1/portal/:portalSlug/apps/:appSlug/support/tickets': {} as Endpoint<
+    Support.CreateSupportTicketRequest,
+    Support.SupportTicketDetail
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/support/tickets/:ticketId': {} as Endpoint<
+    void,
+    Support.SupportTicketDetail
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/support/tickets/:ticketId/messages': {} as Endpoint<
+    Support.SupportPageQuery,
+    Support.SupportMessagePage
+  >,
+  'POST /v1/portal/:portalSlug/apps/:appSlug/support/tickets/:ticketId/messages': {} as Endpoint<
+    Support.CreateSupportMessageRequest,
+    Support.SupportMessage
+  >,
+  'GET /v1/apps/:appId/support/tickets': {} as Endpoint<
+    Support.SupportTicketQuery,
+    Support.SupportTicketPage
+  >,
+  'GET /v1/apps/:appId/support/tickets/:ticketId': {} as Endpoint<void, Support.SupportTicketDetail>,
+  'GET /v1/apps/:appId/support/tickets/:ticketId/messages': {} as Endpoint<
+    Support.SupportPageQuery,
+    Support.SupportMessagePage
+  >,
+  'POST /v1/apps/:appId/support/tickets/:ticketId/messages': {} as Endpoint<
+    Support.CreateSupportMessageRequest,
+    Support.SupportMessage
+  >,
+  'PATCH /v1/apps/:appId/support/tickets/:ticketId': {} as Endpoint<
+    Support.UpdateSupportTicketRequest,
+    Support.SupportTicket
+  >,
+  'GET /v1/apps/:appId/support/settings': {} as Endpoint<void, Support.SupportSettings>,
+  'PUT /v1/apps/:appId/support/settings': {} as Endpoint<
+    Support.UpdateSupportSettingsRequest,
+    Support.SupportSettings
+  >,
+  'GET /v1/apps/:appId/support/summary': {} as Endpoint<void, Support.SupportSummary>,
+  'POST /v1/apps/:appId/support/notifications/:notificationId/retry': {} as Endpoint<
+    void,
+    Support.SupportNotification
+  >,
   'POST /v1/sdk/clients': {} as Endpoint<
     RegisterSdkClientRequest,
     { clientId: string; protocolVersion: 2 }

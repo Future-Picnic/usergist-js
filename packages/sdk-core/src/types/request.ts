@@ -6,6 +6,7 @@
 // as on every other SDK payload — no new identity types here.
 
 import type { ThemeMode } from './brand.js'
+import type { PortalColors } from './portal.js'
 
 export type RequestStatus =
   | 'under_review'
@@ -228,6 +229,7 @@ export interface ListRequestsQuery {
 // ---------- settings ----------
 
 export interface RequestBranding {
+  readonly portalColors?: PortalColors | null
   readonly logoUrl?: string | null
   readonly accentColor?: string | null
   readonly coverImageUrl?: string | null
