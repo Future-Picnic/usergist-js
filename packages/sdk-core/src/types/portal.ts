@@ -4,6 +4,12 @@ import type { BrandThemeTokens, ThemeMode } from './brand.js'
 
 export type PortalColors = BrandThemeTokens['colors']
 
+export interface PortalPrivacyNotice {
+  controllerName: string
+  policyUrl: string
+  contactEmail: string
+}
+
 export const DEFAULT_PORTAL_COLORS: PortalColors = {
   primary: '#6C5CE7', background: '#F5F5FA', text: '#15151D', subtext: '#74748B', border: '#E2E4EE',
 }
@@ -21,7 +27,7 @@ export interface PortalApp {
   enabled: boolean
   firstPublishedAt: string | null
   url: string | null
-  branding: { accentColor: string; colors?: PortalColors; logoUrl: string | null; introCopy: string | null }
+  branding: { accentColor: string; colors?: PortalColors; logoUrl: string | null; introCopy: string | null; privacy?: PortalPrivacyNotice | null }
 }
 export interface PortalSettings {
   baseDomain: string

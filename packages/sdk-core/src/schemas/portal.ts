@@ -11,6 +11,16 @@ export const updatePortalSchema = z.object({
 export const updatePortalAppSchema = z.object({ slug: portalSlugSchema, enabled: z.boolean() }).strict()
 export const portalVisibilitySchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(100), visible: z.boolean() }).strict()
 export const portalEmailSchema = z.string().trim().email().max(254).transform((value) => value.toLowerCase())
+export const portalPrivacyNoticeSchema = z.object({
+  controllerName: z.string().trim().min(1).max(160),
+  policyUrl: z.string().trim().url().max(2048).refine((value) => {
+    try {
+      const url = new URL(value)
+      return url.protocol === 'https:' && !url.username && !url.password
+    } catch { return false }
+  }, 'Use an HTTPS privacy policy URL without embedded credentials.'),
+  contactEmail: portalEmailSchema,
+}).strict()
 export const portalAuthStartSchema = z.object({ email: portalEmailSchema }).strict()
 export const portalAuthVerifySchema = z.object({ email: portalEmailSchema, code: z.string().regex(/^\d{6}$/) }).strict()
 export const portalSubmissionSchema = z.object({

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6 — shared contract update
+
+- Bundle the updated core 0.1.6 browser contracts and types, including push send history and portal privacy notices.
+- Preserve the existing initialization, identity, consent, and presentation APIs.
+
 ## 0.1.5
 
 - Preserve answers when feedback is dismissed before the final question, including anonymous users. Record a single outcome if submission overlaps dismissal.

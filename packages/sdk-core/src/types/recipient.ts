@@ -53,11 +53,23 @@ export type SurveyRecipientStatus =
   | 'abandoned'
 
 export interface SurveyRecipient extends RecipientIdentity {
+  /** Attempts started in the selected range, newest first; statuses are current. */
+  readonly attempts?: ReadonlyArray<SurveyRecipientAttempt>
   readonly receivedAt: string
   readonly source: SurveyAttemptSource
   readonly status: SurveyRecipientStatus
   readonly attemptId: string | null
   readonly startedAt: string | null
+  readonly completedAt: string | null
+  readonly abandonedAt: string | null
+  readonly responses: ReadonlyArray<SurveyResponseRecord>
+}
+
+export interface SurveyRecipientAttempt {
+  readonly id: string
+  readonly source: SurveyAttemptSource
+  readonly status: 'in_progress' | 'completed' | 'abandoned'
+  readonly startedAt: string
   readonly completedAt: string | null
   readonly abandonedAt: string | null
   readonly responses: ReadonlyArray<SurveyResponseRecord>

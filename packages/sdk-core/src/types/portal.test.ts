@@ -1,8 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import { buildPortalUrl, suggestPortalSlug, validPortalSlug, resolvePortalColors, DEFAULT_PORTAL_COLORS } from './portal'
 import { THEME_PRESETS } from './themes'
-import { portalSubmissionSchema, portalAuthStartSchema, portalVoteSchema } from '../schemas/portal'
+import { portalSubmissionSchema, portalAuthStartSchema, portalVoteSchema, portalPrivacyNoticeSchema } from '../schemas/portal'
 describe('portal addresses and participant input boundaries', () => {
+  it('requires a complete privacy notice and rejects executable, insecure or credential-bearing links', () => {
+    const notice = { controllerName: ' Example Ltd ', policyUrl: 'https://example.test/privacy', contactEmail: ' Privacy@Example.test ' }
+    expect(portalPrivacyNoticeSchema.parse(notice)).toEqual({ controllerName: 'Example Ltd', policyUrl: notice.policyUrl, contactEmail: 'privacy@example.test' })
+    for (const policyUrl of ['javascript:alert(1)', 'data:text/html,hello', 'http://example.test/privacy', 'https://user:secret@example.test/privacy', '//example.test/privacy']) {
+      expect(portalPrivacyNoticeSchema.safeParse({ ...notice, policyUrl }).success).toBe(false)
+    }
+    expect(portalPrivacyNoticeSchema.safeParse({ policyUrl: notice.policyUrl }).success).toBe(false)
+    expect(portalPrivacyNoticeSchema.safeParse({ ...notice, controllerName: '' }).success).toBe(false)
+    expect(portalPrivacyNoticeSchema.safeParse({ ...notice, contactEmail: 'not-an-email' }).success).toBe(false)
+    expect(portalPrivacyNoticeSchema.safeParse({ ...notice, trackingConsent: true }).success).toBe(false)
+  })
   it('follows the complete app theme and ignores detached colors when reset', () => {
     const colors = THEME_PRESETS.find((preset) => preset.id === 'midnight')!.colors
     expect(resolvePortalColors('app_default', colors, DEFAULT_PORTAL_COLORS, '#FF0000')).toEqual(colors)

@@ -234,6 +234,7 @@ export interface RequestBranding {
   readonly accentColor?: string | null
   readonly coverImageUrl?: string | null
   readonly introCopy?: string | null
+  readonly privacy?: import('./portal.js').PortalPrivacyNotice | null
 }
 
 export interface RequestNotificationRules {
