@@ -253,6 +253,15 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
   }
   advanceRef.current = advance
 
+  // Answers are kept, so going back shows the previous choice for editing.
+  function goBack(): void {
+    const previous = history[history.length - 1]
+    if (!flow.backNavigation || !previous || submitting) return
+    setHistory((h) => h.slice(0, -1))
+    setCurrentId(previous)
+    scheduleSave(previous, answers)
+  }
+
   async function submitAndComplete(): Promise<void> {
     if (!attemptId) return
     try {
@@ -381,7 +390,22 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
               </View>
             ) : null}
           </View>
-          <View style={{ width: 24 }} />
+          {flow.backNavigation && history.length > 0 && !ended && !submitting ? (
+            <Pressable
+              onPress={goBack}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              testID="survey-back"
+              hitSlop={16}
+              style={styles.closeBtn}
+            >
+              <Text style={{ color: theme.colors.text, fontFamily: theme.fontFamily, fontSize: 18, lineHeight: 20 }}>
+                ‹
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={{ width: 32 }} />
+          )}
         </View>
 
         <KeyboardAvoidingView

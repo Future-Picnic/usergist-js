@@ -80,10 +80,10 @@ const secureMemoryImpl: AsyncStorageLike = {
 }
 
 let nativeSecureChecked = false
-let nativeSecure: AsyncStorageLike | null = null
+let nativeSecure: ReturnType<typeof guardSecureBackend> | null = null
 let warnedSecureFallback = false
 
-function loadNativeSecureStorage(): AsyncStorageLike | null {
+function loadNativeSecureStorage(): ReturnType<typeof guardSecureBackend> | null {
   if (nativeSecureChecked) return nativeSecure
   nativeSecureChecked = true
   try {
@@ -94,16 +94,55 @@ function loadNativeSecureStorage(): AsyncStorageLike | null {
     if (!module?.secureGetItem || !module.secureSetItem || !module.secureRemoveItem) {
       return null
     }
-    nativeSecure = {
-      getItem: (key) => module.secureGetItem(key),
-      setItem: (key, value) => module.secureSetItem(key, value),
-      removeItem: (key) => module.secureRemoveItem(key),
-      multiRemove: (keys) => module.secureMultiRemove(keys),
-    }
+    nativeSecure = guardSecureBackend(
+      {
+        getItem: (key) => module.secureGetItem(key),
+        setItem: (key, value) => module.secureSetItem(key, value),
+        removeItem: (key) => module.secureRemoveItem(key),
+        multiRemove: (keys) => module.secureMultiRemove(keys),
+      },
+      secureMemoryImpl,
+    )
   } catch {
     nativeSecure = null
   }
   return nativeSecure
+}
+
+/**
+ * A present native module can still be refused by the OS (an unsigned
+ * simulator build gets Keychain -34018 on every call). Rejecting each read
+ * and write minted a new anonymous id per launch and failed every queued
+ * mutation (survey answers included), so after the first rejection the
+ * backend serves process memory for the rest of the launch.
+ */
+export function guardSecureBackend(
+  native: AsyncStorageLike,
+  fallback: AsyncStorageLike,
+): AsyncStorageLike & { readonly degraded: () => boolean } {
+  let failed = false
+  async function run<T>(op: () => Promise<T>, onFallback: () => Promise<T>): Promise<T> {
+    if (failed) return onFallback()
+    try {
+      return await op()
+    } catch (error) {
+      failed = true
+      reportError(
+        'native secure storage rejected an operation; subject credentials are memory-only for this launch',
+        error,
+      )
+      return onFallback()
+    }
+  }
+  const removeAll = (b: AsyncStorageLike, keys: ReadonlyArray<string>) =>
+    b.multiRemove ? b.multiRemove(keys) : Promise.all(keys.map((k) => b.removeItem(k))).then(() => {})
+  return {
+    degraded: () => failed,
+    getItem: (key) => run(() => native.getItem(key), () => fallback.getItem(key)),
+    setItem: (key, value) => run(() => native.setItem(key, value), () => fallback.setItem(key, value)),
+    removeItem: (key) => run(() => native.removeItem(key), () => fallback.removeItem(key)),
+    multiRemove: (keys) => run(() => removeAll(native, keys), () => removeAll(fallback, keys)),
+  }
 }
 
 function credentialBackend(): AsyncStorageLike {

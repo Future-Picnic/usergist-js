@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0 — aligned SDK release train
+
+- Align the Web SDK with core and the platform SDKs at 0.2.0, including the bundled core dependency.
+- Preserve the existing anonymous and identified session, consent, and presentation APIs.
+
 ## 0.1.6 — shared contract update
 
 - Bundle the updated core 0.1.6 browser contracts and types, including push send history and portal privacy notices.

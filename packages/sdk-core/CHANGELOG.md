@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0 — aligned SDK release train
+
+- Align the shared core version with the platform SDKs at 0.2.0. This release preserves the contracts and runtime APIs from 0.1.6.
+
 ## 0.1.6 — platform contracts
 
 - Add exact user ID and anonymous ID audience conditions, push reachability and send history contracts, and survey recipient attempt details.

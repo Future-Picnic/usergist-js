@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0-beta.4 — aligned SDK release train
+
+- Align with the 0.2.0 SDK train while retaining the prerelease `next` channel. Stable promotion still requires the signed-device acceptance evidence described in EXPO-ACCEPTANCE.md.
+
+- Keep identity, queued mutations and survey answers in memory for the rest of the launch when the OS refuses Keychain access (for example an unsigned simulator build, -34018), instead of failing every write and minting a new anonymous id.
+- Show a Back control in surveys when the flow enables `backNavigation`; answers are kept when going back.
+
 ## 0.2.0-beta.3 — durable instruction receipts
 
 - Save instruction delivery state before requesting display, preventing replays after a failed storage write or interrupted delivery.
