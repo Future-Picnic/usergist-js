@@ -971,12 +971,15 @@ export function consumeInstructions(
           })
           if (!isCurrent()) return
         }
-        dispatchInstruction(engine, instruction.type, instruction.payload)
+        // Persist before requesting UI. If storage fails, retrying this
+        // instruction must not duplicate a message that was already shown.
         seen.add(instruction.id)
         await engine.storage.setJsonStrict(
           STORAGE_KEYS.seenInstructions,
           [...seen].slice(-200)
         )
+        if (!isCurrent()) return
+        dispatchInstruction(engine, instruction.type, instruction.payload)
       }
       if (!isCurrent()) return
       // Persist receipts before advancing the cursor. Network retries must not

@@ -3,6 +3,7 @@ import { contentText, safeContentHref, type ContentNode } from '../types/portal-
 
 const uuid = z.string().uuid()
 export const contentKindSchema = z.enum(['article', 'changelog'])
+export const contentAssetOwnerSchema = z.enum(['article', 'changelog', 'roadmap'])
 export const contentStateSchema = z.enum(['draft', 'published', 'archived'])
 export const roadmapStatusSchema = z.enum(['planned', 'in_progress', 'shipped'])
 export const contentLinkSchema = z.object({ kind: z.enum(['request', 'roadmap']), id: uuid }).strict()
@@ -200,6 +201,7 @@ export const roadmapQuerySchema = z
 const roadmapFields = {
   title: z.string().trim().min(1).max(120),
   description: z.string().max(1500),
+  body: contentBodySchema.optional(),
   requestIds: z
     .array(uuid)
     .max(100)

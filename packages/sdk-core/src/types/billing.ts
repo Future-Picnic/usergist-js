@@ -10,6 +10,8 @@ export type SubscriptionSource = 'paddle' | 'internal'
 export type BillingPriceKind = 'fixed' | 'custom' | 'internal'
 export type BillingInterval = 'month'
 export type BillingAccessState =
+  | 'free'
+  | 'payment_required'
   | 'trial_active'
   | 'trial_grace'
   | 'active'
@@ -76,6 +78,14 @@ export interface BillingUsage {
   readonly unlimited: boolean
   readonly finalized: boolean
   readonly chargeStatus: BillingChargeStatus | null
+}
+
+/** Collection notice available to workspace members, without payment details. */
+export interface BillingCollectionStatus {
+  readonly freeLimitReached: boolean
+  readonly includedMau: number
+  readonly periodStart: string
+  readonly periodEnd: string
 }
 
 export interface BillingTrial {

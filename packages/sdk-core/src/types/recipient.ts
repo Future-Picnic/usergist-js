@@ -1,4 +1,5 @@
 import type { PromptResponse } from './response.js'
+import type { Question } from './prompt.js'
 import type { SurveyAttemptSource, SurveyResponseRecord } from './survey.js'
 
 export const RECIPIENTS_LIMIT = 100
@@ -26,6 +27,8 @@ export interface RecipientPageQuery { from?: string; to?: string; cursor?: strin
 
 export interface FeedbackRecipient extends RecipientIdentity {
   readonly receivedAt: string
+  /** Questions delivered to this recipient; null when historical content is unavailable. */
+  readonly questions?: ReadonlyArray<Question> | null
   readonly response: PromptResponse | null
 }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0-beta.3 — durable instruction receipts
+
+- Save instruction delivery state before requesting display, preventing replays after a failed storage write or interrupted delivery.
+- Recheck the active identity after saving a receipt so an account change cannot display a stale instruction.
+- Add regression coverage for concurrent delivery, repeated SDK recreation, offline acknowledgements, and failed receipt persistence.
+- Maximum-impressions enforcement also requires the coordinated API update. Expo remains on the prerelease `next` channel.
+
 ## 0.2.0-beta.2 — identity lifecycle
 
 - Serialize explicit token invalidation with registration, remove invalidated retry candidates, and preserve consent-based re-enable behavior.

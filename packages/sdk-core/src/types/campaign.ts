@@ -10,6 +10,25 @@ export type PushDeliveryMode =
 
 export type PushPlatformFilter = 'all' | 'ios' | 'android'
 
+export interface PushSendPage {
+  readonly campaignStatus: string
+  readonly calendarScheduled: boolean
+  readonly totals: { upcoming: number; reachable: number; skipped: number; failed: number; unknown: number }
+  readonly reasons: ReadonlyArray<{ reason: string; count: number }>
+  readonly rows: ReadonlyArray<{
+    id: string
+    anonymousId: string
+    externalId: string | null
+    scheduledAt: string
+    completedAt: string | null
+    status: 'queued' | 'sent' | 'skipped' | 'failed' | 'unknown'
+    reason: string | null
+    reachable: boolean
+    blockingReason: string | null
+  }>
+  readonly nextCursor: string | null
+}
+
 export type CampaignType = 'push' | 'survey'
 
 export type CampaignMode =

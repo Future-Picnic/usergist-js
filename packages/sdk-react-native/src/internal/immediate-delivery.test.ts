@@ -21,8 +21,7 @@ function instruction(id: number): SdkDeliveryInstruction {
   }
 }
 
-function harness() {
-  const data = new Map<string, unknown>([['instructionCursor', 4]])
+function harness(data = new Map<string, unknown>([['instructionCursor', 4]])) {
   const emit = vi.fn()
   const acknowledge = vi.fn(async () => ({ acknowledged: 1 }))
   const engine = {
@@ -113,6 +112,63 @@ describe('immediate instruction reconciliation', () => {
       consumeInstructions(engine, [instruction(9)], false),
       consumeInstructions(engine, [instruction(9)], true),
     ])
+    expect(emit).toHaveBeenCalledOnce()
+  })
+
+  it('shows an in-app instruction once across concurrent responses and repeated SDK recreation while acknowledgements fail', async () => {
+    const first = harness()
+    first.acknowledge.mockRejectedValue(new Error('offline'))
+    const message: SdkDeliveryInstruction = {
+      ...instruction(9),
+      type: 'inapp.show',
+      payload: {
+        presentationId: 'capped-presentation',
+        triggerEventId: 'app-open-event',
+        message: { messageId: 'capped-message', title: 'Welcome', format: 'modal', ctas: [] },
+      },
+    }
+    await Promise.all([
+      consumeInstructions(first.engine, [message], false),
+      consumeInstructions(first.engine, [message], true),
+      consumeInstructions(first.engine, [message, message], true),
+    ])
+    await first.engine.mutationFlushPromise
+    expect(first.emit).toHaveBeenCalledOnce()
+    expect(first.emit).toHaveBeenCalledWith('showInAppMessage', expect.objectContaining({ messageId: 'capped-message' }))
+    expect(first.data.get('seenInstructions')).toEqual([9])
+    expect(first.engine.mutations.size()).toBeGreaterThan(0)
+
+    // Recreate all in-memory engine state, retaining only persisted storage.
+    for (let index = 0; index < 10; index++) {
+      const restarted = harness(first.data)
+      restarted.acknowledge.mockRejectedValue(new Error('still offline'))
+      await restarted.engine.mutations.hydrate()
+      await consumeInstructions(restarted.engine, [message], true)
+      await restarted.engine.mutationFlushPromise
+      expect(restarted.emit).not.toHaveBeenCalled()
+      expect(restarted.data.get('seenInstructions')).toEqual([9])
+    }
+  })
+
+  it('does not show an in-app message until its delivery receipt is durable, and retries after a storage failure', async () => {
+    const { engine, data, emit, acknowledge } = harness()
+    const message: SdkDeliveryInstruction = {
+      ...instruction(9), type: 'inapp.show',
+      payload: { message: { messageId: 'capped-message', title: 'Welcome', format: 'modal' } },
+    }
+    vi.mocked(engine.storage.setJsonStrict).mockRejectedValueOnce(new Error('disk full'))
+    await expect(consumeInstructions(engine, [message], false)).rejects.toThrow('disk full')
+    expect(emit).not.toHaveBeenCalled()
+    expect(acknowledge).not.toHaveBeenCalled()
+    expect(data.get('seenInstructions')).toBeUndefined()
+
+    emit.mockImplementation(() => {
+      expect(data.get('seenInstructions')).toEqual([9])
+    })
+    await consumeInstructions(engine, [message], false)
+    await engine.mutationFlushPromise
+    expect(emit).toHaveBeenCalledOnce()
+    await consumeInstructions(engine, [message], true)
     expect(emit).toHaveBeenCalledOnce()
   })
 

@@ -1,5 +1,6 @@
 export type PortalSection = 'requests' | 'roadmap' | 'help' | 'changelog'
 export type DocumentKind = 'article' | 'changelog'
+export type ContentAssetOwner = DocumentKind | 'roadmap'
 export type ContentState = 'draft' | 'published' | 'archived'
 export type RoadmapStatus = 'planned' | 'in_progress' | 'shipped'
 export type ChangelogCategory = 'new' | 'improved' | 'fixed'
@@ -149,6 +150,7 @@ export interface RoadmapItem {
   id: string
   title: string
   description: string
+  body?: ContentNode
   status: RoadmapStatus
   state: ContentState
   revision: number
@@ -173,6 +175,7 @@ export interface PublicRoadmapItem {
   id: string
   title: string
   description: string
+  body?: ContentNode
   status: RoadmapStatus
   statusChangedAt: string
   links: PublicContentLink[]
@@ -188,6 +191,7 @@ export interface CreateRoadmapItem {
   idempotencyKey: string
   title: string
   description: string
+  body?: ContentNode
   status: RoadmapStatus
   requestIds: string[]
 }
@@ -195,6 +199,7 @@ export interface SaveRoadmapItem {
   revision: number
   title: string
   description: string
+  body?: ContentNode
   requestIds: string[]
 }
 export interface MoveRoadmapItem {
@@ -232,6 +237,16 @@ export function contentText(node: ContentNode): string {
       .map(contentText)
       .join(node.type === 'paragraph' || node.type === 'heading' ? '' : '\n')
   )
+}
+/** Preserve existing plain text when opening it in a rich content editor. */
+export function textContentBody(text: string): ContentNode {
+  return {
+    type: 'doc',
+    content: text.split('\n').map((line) => ({
+      type: 'paragraph',
+      ...(line ? { content: [{ type: 'text' as const, text: line }] } : {}),
+    })),
+  }
 }
 export function contentAssetIds(node: ContentNode): string[] {
   return [

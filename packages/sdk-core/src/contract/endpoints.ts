@@ -73,6 +73,7 @@ import type {
   BillingCheckoutResponse,
   BillingPlan,
   BillingUsage,
+  BillingCollectionStatus,
   BillingTrial,
   BillingPeriod,
   BillingOfferAvailability,
@@ -1015,8 +1016,8 @@ export const endpoints = {
   // Inline AudienceSpec preview — count of users matching the (unsaved) spec.
   // Used by the dashboard's TARGET step to power the live count badge.
   'POST /v1/apps/:appId/audience/preview': {} as Endpoint<
-    import('../types/targeting.js').AudienceSpec,
-    { matching: number; sampleUsers: ReadonlyArray<AppUserSummary> }
+    import('../types/targeting.js').AudienceSpec & { pushReachability?: boolean },
+    { matching: number; pushReachable?: number; sampleUsers: ReadonlyArray<AppUserSummary> }
   >,
 
   // SDK-facing (authenticated via write key)
@@ -1152,6 +1153,10 @@ export const endpoints = {
   'GET /v1/apps/:appId/campaigns/:cid/analytics': {} as Endpoint<
     { from?: string; to?: string },
     CampaignAnalytics
+  >,
+  'GET /v1/apps/:appId/campaigns/:cid/sends': {} as Endpoint<
+    { view?: 'upcoming' | 'issues'; showAll?: boolean; cursor?: string; limit?: number },
+    import('../types/campaign.js').PushSendPage
   >,
   'GET /v1/apps/:appId/campaigns/:cid/deliveries': {} as Endpoint<
     { limit?: number },
@@ -1661,11 +1666,15 @@ export const endpoints = {
   >,
 
   // ---------- billing (Paddle) ----------
+  'GET /v1/workspaces/:wid/billing/collection-status': {} as Endpoint<
+    void,
+    BillingCollectionStatus
+  >,
   'GET /v1/workspaces/:wid/billing/plans': {} as Endpoint<
     void,
     {
       plans: ReadonlyArray<BillingPlan>
-      foundingOffer: BillingOfferAvailability
+      foundingOffer: BillingOfferAvailability | null
     }
   >,
   'GET /v1/workspaces/:wid/billing/subscription': {} as Endpoint<
@@ -1765,7 +1774,7 @@ export const endpoints = {
     { grantable?: boolean },
     {
       plans: ReadonlyArray<BillingPlan>
-      foundingOffer: BillingOfferAvailability
+      foundingOffer: BillingOfferAvailability | null
       paddleEnvironment: 'sandbox' | 'production'
       configuration: {
         apiKeyConfigured: boolean
