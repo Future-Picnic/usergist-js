@@ -1,0 +1,46 @@
+import { describe, expect, it, vi } from 'vitest'
+import { PresentationGate } from './presentation.js'
+
+describe('campaign presentation readiness', () => {
+  it('holds UI until resume and never repeats it on duplicate resumes', () => {
+    const gate = new PresentationGate(true)
+    const show = vi.fn()
+    gate.runWhenReady(show, gate.validator('feedback'))
+    expect(show).not.toHaveBeenCalled()
+    gate.setPaused(false)
+    gate.setPaused(false)
+    expect(show).toHaveBeenCalledOnce()
+  })
+  it('drops revoked work permanently while preserving other consent purposes', () => {
+    const gate = new PresentationGate(true)
+    const feedback = vi.fn(), survey = vi.fn(), canceled = vi.fn()
+    gate.runWhenReady(feedback, gate.validator('feedback'), canceled)
+    gate.runWhenReady(survey, gate.validator('survey'))
+    gate.invalidate('feedback')
+    gate.setPaused(false)
+    expect(feedback).not.toHaveBeenCalled()
+    expect(canceled).toHaveBeenCalledOnce()
+    expect(survey).toHaveBeenCalledOnce()
+  })
+  it('discards old identity work and permits fresh work while staying paused', () => {
+    const gate = new PresentationGate(true)
+    const old = vi.fn(), fresh = vi.fn()
+    gate.runWhenReady(old, gate.validator('survey'))
+    gate.invalidate()
+    gate.runWhenReady(fresh, gate.validator('survey'))
+    expect(gate.isPaused).toBe(true)
+    gate.setPaused(false)
+    expect(old).not.toHaveBeenCalled()
+    expect(fresh).toHaveBeenCalledOnce()
+  })
+  it('allows a host to pause again while resuming multiple queued surfaces', () => {
+    const gate = new PresentationGate(true)
+    const second = vi.fn()
+    gate.runWhenReady(() => gate.setPaused(true), gate.validator('feedback'))
+    gate.runWhenReady(second, gate.validator('feedback'))
+    gate.setPaused(false)
+    expect(second).not.toHaveBeenCalled()
+    gate.setPaused(false)
+    expect(second).toHaveBeenCalledOnce()
+  })
+})
