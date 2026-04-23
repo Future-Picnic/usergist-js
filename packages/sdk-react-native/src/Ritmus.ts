@@ -120,12 +120,16 @@ export const Ritmus = {
         await ensureHydrated(e)
         const next = await e.consent.set(purposes)
         const id = e.identity.get()
-        if (next.analytics || next.feedback) {
+        if (next.analytics || next.feedback || next.push) {
           try {
             await e.transport.consent({
               anonymousId: id.anonymousId,
               externalId: id.externalId,
-              purposes: { analytics: next.analytics, feedback: next.feedback },
+              purposes: {
+                analytics: next.analytics,
+                feedback: next.feedback,
+                push: next.push,
+              },
             })
           } catch (err) {
             reportError('transport.consent failed', err)
@@ -197,6 +201,54 @@ export const Ritmus = {
     } catch (err) {
       reportError('onResponse failed', err)
       return () => {}
+    }
+  },
+
+  async registerPushToken(
+    token: string,
+    platform: 'ios' | 'android',
+    opts?: { environment?: 'production' | 'sandbox' },
+  ): Promise<void> {
+    try {
+      if (!token) return
+      const e = requireEngine()
+      await ensureHydrated(e)
+      // Consent is enforced server-side (the register-token route reads
+      // consent_log and refuses if push was explicitly declined). We no
+      // longer short-circuit here because the host app typically calls
+      // setConsent and registerPushToken in parallel; racing the local
+      // consent hydration is not our problem to solve.
+      const id = e.identity.get()
+      await e.transport.pushRegisterToken({
+        anonymousId: id.anonymousId,
+        externalId: id.externalId ?? null,
+        token,
+        platform,
+        environment: opts?.environment ?? 'production',
+        language: undefined,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        appVersion: undefined,
+        sdkVersion: 'rn-0.1.0',
+        optIn: true,
+      })
+      debugLog('push token registered with server')
+    } catch (err) {
+      reportError('registerPushToken failed', err)
+    }
+  },
+
+  async invalidatePushToken(token: string): Promise<void> {
+    try {
+      if (!token) return
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      await e.transport.pushInvalidateToken({
+        anonymousId: id.anonymousId,
+        token,
+      })
+    } catch (err) {
+      reportError('invalidatePushToken failed', err)
     }
   },
 

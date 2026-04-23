@@ -23,6 +23,7 @@ export interface IdentityState {
 export interface ConsentState {
   readonly analytics: boolean
   readonly feedback: boolean
+  readonly push: boolean
   readonly updatedAt: string | null
 }
 

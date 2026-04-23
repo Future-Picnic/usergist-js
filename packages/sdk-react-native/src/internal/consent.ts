@@ -11,6 +11,7 @@ import type { ConsentState } from './types.js'
 const DEFAULT: ConsentState = {
   analytics: false,
   feedback: false,
+  push: false,
   updatedAt: null,
 }
 
@@ -21,6 +22,7 @@ export interface ConsentManager {
   readonly clear: () => Promise<ConsentState>
   readonly allowsTransport: () => boolean
   readonly allowsFeedback: () => boolean
+  readonly allowsPush: () => boolean
   readonly subscribe: (cb: (s: ConsentState) => void) => () => void
 }
 
@@ -54,6 +56,7 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
           state = {
             analytics: Boolean(stored.analytics),
             feedback: Boolean(stored.feedback),
+            push: Boolean(stored.push),
             updatedAt: stored.updatedAt ?? null,
           }
         }
@@ -74,6 +77,7 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
       const next: ConsentState = {
         analytics: purposes.analytics ?? state.analytics,
         feedback: purposes.feedback ?? state.feedback,
+        push: purposes.push ?? state.push,
         updatedAt: new Date().toISOString(),
       }
       state = next
@@ -88,8 +92,9 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
       emit()
       return state
     },
-    allowsTransport: (): boolean => state.analytics || state.feedback,
+    allowsTransport: (): boolean => state.analytics || state.feedback || state.push,
     allowsFeedback: (): boolean => state.feedback,
+    allowsPush: (): boolean => state.push,
     subscribe(cb): () => void {
       listeners.add(cb)
       return () => {
