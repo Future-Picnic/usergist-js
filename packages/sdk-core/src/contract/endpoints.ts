@@ -30,6 +30,19 @@ import type {
   WriteKey,
 } from '../types/workspace.js'
 import type { Consent } from '../types/sdk.js'
+import type {
+  Campaign,
+  CampaignAnalytics,
+  CampaignWithVariants,
+  CreateCampaignRequest,
+  InvalidateDeviceTokenPayload,
+  PushCredentialSummary,
+  PushTransactionalRequest,
+  RegisterDeviceTokenPayload,
+  UpdateCampaignRequest,
+  UpdateDeviceTokenPayload,
+  UploadCredentialRequest,
+} from '../types/campaign.js'
 
 // ---------- auth ----------
 
@@ -321,6 +334,29 @@ export const endpoints = {
   'GET /v1/apps/:appId/users': {} as Endpoint<ListUsersQuery, ReadonlyArray<AppUserSummary>>,
   'GET /v1/apps/:appId/users/:anonymousId': {} as Endpoint<void, AppUserDetail>,
   'GET /v1/apps/:appId/users/:anonymousId/events': {} as Endpoint<ListUserEventsQuery, ReadonlyArray<AppUserEvent>>,
+  'GET /v1/apps/:appId/users/:anonymousId/push': {} as Endpoint<
+    void,
+    {
+      consent: { push: boolean; feedback: boolean; analytics: boolean; recordedAt: string | null }
+      devices: ReadonlyArray<{
+        id: string
+        platform: 'ios' | 'android'
+        environment: 'production' | 'sandbox'
+        language: string | null
+        timezone: string | null
+        appVersion: string | null
+        sdkVersion: string | null
+        optIn: boolean
+        lastSeenAt: string
+        invalidatedAt: string | null
+        createdAt: string
+      }>
+    }
+  >,
+  'POST /v1/apps/:appId/users/:anonymousId/push/test-send': {} as Endpoint<
+    { title: string; body: string; imageUrl?: string; deepLink?: string },
+    { dispatched: number; held: number; dropped: number; errors: ReadonlyArray<{ reason: string }> }
+  >,
 
   'POST /v1/apps/:appId/segments/ai-generate-rules': {} as Endpoint<GenerateSegmentRulesRequest, GenerateSegmentRulesResponse>,
   'POST /v1/apps/:appId/segments/ai-generate-name': {} as Endpoint<GenerateSegmentNameRequest, GenerateSegmentNameResponse>,
@@ -346,6 +382,45 @@ export const endpoints = {
   'POST /v1/apps/:appId/gdpr/delete': {} as Endpoint<GdprDeleteRequest, { scheduled: true }>,
   'POST /v1/apps/:appId/gdpr/export': {} as Endpoint<GdprExportRequest, { scheduled: true; exportId: string }>,
   'GET /v1/apps/:appId/gdpr/exports/:exportId': {} as Endpoint<void, { status: 'pending' | 'running' | 'completed' | 'failed'; downloadUrl?: string }>,
+
+  // Campaigns (push)
+  'GET /v1/apps/:appId/campaigns': {} as Endpoint<void, ReadonlyArray<Campaign>>,
+  'POST /v1/apps/:appId/campaigns': {} as Endpoint<CreateCampaignRequest, CampaignWithVariants>,
+  'GET /v1/apps/:appId/campaigns/:cid': {} as Endpoint<void, CampaignWithVariants>,
+  'PATCH /v1/apps/:appId/campaigns/:cid': {} as Endpoint<UpdateCampaignRequest, CampaignWithVariants>,
+  'DELETE /v1/apps/:appId/campaigns/:cid': {} as Endpoint<void, { ok: true }>,
+  'POST /v1/apps/:appId/campaigns/:cid/activate': {} as Endpoint<void, Campaign>,
+  'POST /v1/apps/:appId/campaigns/:cid/pause': {} as Endpoint<void, Campaign>,
+  'POST /v1/apps/:appId/campaigns/:cid/resend': {} as Endpoint<void, { queued: number }>,
+  'POST /v1/apps/:appId/campaigns/:cid/preview': {} as Endpoint<{ anonymousId?: string; mergeTags?: Record<string, unknown> }, ReadonlyArray<{ variantId: string; language: string | null; title: string; body: string }>>,
+  'POST /v1/apps/:appId/campaigns/:cid/test-send': {} as Endpoint<{ anonymousId: string }, { queued: true }>,
+  'GET /v1/apps/:appId/campaigns/:cid/analytics': {} as Endpoint<void, CampaignAnalytics>,
+  'GET /v1/apps/:appId/campaigns/:cid/deliveries': {} as Endpoint<void, ReadonlyArray<{ delivery_id: string; variant_id: string; language: string | null; anonymous_id: string; platform: string; sent_at: string; opened_at: string | null; clicked_at: string | null; error_code: string | null }>>,
+
+  // Push credentials
+  'GET /v1/apps/:appId/push/credentials': {} as Endpoint<void, ReadonlyArray<PushCredentialSummary>>,
+  'POST /v1/apps/:appId/push/credentials': {} as Endpoint<UploadCredentialRequest, PushCredentialSummary>,
+  'DELETE /v1/apps/:appId/push/credentials/:credId': {} as Endpoint<void, { ok: true }>,
+  'GET /v1/apps/:appId/push/stats': {} as Endpoint<
+    void,
+    {
+      credentials: { ios: boolean; android: boolean }
+      deviceTokens: { total: number; ios: number; android: number }
+      campaignCount: number
+    }
+  >,
+  'GET /v1/apps/:appId/push/audience-estimate': {} as Endpoint<
+    { segmentId?: string },
+    { audienceSize: number; withPush: number; iosCount: number; androidCount: number }
+  >,
+
+  // Push device-token registration (SDK-facing, write-key auth)
+  'POST /v1/sdk/push/register-token': {} as Endpoint<RegisterDeviceTokenPayload, { registered: true } | { skipped: 'consent' }>,
+  'POST /v1/sdk/push/update-token': {} as Endpoint<UpdateDeviceTokenPayload, { updated: true }>,
+  'POST /v1/sdk/push/invalidate-token': {} as Endpoint<InvalidateDeviceTokenPayload, { invalidated: true }>,
+
+  // Transactional push (server API token auth)
+  'POST /v1/apps/:appId/push/transactional': {} as Endpoint<PushTransactionalRequest, { queued: true; deliveryId: string; idempotent?: boolean }>,
 } as const
 
 export type EndpointKey = keyof typeof endpoints

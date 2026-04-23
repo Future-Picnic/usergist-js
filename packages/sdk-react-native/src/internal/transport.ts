@@ -56,6 +56,24 @@ export interface TransportConfig {
   readonly apiUrl: string
 }
 
+export interface PushRegisterTokenPayload {
+  readonly anonymousId: string
+  readonly externalId?: string | null
+  readonly token: string
+  readonly platform: 'ios' | 'android'
+  readonly environment: 'production' | 'sandbox'
+  readonly language?: string
+  readonly timezone?: string
+  readonly appVersion?: string
+  readonly sdkVersion?: string
+  readonly optIn?: boolean
+}
+
+export interface PushInvalidateTokenPayload {
+  readonly anonymousId: string
+  readonly token: string
+}
+
 export interface Transport {
   readonly ingest: (batch: IngestBatch) => Promise<SdkIngestResponse>
   readonly armedTriggers: (p: {
@@ -65,6 +83,8 @@ export interface Transport {
   readonly consent: (p: SdkConsentPayload) => Promise<{ ok: true }>
   readonly identify: (p: SdkIdentifyPayload) => Promise<{ ok: true }>
   readonly submitResponse: (p: SubmitResponsePayload) => Promise<{ ok: true }>
+  readonly pushRegisterToken: (p: PushRegisterTokenPayload) => Promise<unknown>
+  readonly pushInvalidateToken: (p: PushInvalidateTokenPayload) => Promise<unknown>
   readonly cancelAll: () => void
 }
 
@@ -191,6 +211,20 @@ export function createTransport(cfg: TransportConfig): Transport {
       request<{ ok: true }>({
         method: 'POST',
         path: '/v1/sdk/responses',
+        body: p,
+        idempotent: true,
+      }),
+    pushRegisterToken: (p) =>
+      request<unknown>({
+        method: 'POST',
+        path: '/v1/sdk/push/register-token',
+        body: p,
+        idempotent: true,
+      }),
+    pushInvalidateToken: (p) =>
+      request<unknown>({
+        method: 'POST',
+        path: '/v1/sdk/push/invalidate-token',
         body: p,
         idempotent: true,
       }),
