@@ -1,0 +1,27 @@
+{
+  "name": "ritmus-feedback",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ritmus mobile engagement tool — feedback pillar v1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:api": "pnpm --filter @ritmus/api dev",
+    "dev:dashboard": "pnpm --filter @ritmus/dashboard dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "db:migrate": "pnpm --filter @ritmus/api db:migrate",
+    "db:seed": "pnpm --filter @ritmus/api db:seed"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
