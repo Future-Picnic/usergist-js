@@ -1,4 +1,4 @@
-export type ConsentPurpose = 'analytics' | 'feedback' | 'push'
+export type ConsentPurpose = 'analytics' | 'feedback' | 'push' | 'survey'
 
 export type Consent = {
   readonly [K in ConsentPurpose]?: boolean

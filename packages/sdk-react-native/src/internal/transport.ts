@@ -7,12 +7,21 @@
 // Circuit breaker: opens temporarily on a 429/5xx streak of 5.
 
 import type {
+  CompleteSurveyAttemptRequest,
+  CreateSurveyAttemptRequest,
+  CreateSurveyAttemptResponse,
   IngestBatch,
+  ResolveSurveyLinkRequest,
+  ResolveSurveyLinkResponse,
   SdkArmedTriggersResponse,
   SdkConsentPayload,
   SdkIdentifyPayload,
   SdkIngestResponse,
   SubmitResponsePayload,
+  SubmitSurveyAnswersRequest,
+  SurveyCampaignWithFlow,
+  SurveySummary,
+  UpdateSurveyAttemptProgressRequest,
 } from '@ritmus/sdk-core'
 import { reportError, debugLog } from './debug.js'
 
@@ -85,11 +94,39 @@ export interface Transport {
   readonly submitResponse: (p: SubmitResponsePayload) => Promise<{ ok: true }>
   readonly pushRegisterToken: (p: PushRegisterTokenPayload) => Promise<unknown>
   readonly pushInvalidateToken: (p: PushInvalidateTokenPayload) => Promise<unknown>
+  readonly surveysAvailable: (p: {
+    readonly anonymousId: string
+    readonly externalId: string | null
+  }) => Promise<{ surveys: ReadonlyArray<SurveySummary> }>
+  readonly surveyGet: (p: {
+    readonly surveyId: string
+    readonly anonymousId: string
+    readonly externalId: string | null
+    readonly language?: string
+  }) => Promise<SurveyCampaignWithFlow>
+  readonly surveyCreateAttempt: (
+    surveyId: string,
+    body: CreateSurveyAttemptRequest,
+  ) => Promise<CreateSurveyAttemptResponse>
+  readonly surveyUpdateProgress: (
+    attemptId: string,
+    body: UpdateSurveyAttemptProgressRequest,
+  ) => Promise<{ ok: true }>
+  readonly surveySubmitAnswers: (
+    attemptId: string,
+    body: SubmitSurveyAnswersRequest,
+  ) => Promise<{ ok: true }>
+  readonly surveyComplete: (
+    attemptId: string,
+    body: CompleteSurveyAttemptRequest,
+  ) => Promise<{ ok: true }>
+  readonly surveyAbandon: (attemptId: string) => Promise<{ ok: true }>
+  readonly surveyResolveLink: (body: ResolveSurveyLinkRequest) => Promise<ResolveSurveyLinkResponse>
   readonly cancelAll: () => void
 }
 
 interface RequestOpts {
-  readonly method: 'GET' | 'POST'
+  readonly method: 'GET' | 'POST' | 'PATCH'
   readonly path: string
   readonly body?: unknown
   readonly idempotent: boolean
@@ -226,6 +263,66 @@ export function createTransport(cfg: TransportConfig): Transport {
         method: 'POST',
         path: '/v1/sdk/push/invalidate-token',
         body: p,
+        idempotent: true,
+      }),
+    surveysAvailable: ({ anonymousId, externalId }) => {
+      const params = new URLSearchParams({ anonymousId })
+      if (externalId) params.append('externalId', externalId)
+      return request<{ surveys: ReadonlyArray<SurveySummary> }>({
+        method: 'GET',
+        path: `/v1/sdk/surveys/available?${params.toString()}`,
+        idempotent: true,
+      })
+    },
+    surveyGet: ({ surveyId, anonymousId, externalId, language }) => {
+      const params = new URLSearchParams({ anonymousId })
+      if (externalId) params.append('externalId', externalId)
+      if (language) params.append('language', language)
+      return request<SurveyCampaignWithFlow>({
+        method: 'GET',
+        path: `/v1/sdk/surveys/${surveyId}?${params.toString()}`,
+        idempotent: true,
+      })
+    },
+    surveyCreateAttempt: (surveyId, body) =>
+      request<CreateSurveyAttemptResponse>({
+        method: 'POST',
+        path: `/v1/sdk/surveys/${surveyId}/attempts`,
+        body,
+        idempotent: true,
+      }),
+    surveyUpdateProgress: (attemptId, body) =>
+      request<{ ok: true }>({
+        method: 'PATCH',
+        path: `/v1/sdk/surveys/attempts/${attemptId}`,
+        body,
+        idempotent: true,
+      }),
+    surveySubmitAnswers: (attemptId, body) =>
+      request<{ ok: true }>({
+        method: 'POST',
+        path: `/v1/sdk/surveys/attempts/${attemptId}/responses`,
+        body,
+        idempotent: true,
+      }),
+    surveyComplete: (attemptId, body) =>
+      request<{ ok: true }>({
+        method: 'POST',
+        path: `/v1/sdk/surveys/attempts/${attemptId}/complete`,
+        body,
+        idempotent: true,
+      }),
+    surveyAbandon: (attemptId) =>
+      request<{ ok: true }>({
+        method: 'POST',
+        path: `/v1/sdk/surveys/attempts/${attemptId}/abandon`,
+        idempotent: true,
+      }),
+    surveyResolveLink: (body) =>
+      request<ResolveSurveyLinkResponse>({
+        method: 'POST',
+        path: '/v1/sdk/surveys/resolve-link',
+        body,
         idempotent: true,
       }),
     cancelAll(): void {

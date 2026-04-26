@@ -8,6 +8,13 @@ export interface SdkEvents {
   readonly response: ResponseEmission
   readonly showPrompt: ShowPromptPayload
   readonly dismissPrompt: { readonly promptId: string }
+  readonly showSurvey: { readonly surveyId: string; readonly source: string }
+  readonly dismissSurvey: { readonly surveyId: string }
+  readonly surveyInvite: {
+    readonly surveyId: string
+    readonly name: string
+    readonly source: string
+  }
 }
 
 export type EventName = keyof SdkEvents

@@ -13,6 +13,11 @@ import type {
   EventPropertyValue,
   PromptTheme,
   SdkConfig,
+  SurveyAnswerRecord,
+  SurveyAnswerValue,
+  SurveyAttemptSource,
+  SurveyCampaignWithFlow,
+  SurveySummary,
 } from '@ritmus/sdk-core'
 import {
   asEventProps,
@@ -35,11 +40,32 @@ import type {
 import type { EventBus } from './internal/events.js'
 import type { FrequencyCapManager } from './internal/frequency-cap.js'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './ui/theme.js'
+import { createSurveyStore, type SurveyStore } from './internal/survey-store.js'
 
 type PromptShownCb = (p: ShowPromptPayload) => void
 type ResponseCb = (r: ResponseEmission) => void
 
+interface SurveyHandlers {
+  /**
+   * Called when a triggered or scheduled survey becomes available for this
+   * user. Host app typically renders an invite (banner/toast) and calls
+   * `Ritmus.openSurvey(surveyId)` to launch the full flow on tap.
+   * If no handler is registered, the survey auto-opens — convenient for
+   * dev/testing, but you'll likely want a banner UX in production.
+   */
+  readonly onInvite?: (invite: {
+    readonly surveyId: string
+    readonly name: string
+    readonly source: string
+  }) => void
+  readonly onShow?: (surveyId: string) => void
+  readonly onComplete?: (surveyId: string, attemptId: string) => void
+  readonly onAbandon?: (surveyId: string, attemptId: string) => void
+}
+
 let engine: Engine | null = null
+let surveyStore: SurveyStore | null = null
+let surveyHandlers: SurveyHandlers = {}
 
 function requireEngine(): Engine {
   if (!engine) {
@@ -64,6 +90,7 @@ export const Ritmus = {
         return
       }
       engine = createEngine(config)
+      surveyStore = createSurveyStore(config.writeKey)
       engine.lifecycle.start()
     } catch (e) {
       reportError('init failed', e)
@@ -120,7 +147,7 @@ export const Ritmus = {
         await ensureHydrated(e)
         const next = await e.consent.set(purposes)
         const id = e.identity.get()
-        if (next.analytics || next.feedback || next.push) {
+        if (next.analytics || next.feedback || next.push || next.survey) {
           try {
             await e.transport.consent({
               anonymousId: id.anonymousId,
@@ -129,6 +156,7 @@ export const Ritmus = {
                 analytics: next.analytics,
                 feedback: next.feedback,
                 push: next.push,
+                ...(next.survey !== undefined ? { survey: next.survey } : {}),
               },
             })
           } catch (err) {
@@ -252,6 +280,75 @@ export const Ritmus = {
     }
   },
 
+  // ---------- Surveys ----------
+
+  async getAvailableSurveys(): Promise<ReadonlyArray<SurveySummary>> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      if (!e.consent.get()?.survey) return []
+      const id = e.identity.get()
+      const res = await e.transport.surveysAvailable({
+        anonymousId: id.anonymousId,
+        externalId: id.externalId ?? null,
+      })
+      return res.surveys ?? []
+    } catch (err) {
+      reportError('getAvailableSurveys failed', err)
+      return []
+    }
+  },
+
+  async openSurvey(
+    surveyId: string,
+    context?: { readonly language?: string; readonly source?: SurveyAttemptSource },
+  ): Promise<void> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      if (!e.consent.get()?.survey) {
+        debugLog('openSurvey: survey consent not granted; ignoring')
+        return
+      }
+      e.events.emit('showSurvey', {
+        surveyId,
+        source: context?.source ?? 'on_demand',
+      })
+    } catch (err) {
+      reportError('openSurvey failed', err)
+    }
+  },
+
+  setSurveyHandlers(handlers: SurveyHandlers): void {
+    surveyHandlers = { ...handlers }
+  },
+
+  async handleSurveyDeepLink(url: string): Promise<boolean> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      // Accept URLs of the shape `*://*/s/<token>` or `*survey=<token>`.
+      const match = url.match(/\/s\/([A-Za-z0-9._-]+)/) ?? url.match(/[?&]survey=([A-Za-z0-9._-]+)/)
+      if (!match || !match[1]) return false
+      const token = match[1]
+      const id = e.identity.get()
+      const resolved = await e.transport.surveyResolveLink({
+        token,
+        anonymousId: id.anonymousId,
+        externalId: id.externalId ?? null,
+      })
+      if (resolved.consentRequired) {
+        debugLog('survey link resolved but consent required — awaiting consent')
+        return false
+      }
+      e.events.emit('showSurvey', { surveyId: resolved.surveyId, source: 'link' })
+      return true
+    } catch (err) {
+      reportError('handleSurveyDeepLink failed', err)
+      return false
+    }
+  },
+
   // ---------- Non-public / internal ----------
 
   // Shape is unstable; for tests and debugging only.
@@ -291,6 +388,98 @@ export const Ritmus = {
     return engine?.themeOverride ?? null
   },
   __internal_logTrace: logTrace,
+  __internal_surveyStore(): SurveyStore | null {
+    return surveyStore
+  },
+  __internal_surveyHandlers(): SurveyHandlers {
+    return surveyHandlers
+  },
+  async __internal_fetchSurvey(surveyId: string, language?: string): Promise<SurveyCampaignWithFlow | null> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      return await e.transport.surveyGet({
+        surveyId,
+        anonymousId: id.anonymousId,
+        externalId: id.externalId ?? null,
+        ...(language ? { language } : {}),
+      })
+    } catch (err) {
+      reportError('surveyGet failed', err)
+      return null
+    }
+  },
+  async __internal_createAttempt(
+    surveyId: string,
+    source: SurveyAttemptSource,
+    language?: string,
+  ): Promise<{ attemptId: string; startQuestionId: string; currentQuestionId: string | null; snapshot: SurveyAnswerRecord; resumed: boolean } | null> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      const res = await e.transport.surveyCreateAttempt(surveyId, {
+        anonymousId: id.anonymousId,
+        externalId: id.externalId ?? null,
+        source,
+        ...(language ? { language } : {}),
+        sdkVersion: 'rn-0.1.0',
+      })
+      return {
+        attemptId: res.attemptId,
+        startQuestionId: res.startQuestionId,
+        currentQuestionId: res.currentQuestionId,
+        snapshot: (res.progressSnapshot ?? {}) as unknown as SurveyAnswerRecord,
+        resumed: res.resumed,
+      }
+    } catch (err) {
+      reportError('createAttempt failed', err)
+      return null
+    }
+  },
+  async __internal_saveProgress(
+    attemptId: string,
+    currentQuestionId: string | null,
+    snapshot: SurveyAnswerRecord,
+  ): Promise<void> {
+    try {
+      const e = requireEngine()
+      await e.transport.surveyUpdateProgress(attemptId, {
+        currentQuestionId,
+        progressSnapshot: snapshot,
+      })
+    } catch (err) {
+      reportError('saveProgress failed', err)
+    }
+  },
+  async __internal_submitAnswers(
+    attemptId: string,
+    answers: ReadonlyArray<{ questionId: string; value: SurveyAnswerValue }>,
+  ): Promise<void> {
+    try {
+      const e = requireEngine()
+      await e.transport.surveySubmitAnswers(attemptId, { answers })
+    } catch (err) {
+      reportError('submitAnswers failed', err)
+    }
+  },
+  async __internal_completeAttempt(attemptId: string): Promise<void> {
+    try {
+      const e = requireEngine()
+      await e.transport.surveyComplete(attemptId, {})
+    } catch (err) {
+      reportError('completeAttempt failed', err)
+    }
+  },
+  async __internal_abandonAttempt(attemptId: string): Promise<void> {
+    try {
+      const e = requireEngine()
+      await e.transport.surveyAbandon(attemptId)
+    } catch (err) {
+      reportError('abandonAttempt failed', err)
+    }
+  },
 } as const
 
 export type RitmusStatic = typeof Ritmus
