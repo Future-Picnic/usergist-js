@@ -20,27 +20,41 @@ export interface UserState {
   readonly lastEventAt: Readonly<Record<string, string | undefined>>
 }
 
-export function evaluateSegment(dsl: SegmentDsl, user: UserState): boolean {
-  return evaluateGroup(dsl.root, user)
+/**
+ * Evaluate a segment DSL against a user snapshot.
+ *
+ * @param now - Reference timestamp (ms since epoch) used for time-window
+ *   predicates. MUST be supplied explicitly so evaluation is deterministic
+ *   across processes (server trigger engine + client SDK), independent of
+ *   wall-clock skew. Defaults to `Date.now()` for backwards compatibility,
+ *   but callers that care about parity should pass the same `now` they pass
+ *   to the matching server-side call.
+ */
+export function evaluateSegment(
+  dsl: SegmentDsl,
+  user: UserState,
+  now: number = Date.now(),
+): boolean {
+  return evaluateGroup(dsl.root, user, now)
 }
 
-function evaluateGroup(group: PredicateGroup, user: UserState): boolean {
+function evaluateGroup(group: PredicateGroup, user: UserState, now: number): boolean {
   if (group.predicates.length === 0) return true
   if (group.combinator === 'AND') {
-    return group.predicates.every((p) => evaluateNode(p, user))
+    return group.predicates.every((p) => evaluateNode(p, user, now))
   }
-  return group.predicates.some((p) => evaluateNode(p, user))
+  return group.predicates.some((p) => evaluateNode(p, user, now))
 }
 
-function evaluateNode(node: Predicate | PredicateGroup, user: UserState): boolean {
-  if ('combinator' in node) return evaluateGroup(node, user)
+function evaluateNode(node: Predicate | PredicateGroup, user: UserState, now: number): boolean {
+  if ('combinator' in node) return evaluateGroup(node, user, now)
   switch (node.kind) {
     case 'user_property':
       return evaluateUserProperty(node, user)
     case 'event_count':
       return evaluateEventCount(node, user)
     case 'event_occurred':
-      return evaluateEventOccurred(node, user)
+      return evaluateEventOccurred(node, user, now)
   }
 }
 
@@ -86,17 +100,17 @@ function evaluateEventCount(p: EventCountPredicate, user: UserState): boolean {
   }
 }
 
-function evaluateEventOccurred(p: EventOccurredPredicate, user: UserState): boolean {
+function evaluateEventOccurred(p: EventOccurredPredicate, user: UserState, now: number): boolean {
   const last = user.lastEventAt[p.eventName]
   if (p.ever) {
     if (!last) return false
     if (p.windowDays == null) return true
-    const cutoff = Date.now() - p.windowDays * 86400_000
+    const cutoff = now - p.windowDays * 86400_000
     return Date.parse(last) >= cutoff
   }
   if (!last) return true
   if (p.windowDays == null) return false
-  const cutoff = Date.now() - p.windowDays * 86400_000
+  const cutoff = now - p.windowDays * 86400_000
   return Date.parse(last) < cutoff
 }
 
