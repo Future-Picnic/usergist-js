@@ -23,6 +23,8 @@ import type { PromptResponse, SubmitResponsePayload } from '../types/response.js
 import type {
   App,
   CreatedWriteKey,
+  RotateWriteKeyRequest,
+  RotateWriteKeyResponse,
   User,
   Workspace,
   WorkspaceMember,
@@ -337,6 +339,8 @@ export const endpoints = {
 
   'GET /v1/apps/:appId/write-keys': {} as Endpoint<void, ReadonlyArray<WriteKey>>,
   'POST /v1/apps/:appId/write-keys': {} as Endpoint<CreateWriteKeyRequest, CreatedWriteKey>,
+  'POST /v1/apps/:appId/write-keys/:keyId/rotate':
+    {} as Endpoint<RotateWriteKeyRequest, RotateWriteKeyResponse>,
   'DELETE /v1/apps/:appId/write-keys/:keyId': {} as Endpoint<void, { ok: true }>,
 
   'GET /v1/apps/:appId/event-definitions': {} as Endpoint<void, ReadonlyArray<EventDefinition>>,
