@@ -52,3 +52,22 @@ export interface WriteKey {
 export interface CreatedWriteKey extends WriteKey {
   readonly plaintext: string // only returned on creation
 }
+
+/**
+ * Request body for `POST /v1/apps/:appId/write-keys/:keyId/rotate`. The grace
+ * window is how long the old key keeps authenticating before the API starts
+ * returning 401 — gives SDK consumers a deploy window before the cutover.
+ */
+export interface RotateWriteKeyRequest {
+  readonly graceSeconds?: number
+}
+
+/**
+ * Response from a successful key rotation. The new key's plaintext is
+ * returned ONCE and never again — operators must capture it on rotation.
+ */
+export interface RotateWriteKeyResponse {
+  readonly newKey: CreatedWriteKey
+  readonly oldKey: WriteKey
+  readonly oldKeyExpiresAt: string
+}
