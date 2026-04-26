@@ -41,6 +41,16 @@ import type { EventBus } from './internal/events.js'
 import type { FrequencyCapManager } from './internal/frequency-cap.js'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './ui/theme.js'
 import { createSurveyStore, type SurveyStore } from './internal/survey-store.js'
+import {
+  RitmusPushNative,
+  onTokenReceived,
+  onNotificationReceived,
+  onNotificationOpened,
+  onTokenError,
+} from './native/push-bridge.js'
+import { Push } from './Push.js'
+import type { NotificationPayload } from './native/events.js'
+import { Platform } from 'react-native'
 
 type PromptShownCb = (p: ShowPromptPayload) => void
 type ResponseCb = (r: ResponseEmission) => void
@@ -72,6 +82,79 @@ function requireEngine(): Engine {
     throw new Error('Ritmus.init must be called before using the SDK')
   }
   return engine
+}
+
+// ---------- Native push listener wiring (Phase 7) ----------
+
+let enginePushListenersAttached = false
+
+function defaultEnvironment(): 'sandbox' | 'production' {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dev = (globalThis as any).__DEV__
+  return dev ? 'sandbox' : 'production'
+}
+
+function attachEnginePushListeners(): void {
+  if (enginePushListenersAttached) return
+  enginePushListenersAttached = true
+
+  onTokenReceived((p) => {
+    void (async () => {
+      try {
+        const platform = (p.platform === 'ios' ? 'ios' : 'android') as 'ios' | 'android'
+        await Ritmus.registerPushToken(p.token, platform, {
+          environment: defaultEnvironment(),
+        })
+      } catch (err) {
+        reportError('tokenReceived registration failed', err)
+      }
+    })()
+  })
+
+  onTokenError((p) => {
+    debugLog('push token error', p.error)
+  })
+
+  onNotificationReceived((p: NotificationPayload) => {
+    forwardToPushHandler(p, 'received')
+  })
+
+  onNotificationOpened((p: NotificationPayload) => {
+    forwardToPushHandler(p, 'opened')
+  })
+}
+
+function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened'): void {
+  const data = p.data ?? {}
+  if (p.deliveryId) {
+    ;(data as Record<string, unknown>).ritmus_delivery_id = p.deliveryId
+  }
+  if (Platform.OS === 'ios') {
+    const userInfo: Record<string, unknown> = {
+      aps: {
+        alert: { title: p.title, body: p.body },
+      },
+      ritmus: {
+        deliveryId: p.deliveryId,
+      },
+    }
+    Object.assign(userInfo, data)
+    if (kind === 'received') {
+      Push.handleReceived({ userInfo, notification: { title: p.title, body: p.body } })
+    } else {
+      Push.handleOpened({ userInfo, actionIdentifier: p.actionIdentifier })
+    }
+  } else {
+    const dataStr: Record<string, string> = {}
+    for (const [k, v] of Object.entries(data)) {
+      dataStr[k] = String(v)
+    }
+    if (kind === 'received') {
+      Push.handleReceived({ data: dataStr, notification: { title: p.title, body: p.body } })
+    } else {
+      Push.handleOpened({ data: dataStr, actionIdentifier: p.actionIdentifier })
+    }
+  }
 }
 
 function trackInternal(
@@ -277,6 +360,84 @@ export const Ritmus = {
       })
     } catch (err) {
       reportError('invalidatePushToken failed', err)
+    }
+  },
+
+  // ---------- Self-contained push (Phase 7) ----------
+  //
+  // `enablePush()` is the single high-level entry point — it acquires the
+  // OS-level push permission, fetches the platform token (APNs / FCM)
+  // through the bundled native module, and registers the token with the
+  // Ritmus API. Token-refresh + foreground/background delivery + tap
+  // callbacks are wired automatically once any of these are called.
+  //
+  // Consumers do NOT need @react-native-firebase/messaging,
+  // react-native-onesignal, WonderPush, or any other push SDK.
+
+  async enablePush(opts?: {
+    readonly environment?: 'sandbox' | 'production'
+    readonly skipPermissionRequestIfDenied?: boolean
+  }): Promise<{
+    readonly granted: boolean
+    readonly status: 'authorized' | 'provisional' | 'denied' | 'not_determined'
+    readonly token?: string
+    readonly platform: 'ios' | 'android'
+  }> {
+    try {
+      if (!enginePushListenersAttached) attachEnginePushListeners()
+      const result = await RitmusPushNative.enablePush(opts ?? {})
+      // Server-side registration runs on the tokenReceived event; if the
+      // native module already had a cached token it surfaces here.
+      if (result.granted && result.token) {
+        const platform = (result.platform === 'ios' ? 'ios' : 'android') as 'ios' | 'android'
+        await Ritmus.registerPushToken(result.token, platform, {
+          environment: opts?.environment ?? (defaultEnvironment()),
+        })
+      }
+      return result as Awaited<ReturnType<typeof Ritmus.enablePush>>
+    } catch (err) {
+      reportError('enablePush failed', err)
+      return {
+        granted: false,
+        status: 'denied',
+        platform: (typeof navigator === 'object' && (navigator as { product?: string }).product === 'ReactNative' ? 'ios' : 'android') as 'ios' | 'android',
+      }
+    }
+  },
+
+  async disablePush(): Promise<void> {
+    try {
+      await RitmusPushNative.disablePush()
+    } catch (err) {
+      reportError('disablePush failed', err)
+    }
+  },
+
+  async getPushPermissionStatus(): Promise<
+    'authorized' | 'provisional' | 'denied' | 'not_determined'
+  > {
+    try {
+      return await RitmusPushNative.getPermissionStatus()
+    } catch (err) {
+      reportError('getPushPermissionStatus failed', err)
+      return 'not_determined'
+    }
+  },
+
+  async setPushBadgeCount(count: number): Promise<void> {
+    try {
+      await RitmusPushNative.setBadgeCount(count)
+    } catch (err) {
+      reportError('setPushBadgeCount failed', err)
+    }
+  },
+
+  async getInitialPushNotification(): Promise<NotificationPayload | null> {
+    try {
+      return await RitmusPushNative.getInitialNotification()
+    } catch (err) {
+      reportError('getInitialPushNotification failed', err)
+      return null
     }
   },
 

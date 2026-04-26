@@ -1,0 +1,90 @@
+// Android build module for @ritmus/feedback-react-native.
+//
+// What this module owns:
+//   - The native Kotlin React Native module (RitmusPushModule)
+//   - A FirebaseMessagingService subclass that auto-registers via the
+//     library's AndroidManifest (manifest-merger merges it into the host).
+//   - A transitive dep on com.google.firebase:firebase-messaging so the
+//     host app does NOT need @react-native-firebase/messaging — they
+//     only need their own google-services.json + the gms plugin.
+//
+// Convention: matches what most React Native libraries do (react-native-permissions, etc.).
+
+buildscript {
+  ext.getExtOrDefault = { name ->
+    return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties["RitmusPush_" + name]
+  }
+
+  repositories {
+    google()
+    mavenCentral()
+  }
+
+  dependencies {
+    classpath "com.android.tools.build:gradle:7.2.1"
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22"
+  }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+def isNewArchitectureEnabled() {
+  return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
+}
+
+if (isNewArchitectureEnabled()) {
+  apply plugin: "com.facebook.react"
+}
+
+android {
+  namespace "studio.ritmus.feedback"
+  compileSdkVersion getExtOrDefault('compileSdkVersion')?.toInteger() ?: 34
+  buildToolsVersion getExtOrDefault('buildToolsVersion') ?: '34.0.0'
+
+  defaultConfig {
+    minSdkVersion getExtOrDefault('minSdkVersion')?.toInteger() ?: 23
+    targetSdkVersion getExtOrDefault('targetSdkVersion')?.toInteger() ?: 34
+    consumerProguardFiles 'consumer-rules.pro'
+    buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
+  }
+
+  buildFeatures {
+    buildConfig true
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = "17"
+  }
+
+  sourceSets {
+    main {
+      manifest.srcFile "src/main/AndroidManifest.xml"
+      java.srcDirs = ['src/main/java']
+    }
+  }
+}
+
+repositories {
+  google()
+  mavenCentral()
+}
+
+dependencies {
+  implementation "com.facebook.react:react-android"
+
+  // FCM token + RemoteMessage delivery. Bundled transitively so consumer
+  // apps don't add @react-native-firebase/messaging themselves; they only
+  // need their own google-services.json + the com.google.gms.google-services
+  // plugin in their app/build.gradle (Google's hard requirement for FCM).
+  // Use a floor version that's broadly compatible with current Firebase BoM
+  // ranges; consumer's BoM (if any) will pick the actual version.
+  implementation "com.google.firebase:firebase-messaging:23.4.1"
+
+  implementation "androidx.core:core-ktx:1.12.0"
+}

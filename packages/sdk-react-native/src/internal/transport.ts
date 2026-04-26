@@ -165,6 +165,7 @@ export function createTransport(cfg: TransportConfig): Transport {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
+        debugLog('http →', { method: opts.method, path: opts.path, attempt })
         const res = await fetch(url, {
           method: opts.method,
           headers: {
@@ -174,6 +175,12 @@ export function createTransport(cfg: TransportConfig): Transport {
           },
           body: opts.body == null ? undefined : JSON.stringify(opts.body),
           signal: abortController.signal,
+        })
+        debugLog('http ←', {
+          method: opts.method,
+          path: opts.path,
+          status: res.status,
+          attempt,
         })
         if (res.ok) {
           resetCircuit()
