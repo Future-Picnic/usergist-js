@@ -13,14 +13,28 @@ Pod::Spec.new do |s|
   s.platforms        = { :ios => '13.0' }
   s.source           = { :git => 'https://github.com/studio-Ritmus/ritmus.git', :tag => "v#{s.version}" }
 
-  s.source_files     = 'ios/**/*.{h,m,mm,swift}'
   s.requires_arc     = true
   s.swift_version    = '5.7'
 
-  # No Firebase on iOS — pure APNs via UserNotifications + UIKit.
-  s.frameworks       = 'UIKit', 'UserNotifications'
+  # Default subspec — what RN autolinking picks up for the host app target.
+  s.default_subspec = 'Core'
 
-  # React-Core covers the bridge / native module base. New-architecture flag
-  # is forwarded to the codegen output paths via standard RN 0.74+ conventions.
-  s.dependency 'React-Core'
+  # ---------- Core subspec (for the main app target) ----------
+  # The RN bridge module: RCTBridgeModule, RCTEventEmitter, Swift impl.
+  # Pulls in React-Core because it imports <React/...> headers.
+  s.subspec 'Core' do |core|
+    core.source_files = 'ios/*.{h,m,mm,swift}'
+    core.frameworks   = 'UIKit', 'UserNotifications'
+    core.dependency 'React-Core'
+  end
+
+  # ---------- Extension subspec (for the iOS NotificationServiceExtension) ----------
+  # IMPORTANT: NSEs run in their own out-of-process extension and must NOT
+  # depend on React-Core (it would pull ~50MB of RN runtime into a 30s
+  # extension and likely fail to build under static linkage anyway).
+  # Only the standalone Swift NSE base class lives here.
+  s.subspec 'Extension' do |ext|
+    ext.source_files = 'ios/Extension/*.swift'
+    ext.frameworks   = 'UserNotifications'
+  end
 end
