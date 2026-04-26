@@ -1,0 +1,48 @@
+import { z } from 'zod'
+import { emailSchema, slugSchema } from './primitives.js'
+
+export const platformSchema = z.enum(['ios', 'android', 'react-native', 'flutter'])
+
+export const writeKeyEnvironmentSchema = z.enum(['production', 'staging', 'development'])
+
+export const createAppSchema = z.object({
+  name: z.string().min(1).max(120),
+  slug: slugSchema.optional(),
+  platforms: z.array(platformSchema).min(1).max(8),
+})
+
+export const updateAppSchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    platforms: z.array(platformSchema).min(1).max(8).optional(),
+    piiAllowList: z.array(z.string().min(1).max(120)).max(128).optional(),
+    lifecycleEventsEnabled: z.boolean().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'At least one field is required' })
+
+export const createWriteKeySchema = z.object({
+  label: z.string().min(1).max(120).optional(),
+  environment: writeKeyEnvironmentSchema.default('production'),
+})
+
+export const rotateWriteKeySchema = z.object({
+  // Default 5 minutes; ceiling 24h to bound risk of forgotten old keys.
+  graceSeconds: z.number().int().min(0).max(86_400).default(300),
+})
+
+export const createWorkspaceSchema = z.object({
+  name: z.string().min(1).max(120),
+  slug: slugSchema.optional(),
+})
+
+export const inviteMemberSchema = z.object({
+  email: emailSchema,
+  role: z.enum(['admin', 'editor', 'viewer']),
+})
+
+export type CreateAppBody = z.infer<typeof createAppSchema>
+export type UpdateAppBody = z.infer<typeof updateAppSchema>
+export type CreateWriteKeyBody = z.infer<typeof createWriteKeySchema>
+export type RotateWriteKeyBody = z.infer<typeof rotateWriteKeySchema>
+export type CreateWorkspaceBody = z.infer<typeof createWorkspaceSchema>
+export type InviteMemberBody = z.infer<typeof inviteMemberSchema>
