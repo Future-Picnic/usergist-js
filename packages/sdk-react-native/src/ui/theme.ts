@@ -24,7 +24,9 @@ export const DEFAULT_THEME: ResolvedTheme = {
     border: '#E5E5E5',
   },
   radius: 20,
-  fontFamily: undefined,
+  // Brand font. Host apps must register/bundle the font under this exact
+  // family name; if missing the platform falls back to its default sans.
+  fontFamily: 'Plus Jakarta Sans',
 }
 
 export function mergeTheme(
