@@ -1,12 +1,20 @@
 {
   "name": "@ritmus/feedback-react-native",
   "version": "0.1.0",
-  "description": "Ritmus feedback SDK for React Native",
+  "description": "Ritmus feedback + push SDK for React Native (self-contained, no Firebase/OneSignal/WonderPush required)",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "module": "./dist/index.js",
   "type": "module",
-  "files": ["dist", "src", "README.md"],
+  "files": [
+    "dist",
+    "src",
+    "ios",
+    "android",
+    "RitmusFeedback.podspec",
+    "react-native.config.js",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -25,5 +33,13 @@
     "@types/react": "^18.3.3",
     "react": "^18.3.1",
     "react-native": "0.74.0"
+  },
+  "codegenConfig": {
+    "name": "RNRitmusPushSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "studio.ritmus.feedback"
+    }
   }
 }

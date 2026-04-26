@@ -1,0 +1,32 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Required for Firebase Cloud Messaging delivery. The host app's
+         google-services.json + com.google.gms.google-services plugin
+         provide the actual configuration. -->
+
+    <!-- Android 13+ runtime permission for showing notifications. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- Library-supplied FirebaseMessagingService. Merged into the host
+             AndroidManifest via the manifest merger.  If the host already
+             declares its own service for the FCM intent, the merger will
+             keep both unless tools:replace forces it; we don't force, so
+             coexistence with another push provider is safe. -->
+        <service
+            android:name=".RitmusFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Default notification channel applied when the host hasn't
+             defined one. Consumers can override by declaring their own
+             default-channel meta-data (auto-merged with theirs winning). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="ritmus_default" />
+    </application>
+</manifest>
