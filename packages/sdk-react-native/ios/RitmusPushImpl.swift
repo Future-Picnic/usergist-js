@@ -40,7 +40,11 @@ public final class RitmusPushImpl: NSObject {
 
   private override init() {
     super.init()
-    Self.installSwizzlesIfNeeded()
+    // AppDelegate APNs swizzle is installed from Obj-C +load (see
+    // RitmusPushSwizzle.m) so it's in place BEFORE any push registration
+    // cycle. UNUserNotificationCenter delegate swizzle stays here since
+    // it only matters once notifications start arriving.
+    Self.installUNDelegateSwizzleIfNeeded()
   }
 
   // MARK: - Bridge wiring
@@ -63,9 +67,11 @@ public final class RitmusPushImpl: NSObject {
   @objc public func enablePush(options: [String: Any],
                                 resolver: @escaping (Any?) -> Void,
                                 rejecter: @escaping (String, String, Error?) -> Void) {
+    NSLog("[RitmusPush] enablePush called")
     UNUserNotificationCenter.current().requestAuthorization(
       options: [.alert, .badge, .sound, .providesAppNotificationSettings]
     ) { [weak self] granted, error in
+      NSLog("[RitmusPush] requestAuthorization callback granted=\(granted) error=\(String(describing: error))")
       if let error = error {
         rejecter("auth_error", error.localizedDescription, error)
         return
@@ -73,6 +79,7 @@ public final class RitmusPushImpl: NSObject {
       let status: String = granted ? "authorized" : "denied"
       DispatchQueue.main.async {
         if granted {
+          NSLog("[RitmusPush] calling UIApplication.registerForRemoteNotifications")
           UIApplication.shared.registerForRemoteNotifications()
         }
         // Token arrives asynchronously via the swizzled
@@ -143,13 +150,15 @@ public final class RitmusPushImpl: NSObject {
 
   // MARK: - Internal — emission helpers (called from swizzles)
 
-  func recordToken(deviceToken: Data) {
+  @objc public func recordToken(deviceToken: Data) {
     let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+    NSLog("[RitmusPush] APNs token received (\(hex.count) hex chars) — emitting tokenReceived")
     lastApnsTokenHex = hex
     emit(name: "RitmusPush:tokenReceived", body: ["token": hex, "platform": "ios"])
   }
 
-  func recordTokenError(_ error: Error) {
+  @objc public func recordTokenError(error: Error) {
+    NSLog("[RitmusPush] APNs registration FAILED: \(error.localizedDescription)")
     emit(name: "RitmusPush:tokenError",
          body: ["error": error.localizedDescription])
   }
@@ -175,9 +184,11 @@ public final class RitmusPushImpl: NSObject {
 
   private func emit(name: String, body: [String: Any]) {
     guard hasJsListeners else {
+      NSLog("[RitmusPush] emit BUFFER \(name) — JS not listening yet (pending=\(pendingEvents.count + 1))")
       pendingEvents.append((name, body))
       return
     }
+    NSLog("[RitmusPush] emit SEND \(name)")
     sendToEmitter(name: name, body: body)
   }
 
@@ -224,15 +235,14 @@ public final class RitmusPushImpl: NSObject {
     return out
   }
 
-  // MARK: - Swizzling
+  // MARK: - UN delegate swizzle install
 
-  private static var swizzlesInstalled = false
+  private static var unDelegateInstalled = false
 
-  private static func installSwizzlesIfNeeded() {
-    guard !swizzlesInstalled else { return }
-    swizzlesInstalled = true
+  private static func installUNDelegateSwizzleIfNeeded() {
+    guard !unDelegateInstalled else { return }
+    unDelegateInstalled = true
     DispatchQueue.main.async {
-      RitmusAppDelegateSwizzler.install()
       RitmusUNDelegateSwizzler.install()
     }
   }
@@ -240,73 +250,11 @@ public final class RitmusPushImpl: NSObject {
 
 // MARK: - AppDelegate swizzler (APNs token capture)
 
-@objc private final class RitmusAppDelegateSwizzler: NSObject {
-
-  fileprivate static func install() {
-    guard let appDelegate = UIApplication.shared.delegate else { return }
-    let cls: AnyClass = type(of: appDelegate)
-
-    swizzle(
-      cls: cls,
-      original: #selector(UIApplicationDelegate.application(_:didRegisterForRemoteNotificationsWithDeviceToken:)),
-      replacement: #selector(RitmusAppDelegateSwizzler.ritmus_application(_:didRegisterForRemoteNotificationsWithDeviceToken:))
-    )
-
-    swizzle(
-      cls: cls,
-      original: #selector(UIApplicationDelegate.application(_:didFailToRegisterForRemoteNotificationsWithError:)),
-      replacement: #selector(RitmusAppDelegateSwizzler.ritmus_application(_:didFailToRegisterForRemoteNotificationsWithError:))
-    )
-  }
-
-  /// Add the method if it's missing on the AppDelegate, otherwise exchange
-  /// implementations so both the original and our handler run.
-  private static func swizzle(cls: AnyClass, original: Selector, replacement: Selector) {
-    guard let replacementMethod = class_getInstanceMethod(RitmusAppDelegateSwizzler.self, replacement) else {
-      return
-    }
-    let didAdd = class_addMethod(
-      cls,
-      original,
-      method_getImplementation(replacementMethod),
-      method_getTypeEncoding(replacementMethod)
-    )
-    if !didAdd, let originalMethod = class_getInstanceMethod(cls, original) {
-      // Both already exist; swap so our impl runs and chains.
-      method_exchangeImplementations(originalMethod, replacementMethod)
-    }
-  }
-
-  // ---------- Replacement methods (run as instance methods on the AppDelegate after swizzle) ----------
-
-  @objc func ritmus_application(_ application: UIApplication,
-                                 didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-    RitmusPushImpl.shared.recordToken(deviceToken: deviceToken)
-    // Chain — only safe when both methods existed and we exchanged.
-    // After exchange, calling the original selector on `self` invokes our
-    // newly-installed impl, so we instead call the swizzled one which now
-    // points at the host's real impl.
-    if self.responds(to: #selector(RitmusAppDelegateSwizzler.ritmus_application(_:didRegisterForRemoteNotificationsWithDeviceToken:))) {
-      self.perform(
-        #selector(RitmusAppDelegateSwizzler.ritmus_application(_:didRegisterForRemoteNotificationsWithDeviceToken:)),
-        with: application,
-        with: deviceToken
-      )
-    }
-  }
-
-  @objc func ritmus_application(_ application: UIApplication,
-                                 didFailToRegisterForRemoteNotificationsWithError error: Error) {
-    RitmusPushImpl.shared.recordTokenError(error)
-    if self.responds(to: #selector(RitmusAppDelegateSwizzler.ritmus_application(_:didFailToRegisterForRemoteNotificationsWithError:))) {
-      self.perform(
-        #selector(RitmusAppDelegateSwizzler.ritmus_application(_:didFailToRegisterForRemoteNotificationsWithError:)),
-        with: application,
-        with: error
-      )
-    }
-  }
-}
+// AppDelegate APNs swizzle has moved to RitmusPushSwizzle.m (pure Obj-C,
+// installed via +load + UIApplicationDidFinishLaunchingNotification so it
+// lands before any iOS push registration cycle). The Obj-C bridge calls
+// `[RitmusPushImpl.shared recordTokenWithDeviceToken:]` /
+// `recordTokenErrorWithError:` from the swizzled IMP.
 
 // MARK: - UNUserNotificationCenterDelegate swizzler (foreground + open)
 

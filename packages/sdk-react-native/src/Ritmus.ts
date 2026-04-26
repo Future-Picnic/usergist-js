@@ -50,7 +50,7 @@ import {
 } from './native/push-bridge.js'
 import { Push } from './Push.js'
 import type { NotificationPayload } from './native/events.js'
-import { Platform } from 'react-native'
+import { AppState, Platform } from 'react-native'
 
 type PromptShownCb = (p: ShowPromptPayload) => void
 type ResponseCb = (r: ResponseEmission) => void
@@ -87,6 +87,9 @@ function requireEngine(): Engine {
 // ---------- Native push listener wiring (Phase 7) ----------
 
 let enginePushListenersAttached = false
+let lastEnablePushOptions: {
+  readonly environment?: 'sandbox' | 'production'
+} | null = null
 
 function defaultEnvironment(): 'sandbox' | 'production' {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,6 +100,21 @@ function defaultEnvironment(): 'sandbox' | 'production' {
 function attachEnginePushListeners(): void {
   if (enginePushListenersAttached) return
   enginePushListenersAttached = true
+
+  // Re-check the push state on every app foreground transition.
+  //
+  // Why: iOS / Android both let the user flip notification permission in
+  // Settings without re-launching the app. Token rotation also happens
+  // out-of-band. By re-running enablePush() each time the app becomes
+  // active, we catch both. The native side caches its decision so this
+  // does NOT re-prompt the user — it just walks the (permission → token →
+  // server-register) chain idempotently. No-op if enablePush has never
+  // been called.
+  AppState.addEventListener('change', (state) => {
+    if (state !== 'active') return
+    if (!lastEnablePushOptions) return
+    void Ritmus.enablePush(lastEnablePushOptions).catch(() => undefined)
+  })
 
   onTokenReceived((p) => {
     void (async () => {
@@ -385,6 +403,9 @@ export const Ritmus = {
   }> {
     try {
       if (!enginePushListenersAttached) attachEnginePushListeners()
+      // Snapshot the caller's options so the AppState foreground listener
+      // can re-run enablePush idempotently with the same environment.
+      lastEnablePushOptions = { environment: opts?.environment }
       const result = await RitmusPushNative.enablePush(opts ?? {})
       // Server-side registration runs on the tokenReceived event; if the
       // native module already had a cached token it surfaces here.
