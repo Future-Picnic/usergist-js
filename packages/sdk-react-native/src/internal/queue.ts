@@ -8,6 +8,25 @@ import type { QueuedEvent } from './types.js'
 
 const MAX_BYTES = 1_000_000
 
+// Bumped every time the persisted shape changes. Older snapshots from
+// previous SDK versions are discarded on hydrate so the SDK never crashes
+// on a deserialise mismatch — events are best-effort, not durable contracts.
+const QUEUE_SCHEMA_VERSION = 1
+
+interface PersistedQueue {
+  readonly version: number
+  readonly events: ReadonlyArray<QueuedEvent>
+}
+
+function isPersistedQueue(v: unknown): v is PersistedQueue {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as { version?: unknown }).version === 'number' &&
+    Array.isArray((v as { events?: unknown }).events)
+  )
+}
+
 export interface EventQueue {
   readonly hydrate: () => Promise<void>
   readonly enqueue: (e: QueuedEvent) => void
@@ -60,7 +79,8 @@ export function createEventQueue(
         serialized = JSON.stringify(snapshot)
         notifyOverflow(dropped)
       }
-      await storage.setJson(STORAGE_KEYS.queue, snapshot)
+      const wrapped: PersistedQueue = { version: QUEUE_SCHEMA_VERSION, events: snapshot }
+      await storage.setJson(STORAGE_KEYS.queue, wrapped)
       void serialized
     } catch (e) {
       reportError('queue.persist failed', e)
@@ -82,10 +102,21 @@ export function createEventQueue(
     async hydrate(): Promise<void> {
       if (hydrated) return
       try {
-        const stored = await storage.getJson<ReadonlyArray<QueuedEvent>>(
-          STORAGE_KEYS.queue,
-        )
-        if (Array.isArray(stored)) events = stored
+        const stored = await storage.getJson<unknown>(STORAGE_KEYS.queue)
+        if (isPersistedQueue(stored)) {
+          if (stored.version === QUEUE_SCHEMA_VERSION) {
+            events = stored.events
+          } else {
+            // Unknown / older schema — discard rather than risk a crash on
+            // shape mismatch. Events are best-effort, not durable.
+            reportError('queue.hydrate: discarding unknown queue version', stored.version)
+            await storage.remove(STORAGE_KEYS.queue)
+          }
+        } else if (Array.isArray(stored)) {
+          // Legacy unversioned snapshot from earlier SDK builds. Re-wrap on
+          // the next persist() call.
+          events = stored as ReadonlyArray<QueuedEvent>
+        }
       } catch (e) {
         reportError('queue.hydrate failed', e)
       }

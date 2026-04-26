@@ -9,7 +9,6 @@ import type {
 import type {
   SerializedSegmentRules,
   UserPropertyRule,
-  EventCountRule,
 } from '../types/prompt.js'
 
 export interface UserState {
@@ -115,79 +114,53 @@ function evaluateEventOccurred(p: EventOccurredPredicate, user: UserState, now: 
 }
 
 // ============================================================
-// Lightweight evaluator for the serialized form shipped to SDKs
-// (SerializedSegmentRules). SDKs evaluate this subset locally
-// for instant trigger firing; the server is authoritative.
+// SerializedSegmentRules → SegmentDsl bridge.
+//
+// The SDK ships armed triggers with a flattened rule set
+// (`SerializedSegmentRules`) for transport efficiency. We deliberately keep
+// only ONE evaluator (`evaluateSegment`) so that server and SDK paths cannot
+// diverge. The bridge converts the serialized form into an AND-combined
+// PredicateGroup and delegates to the same engine.
 // ============================================================
 
 export function evaluateSerializedSegmentRules(
   rules: SerializedSegmentRules | null | undefined,
   user: UserState,
+  now: number = Date.now(),
 ): boolean {
   if (!rules) return true
-  const { userProperties, eventCounts } = rules
-  if (userProperties && userProperties.length > 0) {
-    for (const rule of userProperties) {
-      if (!evaluateUserPropertyRule(rule, user)) return false
-    }
-  }
-  if (eventCounts && eventCounts.length > 0) {
-    for (const rule of eventCounts) {
-      if (!evaluateEventCountRule(rule, user)) return false
-    }
-  }
-  return true
+  const dsl = serializedRulesToDsl(rules)
+  return evaluateSegment(dsl, user, now)
 }
 
-function evaluateUserPropertyRule(rule: UserPropertyRule, user: UserState): boolean {
-  const actual = user.properties[rule.key]
-  switch (rule.op) {
-    case 'eq':
-      return actual === rule.value
-    case 'neq':
-      return actual !== rule.value
-    case 'in':
-      return (
-        Array.isArray(rule.value) &&
-        actual != null &&
-        (rule.value as ReadonlyArray<unknown>).includes(actual)
-      )
-    case 'gt':
-      return (
-        typeof actual === 'number' &&
-        typeof rule.value === 'number' &&
-        actual > rule.value
-      )
-    case 'gte':
-      return (
-        typeof actual === 'number' &&
-        typeof rule.value === 'number' &&
-        actual >= rule.value
-      )
-    case 'lt':
-      return (
-        typeof actual === 'number' &&
-        typeof rule.value === 'number' &&
-        actual < rule.value
-      )
-    case 'lte':
-      return (
-        typeof actual === 'number' &&
-        typeof rule.value === 'number' &&
-        actual <= rule.value
-      )
+export function serializedRulesToDsl(rules: SerializedSegmentRules): SegmentDsl {
+  const predicates: Predicate[] = []
+
+  for (const rule of rules.userProperties ?? []) {
+    predicates.push(userPropertyRuleToPredicate(rule))
+  }
+  for (const rule of rules.eventCounts ?? []) {
+    predicates.push({
+      kind: 'event_count',
+      eventName: rule.eventName,
+      op: rule.op,
+      count: rule.count,
+      windowDays: rule.windowDays,
+    })
+  }
+
+  return {
+    version: 1,
+    root: { combinator: 'AND', predicates },
   }
 }
 
-function evaluateEventCountRule(rule: EventCountRule, user: UserState): boolean {
-  const bucket = user.eventCounts[rule.eventName]
-  const count = bucket?.[rule.windowDays] ?? 0
-  switch (rule.op) {
-    case 'eq':
-      return count === rule.count
-    case 'gte':
-      return count >= rule.count
-    case 'lte':
-      return count <= rule.count
+function userPropertyRuleToPredicate(rule: UserPropertyRule): UserPropertyPredicate {
+  // SerializedSegmentRules constrains operators to a subset; cast safely.
+  return {
+    kind: 'user_property',
+    key: rule.key,
+    op: rule.op,
+    value: rule.value as UserPropertyPredicate['value'],
   }
 }

@@ -2,17 +2,33 @@
   "name": "@ritmus/sdk-core",
   "version": "0.1.0",
   "description": "Shared types and utilities across the Ritmus feedback platform",
-  "main": "./dist/index.js",
+  "type": "module",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "type": "module",
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": ["dist", "README.md"],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit"
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "typescript": "^5.5.4"
+    "tsup": "^8.3.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.0"
   }
 }
