@@ -1,5 +1,15 @@
 export type PushDeliveryMode = 'broadcast' | 'scheduled' | 'triggered' | 'transactional'
 
+export type CampaignType = 'push' | 'survey'
+
+export type CampaignMode =
+  | 'broadcast'
+  | 'scheduled'
+  | 'triggered'
+  | 'transactional'
+  | 'on_demand'
+  | 'link_only'
+
 export type CampaignStatus =
   | 'draft'
   | 'scheduled'

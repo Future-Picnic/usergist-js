@@ -1,0 +1,68 @@
+// Per-user, per-survey local cache of in-flight attempts.
+// Used to surface the "Continue your last survey?" prompt on app resume and to
+// keep an attempt recoverable when the network is flaky.
+
+import { createStorageScope, type StorageScope } from './storage.js'
+import { reportError } from './debug.js'
+import type { SurveyAnswerRecord } from '@ritmus/sdk-core'
+
+const PENDING_KEY = 'surveys:pending'
+
+export interface PendingAttempt {
+  readonly surveyId: string
+  readonly attemptId: string
+  readonly startedAt: number
+  readonly currentQuestionId: string | null
+  readonly snapshot: SurveyAnswerRecord
+  readonly language: string | null
+}
+
+export interface SurveyStore {
+  readonly list: () => Promise<ReadonlyArray<PendingAttempt>>
+  readonly upsert: (attempt: PendingAttempt) => Promise<void>
+  readonly remove: (attemptId: string) => Promise<void>
+  readonly findForSurvey: (surveyId: string) => Promise<PendingAttempt | null>
+}
+
+export function createSurveyStore(writeKey: string): SurveyStore {
+  const scope: StorageScope = createStorageScope(writeKey)
+
+  async function list(): Promise<ReadonlyArray<PendingAttempt>> {
+    try {
+      const arr = await scope.getJson<ReadonlyArray<PendingAttempt>>(PENDING_KEY)
+      if (!Array.isArray(arr)) return []
+      return arr.filter(isPending)
+    } catch (err) {
+      reportError('survey-store.list failed', err)
+      return []
+    }
+  }
+
+  return {
+    list,
+    async upsert(attempt: PendingAttempt): Promise<void> {
+      const existing = await list()
+      const filtered = existing.filter((a) => a.attemptId !== attempt.attemptId)
+      await scope.setJson(PENDING_KEY, [...filtered, attempt])
+    },
+    async remove(attemptId: string): Promise<void> {
+      const existing = await list()
+      const next = existing.filter((a) => a.attemptId !== attemptId)
+      await scope.setJson(PENDING_KEY, next)
+    },
+    async findForSurvey(surveyId: string): Promise<PendingAttempt | null> {
+      const all = await list()
+      return all.find((a) => a.surveyId === surveyId) ?? null
+    },
+  }
+}
+
+function isPending(v: unknown): v is PendingAttempt {
+  if (!v || typeof v !== 'object') return false
+  const x = v as Record<string, unknown>
+  return (
+    typeof x.surveyId === 'string' &&
+    typeof x.attemptId === 'string' &&
+    typeof x.startedAt === 'number'
+  )
+}

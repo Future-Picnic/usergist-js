@@ -115,6 +115,7 @@ export function createEngine(config: SdkConfig): Engine {
         const id = e.identity.get()
         void e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
         void flushNow(e)
+        void pollSurveyOffers(e)
       })
     },
     onBackground: () => {
@@ -124,6 +125,7 @@ export function createEngine(config: SdkConfig): Engine {
       const e = eng()
       const id = e.identity.get()
       void e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
+      void pollSurveyOffers(e)
     },
     syncIntervalMs: resolved.triggerSyncIntervalMs,
   })
@@ -220,8 +222,55 @@ export async function flushNow(engine: Engine): Promise<void> {
         return
       }
     }
+    // After draining the queue, opportunistically pull pending survey offers.
+    // Triggered surveys appear in the offer ledger after the server processes
+    // the event; the small delay gives NATS + the trigger engine time to
+    // run before we ask.
+    setTimeout(() => {
+      void pollSurveyOffers(engine)
+    }, 1500)
   } catch (e) {
     reportError('flushNow failed', e)
+  }
+}
+
+const SEEN_OFFERS_KEY = 'surveys:seen-offers'
+const POLL_BACKOFF_MS = 5_000
+let lastPollAt = 0
+
+export async function pollSurveyOffers(engine: Engine): Promise<void> {
+  try {
+    const now = Date.now()
+    if (now - lastPollAt < POLL_BACKOFF_MS) return
+    lastPollAt = now
+
+    if (!engine.consent.get().survey) return
+
+    const id = engine.identity.get()
+    const res = await engine.transport.surveysAvailable({
+      anonymousId: id.anonymousId,
+      externalId: id.externalId ?? null,
+    })
+    const surveys = res.surveys ?? []
+    if (surveys.length === 0) return
+
+    const seen = (await engine.storage.getJson<ReadonlyArray<string>>(SEEN_OFFERS_KEY)) ?? []
+    const seenSet = new Set(seen)
+    const fresh = surveys.filter((s) => !seenSet.has(s.id))
+    if (fresh.length === 0) return
+
+    for (const s of fresh) {
+      engine.events.emit('surveyInvite', {
+        surveyId: s.id,
+        name: s.name,
+        source: s.source,
+      })
+    }
+
+    const nextSeen = [...seen, ...fresh.map((s) => s.id)].slice(-200)
+    await engine.storage.setJson(SEEN_OFFERS_KEY, nextSeen)
+  } catch (e) {
+    reportError('pollSurveyOffers failed', e)
   }
 }
 

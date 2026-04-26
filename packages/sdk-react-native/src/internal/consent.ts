@@ -12,6 +12,7 @@ const DEFAULT: ConsentState = {
   analytics: false,
   feedback: false,
   push: false,
+  survey: false,
   updatedAt: null,
 }
 
@@ -23,6 +24,7 @@ export interface ConsentManager {
   readonly allowsTransport: () => boolean
   readonly allowsFeedback: () => boolean
   readonly allowsPush: () => boolean
+  readonly allowsSurvey: () => boolean
   readonly subscribe: (cb: (s: ConsentState) => void) => () => void
 }
 
@@ -57,6 +59,7 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
             analytics: Boolean(stored.analytics),
             feedback: Boolean(stored.feedback),
             push: Boolean(stored.push),
+            survey: Boolean((stored as { survey?: boolean }).survey),
             updatedAt: stored.updatedAt ?? null,
           }
         }
@@ -78,6 +81,7 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
         analytics: purposes.analytics ?? state.analytics,
         feedback: purposes.feedback ?? state.feedback,
         push: purposes.push ?? state.push,
+        survey: purposes.survey ?? state.survey,
         updatedAt: new Date().toISOString(),
       }
       state = next
@@ -92,9 +96,11 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
       emit()
       return state
     },
-    allowsTransport: (): boolean => state.analytics || state.feedback || state.push,
+    allowsTransport: (): boolean =>
+      state.analytics || state.feedback || state.push || state.survey,
     allowsFeedback: (): boolean => state.feedback,
     allowsPush: (): boolean => state.push,
+    allowsSurvey: (): boolean => state.survey,
     subscribe(cb): () => void {
       listeners.add(cb)
       return () => {

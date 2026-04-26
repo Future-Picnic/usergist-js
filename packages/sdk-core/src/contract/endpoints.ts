@@ -43,6 +43,25 @@ import type {
   UpdateDeviceTokenPayload,
   UploadCredentialRequest,
 } from '../types/campaign.js'
+import type {
+  CloneSurveyFromTemplateRequest,
+  CompleteSurveyAttemptRequest,
+  CreateSurveyAttemptRequest,
+  CreateSurveyAttemptResponse,
+  CreateSurveyRequest,
+  ResolveSurveyLinkRequest,
+  ResolveSurveyLinkResponse,
+  SubmitSurveyAnswersRequest,
+  SurveyAnalytics,
+  SurveyCampaign,
+  SurveyCampaignWithFlow,
+  SurveyResponseRecord,
+  SurveyShareLinkResponse,
+  SurveySummary,
+  SurveyTemplate,
+  UpdateSurveyAttemptProgressRequest,
+  UpdateSurveyRequest,
+} from '../types/survey.js'
 
 // ---------- auth ----------
 
@@ -421,6 +440,64 @@ export const endpoints = {
 
   // Transactional push (server API token auth)
   'POST /v1/apps/:appId/push/transactional': {} as Endpoint<PushTransactionalRequest, { queued: true; deliveryId: string; idempotent?: boolean }>,
+
+  // Surveys — dashboard CRUD
+  'GET /v1/apps/:appId/surveys': {} as Endpoint<void, ReadonlyArray<SurveyCampaign>>,
+  'POST /v1/apps/:appId/surveys': {} as Endpoint<CreateSurveyRequest, SurveyCampaignWithFlow>,
+  'GET /v1/apps/:appId/surveys/:sid': {} as Endpoint<void, SurveyCampaignWithFlow>,
+  'PATCH /v1/apps/:appId/surveys/:sid': {} as Endpoint<UpdateSurveyRequest, SurveyCampaignWithFlow>,
+  'DELETE /v1/apps/:appId/surveys/:sid': {} as Endpoint<void, { ok: true }>,
+  'POST /v1/apps/:appId/surveys/:sid/activate': {} as Endpoint<void, SurveyCampaign>,
+  'POST /v1/apps/:appId/surveys/:sid/pause': {} as Endpoint<void, SurveyCampaign>,
+  'POST /v1/apps/:appId/surveys/:sid/archive': {} as Endpoint<void, SurveyCampaign>,
+  'POST /v1/apps/:appId/surveys/:sid/preview': {} as Endpoint<
+    { anonymousId?: string; mergeTags?: Record<string, unknown>; language?: string },
+    SurveyCampaignWithFlow
+  >,
+  'POST /v1/apps/:appId/surveys/:sid/test-on-device': {} as Endpoint<{ anonymousId: string }, { dispatched: true }>,
+  'GET /v1/apps/:appId/surveys/:sid/analytics': {} as Endpoint<void, SurveyAnalytics>,
+  'GET /v1/apps/:appId/surveys/:sid/responses': {} as Endpoint<
+    { from?: string; to?: string; page?: number; limit?: number; segmentId?: string; language?: string },
+    ReadonlyArray<SurveyResponseRecord>
+  >,
+  'GET /v1/apps/:appId/surveys/:sid/attempts': {} as Endpoint<
+    void,
+    ReadonlyArray<{
+      id: string
+      campaignId: string
+      anonymousId: string
+      externalId: string | null
+      startedAt: string
+      completedAt: string | null
+      abandonedAt: string | null
+      currentQuestionId: string | null
+      progressSnapshot: unknown
+      source: string
+      language: string | null
+    }>
+  >,
+  'GET /v1/apps/:appId/surveys/:sid/share-link': {} as Endpoint<void, SurveyShareLinkResponse>,
+  'GET /v1/apps/:appId/survey-templates': {} as Endpoint<void, ReadonlyArray<SurveyTemplate>>,
+  'POST /v1/apps/:appId/surveys/from-template/:slug': {} as Endpoint<
+    CloneSurveyFromTemplateRequest,
+    SurveyCampaignWithFlow
+  >,
+
+  // Surveys — SDK-facing (write-key auth)
+  'GET /v1/sdk/surveys/available': {} as Endpoint<
+    { anonymousId: string; externalId?: string },
+    { surveys: ReadonlyArray<SurveySummary> }
+  >,
+  'POST /v1/sdk/surveys/resolve-link': {} as Endpoint<ResolveSurveyLinkRequest, ResolveSurveyLinkResponse>,
+  'GET /v1/sdk/surveys/:sid': {} as Endpoint<
+    { anonymousId: string; externalId?: string; language?: string },
+    SurveyCampaignWithFlow
+  >,
+  'POST /v1/sdk/surveys/:sid/attempts': {} as Endpoint<CreateSurveyAttemptRequest, CreateSurveyAttemptResponse>,
+  'PATCH /v1/sdk/surveys/attempts/:attemptId': {} as Endpoint<UpdateSurveyAttemptProgressRequest, { ok: true }>,
+  'POST /v1/sdk/surveys/attempts/:attemptId/responses': {} as Endpoint<SubmitSurveyAnswersRequest, { ok: true }>,
+  'POST /v1/sdk/surveys/attempts/:attemptId/complete': {} as Endpoint<CompleteSurveyAttemptRequest, { ok: true }>,
+  'POST /v1/sdk/surveys/attempts/:attemptId/abandon': {} as Endpoint<void, { ok: true }>,
 } as const
 
 export type EndpointKey = keyof typeof endpoints
