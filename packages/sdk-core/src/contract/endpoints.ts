@@ -394,6 +394,13 @@ export const endpoints = {
   'GET /v1/apps/:appId/prompts/:promptId/responses': {} as Endpoint<ListResponsesQuery, ReadonlyArray<PromptResponse>>,
   'GET /v1/apps/:appId/prompts/:promptId/analytics': {} as Endpoint<void, PromptAnalytics>,
 
+  // Inline AudienceSpec preview — count of users matching the (unsaved) spec.
+  // Used by the dashboard's TARGET step to power the live count badge.
+  'POST /v1/apps/:appId/audience/preview': {} as Endpoint<
+    import('../types/targeting.js').AudienceSpec,
+    { matching: number }
+  >,
+
   // SDK-facing (authenticated via write key)
   'POST /v1/sdk/ingest': {} as Endpoint<SdkIngestRequest, SdkIngestResponse>,
   'GET /v1/sdk/armed-triggers': {} as Endpoint<{ anonymousId: string; externalId?: string }, SdkArmedTriggersResponse>,
