@@ -23,6 +23,7 @@ import {
   asEventProps,
   clearAllState,
   createEngine,
+  emitAppOpenWhenConsentReady,
   ensureHydrated,
   enqueueAndEvaluate,
   flushNow,
@@ -193,6 +194,17 @@ export const Ritmus = {
       engine = createEngine(config)
       surveyStore = createSurveyStore(config.writeKey)
       engine.lifecycle.start()
+      // Fire `$app_open` on cold start, but wait for both:
+      //   - the rules refresh, so the matcher sees the latest spec
+      //   - feedback consent, so the matcher doesn't block-by-consent
+      // The host typically calls setConsent() in a useEffect — that
+      // fires after init returns, so the consent gate is essential.
+      const e = engine
+      void ensureHydrated(e).then(async () => {
+        const id = e.identity.get()
+        await e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
+        emitAppOpenWhenConsentReady(e)
+      })
     } catch (e) {
       reportError('init failed', e)
     }

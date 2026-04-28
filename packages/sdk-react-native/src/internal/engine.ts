@@ -8,6 +8,7 @@ import type {
   SdkConfig,
   SubmitResponsePayload,
 } from '@ritmus/sdk-core'
+import { APP_OPEN_EVENT_NAME } from '@ritmus/sdk-core'
 import {
   STORAGE_KEYS,
   createStorageScope,
@@ -111,9 +112,15 @@ export function createEngine(config: SdkConfig): Engine {
   const lifecycle = createLifecycleManager({
     onForeground: () => {
       const e = eng()
-      void ensureHydrated(e).then(() => {
+      // Refresh first, THEN emit `$app_open` — otherwise the local
+      // matcher evaluates against stale rules cached from the previous
+      // session (e.g. an old `kind: 'event'` rule before the dashboard
+      // change). Without this await, dashboard updates take up to 5min
+      // (the sync tick interval) to take effect on cold launch.
+      void ensureHydrated(e).then(async () => {
         const id = e.identity.get()
-        void e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
+        await e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
+        emitAppOpenWhenConsentReady(e)
         void flushNow(e)
         void pollSurveyOffers(e)
       })
@@ -182,6 +189,30 @@ export async function ensureHydrated(engine: Engine): Promise<void> {
     }
   })()
   return engine.hydratingPromise
+}
+
+/**
+ * Emit the lifecycle `$app_open` event, but only AFTER feedback consent
+ * is granted. The matcher blocks by consent — if we fire too early
+ * (before host has called setConsent), the lifecycle event is silently
+ * dropped and the user never sees the prompt this session.
+ *
+ * If consent is already granted: emit immediately.
+ * Otherwise: subscribe to consent changes; emit on the first transition
+ * where `feedback === true`. Idempotent: only fires once per call.
+ */
+export function emitAppOpenWhenConsentReady(engine: Engine): void {
+  if (engine.consent.allowsFeedback()) {
+    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined)
+    return
+  }
+  let fired = false
+  const unsubscribe = engine.consent.subscribe((s) => {
+    if (fired || !s.feedback) return
+    fired = true
+    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined)
+    unsubscribe()
+  })
 }
 
 export function scheduleFlush(engine: Engine): void {

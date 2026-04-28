@@ -30,8 +30,20 @@ export interface EventBus {
 
 type AnyListener = (payload: unknown) => void
 
+// Events that drive UX (showing a prompt / a survey invite) are buffered
+// until a listener exists. Without this, the matcher could fire on cold
+// launch before <RitmusProvider>'s useEffect mounts and the prompt would
+// be silently lost. Other events (response, promptShown) don't need
+// buffering — they're observational only.
+const BUFFERED_EVENTS: ReadonlyArray<EventName> = [
+  'showPrompt',
+  'showSurvey',
+  'surveyInvite',
+]
+
 export function createEventBus(): EventBus {
   const listeners = new Map<EventName, Set<AnyListener>>()
+  const pending = new Map<EventName, unknown>()
 
   function setFor(name: EventName): Set<AnyListener> {
     let s = listeners.get(name)
@@ -47,13 +59,27 @@ export function createEventBus(): EventBus {
       const s = setFor(name)
       const wrapped = cb as unknown as AnyListener
       s.add(wrapped)
+      // Replay a buffered event to the new subscriber and clear the
+      // buffer — first-listener-wins semantics, no double-delivery.
+      const buffered = pending.get(name)
+      if (buffered !== undefined && BUFFERED_EVENTS.includes(name)) {
+        pending.delete(name)
+        try {
+          wrapped(buffered)
+        } catch {
+          // listener errors must never cross the SDK boundary
+        }
+      }
       return () => {
         s.delete(wrapped)
       }
     },
     emit<K extends EventName>(name: K, payload: SdkEvents[K]): void {
       const s = listeners.get(name)
-      if (!s) return
+      if (!s || s.size === 0) {
+        if (BUFFERED_EVENTS.includes(name)) pending.set(name, payload)
+        return
+      }
       for (const cb of s) {
         try {
           cb(payload as unknown)
