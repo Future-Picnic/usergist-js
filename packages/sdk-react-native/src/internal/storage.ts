@@ -124,6 +124,7 @@ export const STORAGE_KEYS = {
   consent: 'consent',
   queue: 'queue',
   rulesCache: 'rulesCache',
+  surveyRulesCache: 'surveyRulesCache',
   frequencyCaps: 'frequencyCaps',
   userProperties: 'userProperties',
   eventHistory: 'eventHistory',

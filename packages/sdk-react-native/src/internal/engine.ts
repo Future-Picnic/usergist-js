@@ -19,9 +19,14 @@ import { createConsentManager, type ConsentManager } from './consent.js'
 import { createEventQueue, type EventQueue } from './queue.js'
 import { createTransport, type Transport } from './transport.js'
 import { createRulesCache, type RulesCache } from './rules-cache.js'
+import {
+  createSurveyRulesCache,
+  type SurveyRulesCache,
+} from './survey-rules-cache.js'
 import { createFrequencyCapManager, type FrequencyCapManager } from './frequency-cap.js'
 import { createUserStateStore, type UserStateStore } from './user-state.js'
 import { createTriggerMatcher, type TriggerMatcher } from './trigger-matcher.js'
+import { createSurveyMatcher, type SurveyMatcher } from './survey-matcher.js'
 import { createLifecycleManager, type LifecycleManager } from './lifecycle.js'
 import { createContextProvider, type ContextProvider } from './context.js'
 import { createEventBus, type EventBus } from './events.js'
@@ -51,9 +56,11 @@ export interface Engine {
   readonly queue: EventQueue
   readonly transport: Transport
   readonly rules: RulesCache
+  readonly surveyRules: SurveyRulesCache
   readonly caps: FrequencyCapManager
   readonly userState: UserStateStore
   readonly matcher: TriggerMatcher
+  readonly surveyMatcher: SurveyMatcher
   readonly lifecycle: LifecycleManager
   readonly context: ContextProvider
   readonly events: EventBus
@@ -89,11 +96,23 @@ export function createEngine(config: SdkConfig): Engine {
   const queue = createEventQueue(storage, resolved.maxQueueSize)
   const transport = createTransport({ writeKey: resolved.writeKey, apiUrl: resolved.apiUrl })
   const rules = createRulesCache(storage, transport, resolved.triggerSyncIntervalMs)
+  const surveyRules = createSurveyRulesCache(
+    storage,
+    transport,
+    resolved.triggerSyncIntervalMs,
+  )
   const caps = createFrequencyCapManager(storage)
   const userState = createUserStateStore(storage)
   const events = createEventBus()
   const matcher = createTriggerMatcher({
     rulesCache: rules,
+    frequencyCaps: caps,
+    userState,
+    consent,
+    events,
+  })
+  const surveyMatcher = createSurveyMatcher({
+    rulesCache: surveyRules,
     frequencyCaps: caps,
     userState,
     consent,
@@ -119,7 +138,10 @@ export function createEngine(config: SdkConfig): Engine {
       // (the sync tick interval) to take effect on cold launch.
       void ensureHydrated(e).then(async () => {
         const id = e.identity.get()
-        await e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
+        await Promise.all([
+          e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId }),
+          e.surveyRules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId }),
+        ])
         emitAppOpenWhenConsentReady(e)
         void flushNow(e)
         void pollSurveyOffers(e)
@@ -132,6 +154,10 @@ export function createEngine(config: SdkConfig): Engine {
       const e = eng()
       const id = e.identity.get()
       void e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
+      void e.surveyRules.refresh({
+        anonymousId: id.anonymousId,
+        externalId: id.externalId,
+      })
       void pollSurveyOffers(e)
     },
     syncIntervalMs: resolved.triggerSyncIntervalMs,
@@ -145,9 +171,11 @@ export function createEngine(config: SdkConfig): Engine {
     queue,
     transport,
     rules,
+    surveyRules,
     caps,
     userState,
     matcher,
+    surveyMatcher,
     lifecycle,
     context,
     events,
@@ -180,10 +208,15 @@ export async function ensureHydrated(engine: Engine): Promise<void> {
         engine.caps.hydrate(),
         engine.userState.hydrate(),
         engine.rules.hydrate(),
+        engine.surveyRules.hydrate(),
       ])
       engine.hydrated = true
       const id = engine.identity.get()
       void engine.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
+      void engine.surveyRules.refresh({
+        anonymousId: id.anonymousId,
+        externalId: id.externalId,
+      })
     } catch (e) {
       reportError('ensureHydrated failed', e)
     }
@@ -337,6 +370,7 @@ export function enqueueAndEvaluate(
     engine.queue.enqueue(base)
     engine.userState.recordEvent(eventName, now)
     engine.matcher.evaluate(eventName)
+    engine.surveyMatcher.evaluate(eventName)
     if (engine.queue.size() >= engine.config.flushBatchSize) void flushNow(engine)
     else scheduleFlush(engine)
     return
@@ -351,6 +385,7 @@ export function enqueueAndEvaluate(
     engine.queue.enqueue(withId)
     engine.userState.recordEvent(eventName, now)
     engine.matcher.evaluate(eventName)
+    engine.surveyMatcher.evaluate(eventName)
     if (engine.queue.size() >= engine.config.flushBatchSize) void flushNow(engine)
     else scheduleFlush(engine)
   })
@@ -398,6 +433,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
     engine.identity.clear(),
     engine.caps.clear(),
     engine.rules.clear(),
+    engine.surveyRules.clear(),
     engine.userState.clear(),
     engine.consent.clear(),
   ])
@@ -406,6 +442,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
     STORAGE_KEYS.consent,
     STORAGE_KEYS.queue,
     STORAGE_KEYS.rulesCache,
+    STORAGE_KEYS.surveyRulesCache,
     STORAGE_KEYS.frequencyCaps,
     STORAGE_KEYS.userProperties,
     STORAGE_KEYS.eventHistory,

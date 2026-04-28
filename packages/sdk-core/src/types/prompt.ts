@@ -19,6 +19,8 @@ export interface NpsQuestion {
   readonly title: string
   readonly subtitle?: string
   readonly followUp?: string
+  readonly lowLabel?: string
+  readonly highLabel?: string
 }
 
 export interface MultipleChoiceQuestion {

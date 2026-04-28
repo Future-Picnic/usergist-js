@@ -4,7 +4,7 @@
 // question graph + branching lives here.
 // ============================================================
 
-import type { PromptTheme, FrequencyCaps } from './prompt.js'
+import type { PromptTheme, FrequencyCaps, SerializedSegmentRules } from './prompt.js'
 import type { PushFrequencyCap, PushSchedule } from './campaign.js'
 import type { AudienceSpec, TriggerSpec } from './targeting.js'
 
@@ -428,4 +428,21 @@ export interface SurveyAnalytics {
   readonly perQuestion: ReadonlyArray<SurveyQuestionDistribution>
   readonly npsOverTime?: ReadonlyArray<{ day: string; score: number; samples: number }>
   readonly perLanguage?: Readonly<Record<string, number>>
+}
+
+// ---------- SDK-side armed surveys ----------
+//
+// Mirrors `ArmedTrigger` (feedback). Returned by
+// `GET /v1/sdk/armed-surveys` for every triggered + active survey
+// the SDK should evaluate locally on each `track()`. The full
+// `survey` payload is included so the SDK can render immediately
+// on a match without a follow-up content fetch.
+
+export interface ArmedSurvey {
+  readonly campaignId: string
+  readonly eventName: string
+  readonly segmentRules?: SerializedSegmentRules | null
+  readonly cooldownSeconds: number | null
+  readonly frequencyCap: PushFrequencyCap
+  readonly survey: SurveyCampaignWithFlow
 }
