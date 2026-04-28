@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import type { NpsQuestion as NpsQ } from '@ritmus/sdk-core'
 import type { ResolvedTheme } from '../theme.js'
+import { QuestionImageHeader } from '../QuestionImageHeader.js'
 
 interface Props {
   readonly question: NpsQ
@@ -31,6 +32,9 @@ export function NpsQuestion({
   const highLabel = question.highLabel ?? 'Extremely likely'
   return (
     <View>
+      {question.imageUrl ? (
+        <QuestionImageHeader uri={question.imageUrl} radius={theme.radius} />
+      ) : null}
       <Text style={[styles.title, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
         {question.title}
       </Text>

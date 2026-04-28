@@ -20,6 +20,7 @@ import {
   Text,
   View,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { Question } from '@ritmus/sdk-core'
 import type { ShowPromptPayload, ResponseEmission } from '../internal/types.js'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './theme.js'
@@ -74,6 +75,7 @@ export function PromptSheet({
   const [answers, setAnswers] = useState<AnswerRecord>({})
   const translate = useRef(new Animated.Value(0)).current
   const height = Dimensions.get('window').height
+  const insets = useSafeAreaInsets()
 
   const theme: ResolvedTheme = useMemo(() => {
     if (themeOverride) return mergeTheme(themeOverride, payload?.theme)
@@ -231,6 +233,7 @@ export function PromptSheet({
               backgroundColor: theme.colors.background,
               borderTopLeftRadius: theme.radius,
               borderTopRightRadius: theme.radius,
+              paddingBottom: Math.max(insets.bottom, 30) + 16,
               transform: [{ translateY }],
             },
           ]}
@@ -334,7 +337,6 @@ const styles = StyleSheet.create({
     minHeight: 280,
     paddingTop: 20,
     paddingHorizontal: 20,
-    paddingBottom: 30,
   },
   headerRow: {
     // Position the close button absolutely so the drag handle stays

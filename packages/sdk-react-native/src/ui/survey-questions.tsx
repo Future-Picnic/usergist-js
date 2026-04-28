@@ -14,6 +14,7 @@ import type {
   SurveyAnswerValue,
 } from '@ritmus/sdk-core'
 import type { ResolvedTheme } from './theme.js'
+import { QuestionImageHeader } from './QuestionImageHeader.js'
 
 const DEFAULT_LIKERT: readonly [string, string, string, string, string] = [
   'Strongly disagree',
@@ -26,14 +27,17 @@ const DEFAULT_LIKERT: readonly [string, string, string, string, string] = [
 function TitleBlock({
   title,
   subtitle,
+  imageUrl,
   theme,
 }: {
   readonly title: string
   readonly subtitle?: string
+  readonly imageUrl?: string
   readonly theme: ResolvedTheme
 }): React.ReactElement {
   return (
     <View>
+      {imageUrl ? <QuestionImageHeader uri={imageUrl} radius={theme.radius} /> : null}
       <Text style={[styles.title, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
         {title}
       </Text>
@@ -68,7 +72,7 @@ export function SingleChoiceQuestionView({
 }: SurveyQuestionProps<SCQ, string | null>): React.ReactElement {
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} theme={theme} />
+      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
       <View style={styles.list}>
         {question.options.map((o) => {
           const selected = value === o.id
@@ -121,7 +125,7 @@ export function MultiChoiceQuestionView({
   }
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} theme={theme} />
+      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
       <View style={styles.list}>
         {question.options.map((o) => {
           const selected = set.has(o.id)
@@ -166,7 +170,7 @@ export function LikertQuestionView({
   const labels = question.labels ?? DEFAULT_LIKERT
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} theme={theme} />
+      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
       <View style={styles.likertRow}>
         {labels.map((label, idx) => {
           const score = idx + 1
@@ -211,7 +215,7 @@ export function LongTextQuestionView({
 }: SurveyQuestionProps<LTQ, string>): React.ReactElement {
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} theme={theme} />
+      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
       <TextInput
         value={value}
         onChangeText={onChange}
@@ -267,7 +271,7 @@ export function RankingQuestionView({
 
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} theme={theme} />
+      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
       <View style={styles.list}>
         {ordered.map((id, idx) => {
           const item = question.items.find((x) => x.id === id)
@@ -345,7 +349,7 @@ export function SingleDateQuestionView({
   const [local, setLocal] = useState<string>(value ?? '')
   return (
     <View>
-      <TitleBlock title={question.title} subtitle={question.subtitle} theme={theme} />
+      <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
       <TextInput
         value={local}
         onChangeText={(s) => {
@@ -380,7 +384,7 @@ export function InfoScreenView({
 }): React.ReactElement {
   return (
     <View>
-      <TitleBlock title={question.title} theme={theme} />
+      <TitleBlock title={question.title} imageUrl={question.imageUrl} theme={theme} />
       {question.body ? (
         <Text
           style={[styles.body, { color: theme.colors.text, fontFamily: theme.fontFamily }]}

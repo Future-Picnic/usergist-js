@@ -7,6 +7,9 @@ export interface RatingQuestion {
   readonly type: 'rating'
   readonly title: string
   readonly subtitle?: string
+  // Optional image rendered above the title. Uploaded via the
+  // dashboard composer and served from the public R2 bucket.
+  readonly imageUrl?: string
   readonly scale: 5 | 10
   readonly display?: RatingDisplayMode
   readonly lowLabel?: string
@@ -18,6 +21,7 @@ export interface NpsQuestion {
   readonly type: 'nps'
   readonly title: string
   readonly subtitle?: string
+  readonly imageUrl?: string
   readonly followUp?: string
   readonly lowLabel?: string
   readonly highLabel?: string
@@ -28,6 +32,7 @@ export interface MultipleChoiceQuestion {
   readonly type: 'multiple_choice'
   readonly title: string
   readonly subtitle?: string
+  readonly imageUrl?: string
   readonly options: ReadonlyArray<{ id: string; label: string }>
   readonly multiSelect?: boolean
 }
@@ -37,6 +42,7 @@ export interface ShortTextQuestion {
   readonly type: 'short_text'
   readonly title: string
   readonly subtitle?: string
+  readonly imageUrl?: string
   readonly placeholder?: string
   readonly maxLength?: number
 }
