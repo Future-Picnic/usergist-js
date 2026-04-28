@@ -44,6 +44,13 @@ export interface StoredRulesCache {
   readonly nextSyncMs: number
 }
 
+export interface StoredSurveyRulesCache {
+  readonly surveys: ReadonlyArray<import('@ritmus/sdk-core').ArmedSurvey>
+  readonly fetchedAt: string
+  readonly serverTime: string
+  readonly nextSyncMs: number
+}
+
 export interface FrequencyCapEntry {
   readonly promptId: string
   readonly lastShownAt: string

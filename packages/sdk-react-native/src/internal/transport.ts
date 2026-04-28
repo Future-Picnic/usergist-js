@@ -13,6 +13,7 @@ import type {
   IngestBatch,
   ResolveSurveyLinkRequest,
   ResolveSurveyLinkResponse,
+  SdkArmedSurveysResponse,
   SdkArmedTriggersResponse,
   SdkConsentPayload,
   SdkIdentifyPayload,
@@ -89,6 +90,10 @@ export interface Transport {
     readonly anonymousId: string
     readonly externalId: string | null
   }) => Promise<SdkArmedTriggersResponse>
+  readonly armedSurveys: (p: {
+    readonly anonymousId: string
+    readonly externalId: string | null
+  }) => Promise<SdkArmedSurveysResponse>
   readonly consent: (p: SdkConsentPayload) => Promise<{ ok: true }>
   readonly identify: (p: SdkIdentifyPayload) => Promise<{ ok: true }>
   readonly submitResponse: (p: SubmitResponsePayload) => Promise<{ ok: true }>
@@ -234,6 +239,15 @@ export function createTransport(cfg: TransportConfig): Transport {
       return request<SdkArmedTriggersResponse>({
         method: 'GET',
         path: `/v1/sdk/armed-triggers?${params.toString()}`,
+        idempotent: true,
+      })
+    },
+    armedSurveys: async ({ anonymousId, externalId }) => {
+      const params = new URLSearchParams({ anonymousId })
+      if (externalId) params.append('externalId', externalId)
+      return request<SdkArmedSurveysResponse>({
+        method: 'GET',
+        path: `/v1/sdk/armed-surveys?${params.toString()}`,
         idempotent: true,
       })
     },

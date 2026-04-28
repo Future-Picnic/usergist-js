@@ -186,8 +186,8 @@ export function LikertQuestionView({
               <Text
                 style={{
                   color: selected ? theme.colors.background : theme.colors.text,
-                  fontSize: 12,
-                  textAlign: 'center',
+                  fontSize: 14,
+                  textAlign: 'left',
                   fontFamily: theme.fontFamily,
                 }}
               >
@@ -412,15 +412,23 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   counter: { fontSize: 12, marginTop: 4, textAlign: 'right' },
-  likertRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  likertRow: {
+    // Stack the 5 options vertically. Five chips in a row don't fit
+    // long labels like "Strongly disagree" — they truncate / wrap and
+    // the row spills off the phone preview. A vertical list reads
+    // cleanly on every screen size.
+    flexDirection: 'column',
+    gap: 8,
+    marginTop: 16,
+  },
   likertCell: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 6,
+    width: '100%',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderWidth: 1,
     borderRadius: 12,
-    minHeight: 56,
-    alignItems: 'center',
+    minHeight: 48,
+    alignItems: 'flex-start',
     justifyContent: 'center',
   },
   rankRow: {

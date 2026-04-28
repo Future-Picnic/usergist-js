@@ -588,6 +588,19 @@ export const Ritmus = {
   __internal_surveyHandlers(): SurveyHandlers {
     return surveyHandlers
   },
+  __internal_armedSurveyById(surveyId: string): SurveyCampaignWithFlow | null {
+    // Local-fire fast-path. If the survey-rules-cache already has the
+    // full survey content (because the matcher just fired), the
+    // Provider can render without a /v1/sdk/surveys/:id roundtrip.
+    try {
+      const e = engine
+      if (!e) return null
+      const armed = e.surveyRules.getById(surveyId)
+      return armed?.survey ?? null
+    } catch {
+      return null
+    }
+  },
   async __internal_fetchSurvey(surveyId: string, language?: string): Promise<SurveyCampaignWithFlow | null> {
     try {
       const e = requireEngine()

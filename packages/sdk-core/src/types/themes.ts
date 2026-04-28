@@ -33,7 +33,14 @@ export interface ThemePreset {
   readonly swatches: readonly [string, string, string]
 }
 
-const INTER = 'Inter'
+// Default font family for every preset. Matches the SDK's
+// DEFAULT_THEME so a freshly-saved theme renders the same in the
+// dashboard preview (web font loaded via next/font + Google Fonts
+// stylesheet) and on the mobile app (host bundles the .ttf via
+// react-native.config.js). Previously the presets used 'Inter',
+// which neither side had loaded — both fell back to system sans,
+// so designers saw a font drift between the dashboard and device.
+const JAKARTA = 'Plus Jakarta Sans'
 
 export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
   {
@@ -49,7 +56,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#111827',
     },
     radius: 16,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#111827', '#FFFFFF', '#E5E7EB'],
   },
   {
@@ -65,7 +72,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#0EA5E9',
     },
     radius: 16,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#0EA5E9', '#0C4A6E', '#BAE6FD'],
   },
   {
@@ -81,7 +88,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#F97316',
     },
     radius: 16,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#F97316', '#7C2D12', '#FED7AA'],
   },
   {
@@ -97,7 +104,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#16A34A',
     },
     radius: 16,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#16A34A', '#14532D', '#BBF7D0'],
   },
   {
@@ -113,7 +120,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#A78BFA',
     },
     radius: 16,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#A78BFA', '#0F172A', '#1E293B'],
   },
   {
@@ -129,7 +136,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#EC4899',
     },
     radius: 20,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#EC4899', '#831843', '#FBCFE8'],
   },
   {
@@ -145,7 +152,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#000000',
     },
     radius: 4,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#000000', '#FFFFFF', '#525252'],
   },
   {
@@ -161,7 +168,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#FB7185',
     },
     radius: 16,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#FB7185', '#881337', '#FECDD3'],
   },
   {
@@ -177,7 +184,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#1E3A8A',
     },
     radius: 12,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#1E3A8A', '#0F172A', '#CBD5E1'],
   },
   {
@@ -193,7 +200,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#14B8A6',
     },
     radius: 16,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#14B8A6', '#134E4A', '#99F6E4'],
   },
   {
@@ -209,7 +216,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#475569',
     },
     radius: 12,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#475569', '#0F172A', '#CBD5E1'],
   },
   {
@@ -226,7 +233,7 @@ export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
       button: '#8B5CF6',
     },
     radius: 20,
-    fontFamily: INTER,
+    fontFamily: JAKARTA,
     swatches: ['#8B5CF6', '#EC4899', '#E9D5FF'],
   },
 ] as const

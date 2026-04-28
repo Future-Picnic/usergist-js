@@ -21,7 +21,14 @@ export function NpsQuestion({
   theme,
 }: Props): React.ReactElement {
   const [showFollowUp, setShowFollowUp] = useState<boolean>(score != null)
-  const items = Array.from({ length: 11 }, (_, i) => i)
+  // 10 → 0 reads more naturally than 0 → 10 in a vertical stack:
+  // the highest / most-promoter answer sits at the top with its
+  // label, and the row tapers down to the detractor side. 11 chips
+  // crammed in a horizontal row truncate awkwardly on phones — a
+  // full-width vertical list is the parity layout the user asked for.
+  const items = Array.from({ length: 11 }, (_, i) => 10 - i)
+  const lowLabel = question.lowLabel ?? 'Not at all likely'
+  const highLabel = question.highLabel ?? 'Extremely likely'
   return (
     <View>
       <Text style={[styles.title, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
@@ -32,9 +39,11 @@ export function NpsQuestion({
           {question.subtitle}
         </Text>
       ) : null}
-      <View style={styles.row}>
+      <View style={styles.column}>
         {items.map((n) => {
           const selected = score === n
+          const endpointLabel =
+            n === 10 ? highLabel : n === 0 ? lowLabel : null
           return (
             <Pressable
               key={n}
@@ -45,9 +54,9 @@ export function NpsQuestion({
               accessibilityRole="button"
               accessibilityLabel={`Score ${n}`}
               style={[
-                styles.chip,
+                styles.cell,
                 {
-                  borderColor: theme.colors.border,
+                  borderColor: selected ? theme.colors.primary : theme.colors.border,
                   backgroundColor: selected ? theme.colors.primary : 'transparent',
                 },
               ]}
@@ -56,18 +65,28 @@ export function NpsQuestion({
                 style={{
                   color: selected ? theme.colors.background : theme.colors.text,
                   fontFamily: theme.fontFamily,
-                  fontWeight: '600',
+                  fontWeight: '700',
+                  fontSize: 16,
+                  minWidth: 24,
                 }}
               >
                 {n}
               </Text>
+              {endpointLabel ? (
+                <Text
+                  style={{
+                    color: selected ? theme.colors.background : theme.colors.subtext,
+                    fontFamily: theme.fontFamily,
+                    marginLeft: 12,
+                    fontSize: 13,
+                  }}
+                >
+                  {endpointLabel}
+                </Text>
+              ) : null}
             </Pressable>
           )
         })}
-      </View>
-      <View style={styles.labelsRow}>
-        <Text style={[styles.endLabel, { color: theme.colors.subtext }]}>Not at all likely</Text>
-        <Text style={[styles.endLabel, { color: theme.colors.subtext }]}>Extremely likely</Text>
       </View>
       {showFollowUp && question.followUp ? (
         <View style={{ marginTop: 16 }}>
@@ -101,20 +120,19 @@ export function NpsQuestion({
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  subtitle: { fontSize: 14, marginBottom: 12 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  chip: {
-    minWidth: 36,
-    height: 36,
-    paddingHorizontal: 8,
-    borderRadius: 18,
-    borderWidth: 1,
+  title: { fontSize: 18, fontWeight: '700', marginBottom: 4, textAlign: 'center' },
+  subtitle: { fontSize: 14, marginBottom: 12, textAlign: 'center' },
+  column: { flexDirection: 'column', gap: 8, marginTop: 12 },
+  cell: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    width: '100%',
+    minHeight: 44,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
   },
-  labelsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  endLabel: { fontSize: 12 },
   input: {
     minHeight: 80,
     borderWidth: 1,

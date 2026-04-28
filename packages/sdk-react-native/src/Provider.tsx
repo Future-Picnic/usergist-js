@@ -87,7 +87,13 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
   const openSurvey = useCallback(
     async (surveyId: string, source: SurveyAttemptSource): Promise<void> => {
       try {
-        const survey = await Ritmus.__internal_fetchSurvey(surveyId)
+        // Local-fire fast-path: when the survey-matcher just fired,
+        // the full survey content is already in the SDK's cache. Use
+        // it instead of round-tripping to the server. Falls back to
+        // a fetch for offer-ledger / on-demand opens that arrive
+        // through the polling path.
+        const cached = Ritmus.__internal_armedSurveyById(surveyId)
+        const survey = cached ?? (await Ritmus.__internal_fetchSurvey(surveyId))
         if (!survey) return
         const attempt = await Ritmus.__internal_createAttempt(surveyId, source)
         if (!attempt) return

@@ -1,13 +1,17 @@
 // Bottom-sheet modal that renders an armed prompt and collects answers.
 //
-// Supports rating, NPS, multiple_choice, short_text. Questions are shown one
-// at a time; "Next" advances, the last question has "Submit". "Skip" dismisses
-// and records a dismissal. Tapping the scrim also dismisses.
+// Supports rating, NPS, multiple_choice, short_text. Questions are shown
+// one at a time. Tap-to-select types auto-advance; text inputs render
+// an inline full-width Next button under the field. The X close at the
+// top-right is the only dismiss path. There's no Back button anywhere.
+// Mirrors the SurveyView rules so feedback and surveys feel identical.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
+  Easing,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -26,6 +30,31 @@ import { MultipleChoiceQuestion } from './questions/MultipleChoiceQuestion.js'
 import { ShortTextQuestion } from './questions/ShortTextQuestion.js'
 
 type AnswerRecord = Record<string, number | string | ReadonlyArray<string> | null>
+
+// Tap-to-select questions auto-advance — there's nothing more for
+// the user to do, the Next button would just be friction.
+//   - rating / nps: always auto-advance
+//   - multiple_choice: auto-advance only when it's single-select
+//     (multiSelect=false). When the prompt allows multiple picks the
+//     user needs the explicit Next button to commit their choices.
+function shouldAutoAdvance(q: Question): boolean {
+  if (q.type === 'rating' || q.type === 'nps') return true
+  if (q.type === 'multiple_choice') return !q.multiSelect
+  return false
+}
+
+// Text inputs render their OWN inline Next button under the field
+// (full-width, disabled until the user types something).
+function isTextInput(type: Question['type']): boolean {
+  return type === 'short_text'
+}
+
+function answerHasValue(v: number | string | ReadonlyArray<string> | null | undefined): boolean {
+  if (v === null || v === undefined) return false
+  if (typeof v === 'string') return v.trim().length > 0
+  if (Array.isArray(v)) return v.length > 0
+  return true
+}
 
 interface Props {
   readonly payload: ShowPromptPayload | null
@@ -60,6 +89,29 @@ export function PromptSheet({
     }
   }, [payload, translate])
 
+  // Slide each new question in from the right + fade up. Same
+  // pattern surveys use, so feedback and survey feel identical.
+  const questionTranslate = useRef(new Animated.Value(0)).current
+  const questionOpacity = useRef(new Animated.Value(1)).current
+  useEffect(() => {
+    questionTranslate.setValue(36)
+    questionOpacity.setValue(0)
+    Animated.parallel([
+      Animated.timing(questionTranslate, {
+        toValue: 0,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(questionOpacity, {
+        toValue: 1,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start()
+  }, [index, questionTranslate, questionOpacity])
+
   if (!payload) return null
 
   const questions: ReadonlyArray<Question> = payload.prompt.questions
@@ -86,6 +138,13 @@ export function PromptSheet({
 
   function setAnswer(qid: string, v: number | string | ReadonlyArray<string> | null): void {
     setAnswers((prev) => ({ ...prev, [qid]: v }))
+    // Auto-advance for tap-to-select question types — same UX rule
+    // as the survey shell. multi_choice + text inputs keep the
+    // explicit Next button so the user can pick multiple options
+    // or finish typing.
+    if (current?.id === qid && shouldAutoAdvance(current)) {
+      setTimeout(() => next(), 220)
+    }
   }
 
   function next(): void {
@@ -176,28 +235,87 @@ export function PromptSheet({
             },
           ]}
         >
-          <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
-          {current ? renderQuestion(current) : null}
-          <View style={styles.actions}>
+          <View style={styles.headerRow}>
+            <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
             <Pressable
               onPress={() => close('dismiss')}
               accessibilityRole="button"
-              accessibilityLabel="Skip"
-              style={styles.skip}
+              accessibilityLabel="Close"
+              hitSlop={12}
+              style={styles.closeBtn}
             >
-              <Text style={{ color: theme.colors.subtext, fontFamily: theme.fontFamily }}>Skip</Text>
-            </Pressable>
-            <Pressable
-              onPress={next}
-              accessibilityRole="button"
-              accessibilityLabel={isLast ? 'Submit' : 'Next'}
-              style={[styles.submit, { backgroundColor: theme.colors.primary }]}
-            >
-              <Text style={{ color: theme.colors.background, fontWeight: '700', fontFamily: theme.fontFamily }}>
-                {isLast ? 'Submit' : 'Next'}
+              <Text
+                style={{
+                  color: theme.colors.text,
+                  fontFamily: theme.fontFamily,
+                  fontSize: 14,
+                  fontWeight: '600',
+                  lineHeight: 18,
+                }}
+              >
+                ✕
               </Text>
             </Pressable>
           </View>
+          {current ? (
+            <Animated.View
+              style={{
+                opacity: questionOpacity,
+                transform: [{ translateX: questionTranslate }],
+              }}
+            >
+              {renderQuestion(current)}
+              {/* Text inputs: full-width inline Next directly under
+                  the field, disabled until the user types. */}
+              {isTextInput(current.type) ? (
+                <Pressable
+                  onPress={next}
+                  disabled={!answerHasValue(answers[current.id])}
+                  accessibilityRole="button"
+                  accessibilityLabel="Next"
+                  style={[
+                    styles.next,
+                    {
+                      backgroundColor: theme.colors.primary,
+                      opacity: answerHasValue(answers[current.id]) ? 1 : 0.4,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: '#ffffff',
+                      fontWeight: '700',
+                      fontFamily: theme.fontFamily,
+                      fontSize: 16,
+                    }}
+                  >
+                    Next
+                  </Text>
+                </Pressable>
+              ) : null}
+            </Animated.View>
+          ) : null}
+          {/* Footer Next for non-text, non-auto-advance types
+              (multi_choice). Full-width pill, no Back. */}
+          {current && !shouldAutoAdvance(current) && !isTextInput(current.type) ? (
+            <Pressable
+              onPress={next}
+              accessibilityRole="button"
+              accessibilityLabel="Next"
+              style={[styles.next, { backgroundColor: theme.colors.primary }]}
+            >
+              <Text
+                style={{
+                  color: '#ffffff',
+                  fontWeight: '700',
+                  fontFamily: theme.fontFamily,
+                  fontSize: 16,
+                }}
+              >
+                Next
+              </Text>
+            </Pressable>
+          ) : null}
         </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
@@ -207,32 +325,55 @@ export function PromptSheet({
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
-    paddingTop: 8,
+    // Sit somewhere between "tiny single-question pill" and "fills
+    // half the screen". 280pt gives the title + answers + endpoint
+    // labels a comfortable amount of vertical breathing room without
+    // pushing them too far up the device. paddingTop reserves space
+    // above the drag handle / X close so neither hugs the rounded
+    // top edge of the sheet.
+    minHeight: 280,
+    paddingTop: 20,
     paddingHorizontal: 20,
-    paddingBottom: 32,
+    paddingBottom: 30,
+  },
+  headerRow: {
+    // Position the close button absolutely so the drag handle stays
+    // perfectly centred regardless of the X's width. The bottom
+    // margin pushes the question title down so it doesn't crowd the
+    // X — gives the eye a clear separation between the dismiss
+    // affordance and the actual content.
+    position: 'relative',
+    height: 32,
+    marginBottom: 24,
   },
   handle: {
     width: 40,
     height: 4,
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 16,
+    marginTop: 6,
   },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  closeBtn: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    // Subtle gray pill behind the X — gives the dismiss target a
+    // visual affordance without competing with the primary action.
+    backgroundColor: 'rgba(0,0,0,0.06)',
     alignItems: 'center',
-    marginTop: 24,
-    gap: 12,
+    justifyContent: 'center',
   },
-  skip: {
-    padding: 12,
-  },
-  submit: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+  next: {
+    alignSelf: 'stretch',
+    marginTop: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     borderRadius: 999,
-    minWidth: 120,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
   },
 })

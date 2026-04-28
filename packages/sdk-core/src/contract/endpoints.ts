@@ -46,6 +46,7 @@ import type {
   UploadCredentialRequest,
 } from '../types/campaign.js'
 import type {
+  ArmedSurvey,
   CloneSurveyFromTemplateRequest,
   CompleteSurveyAttemptRequest,
   CreateSurveyAttemptRequest,
@@ -289,6 +290,12 @@ export interface SdkIngestResponse {
 
 export interface SdkArmedTriggersResponse {
   readonly triggers: ReadonlyArray<ArmedTrigger>
+  readonly serverTime: string
+  readonly nextSyncMs: number
+}
+
+export interface SdkArmedSurveysResponse {
+  readonly surveys: ReadonlyArray<ArmedSurvey>
   readonly serverTime: string
   readonly nextSyncMs: number
 }
