@@ -144,6 +144,14 @@ export type TriggerSpec = AppOpenTrigger | EventTrigger | AudienceJoinTrigger
 
 export type TriggerKind = TriggerSpec['kind']
 
+/**
+ * Synthetic event name the SDK emits whenever the host app cold-starts
+ * or transitions from background to foreground. The trigger engine
+ * indexes `app_open`-kind prompts under this name so the same matching
+ * pipeline handles both event-driven and lifecycle-driven prompts.
+ */
+export const APP_OPEN_EVENT_NAME = '$app_open'
+
 export function defaultTriggerSpec(): TriggerSpec {
   return { kind: 'app_open' }
 }
