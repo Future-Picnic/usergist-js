@@ -2,6 +2,7 @@ import React from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import type { ShortTextQuestion as STQ } from '@ritmus/sdk-core'
 import type { ResolvedTheme } from '../theme.js'
+import { QuestionImageHeader } from '../QuestionImageHeader.js'
 
 interface Props {
   readonly question: STQ
@@ -13,6 +14,9 @@ interface Props {
 export function ShortTextQuestion({ question, value, onChange, theme }: Props): React.ReactElement {
   return (
     <View>
+      {question.imageUrl ? (
+        <QuestionImageHeader uri={question.imageUrl} radius={theme.radius} />
+      ) : null}
       <Text style={[styles.title, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
         {question.title}
       </Text>

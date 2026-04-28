@@ -39,6 +39,10 @@ export interface BaseSurveyQuestion {
   readonly title: string
   readonly subtitle?: string
   readonly required?: boolean
+  // Optional image rendered above the question title. Uploaded
+  // through the dashboard composer; URL points at the public R2
+  // bucket.
+  readonly imageUrl?: string
   readonly mergeTagContext?: Readonly<Record<string, unknown>>
 }
 

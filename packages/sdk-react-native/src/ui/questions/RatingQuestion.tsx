@@ -2,6 +2,7 @@ import React from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { RatingQuestion as RatingQ } from '@ritmus/sdk-core'
 import type { ResolvedTheme } from '../theme.js'
+import { QuestionImageHeader } from '../QuestionImageHeader.js'
 
 interface Props {
   readonly question: RatingQ
@@ -29,6 +30,9 @@ export function RatingQuestion({ question, value, onChange, theme }: Props): Rea
 
   return (
     <View>
+      {question.imageUrl ? (
+        <QuestionImageHeader uri={question.imageUrl} radius={theme.radius} />
+      ) : null}
       <Text style={[styles.title, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
         {question.title}
       </Text>

@@ -2,6 +2,7 @@ import React from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { MultipleChoiceQuestion as MCQ } from '@ritmus/sdk-core'
 import type { ResolvedTheme } from '../theme.js'
+import { QuestionImageHeader } from '../QuestionImageHeader.js'
 
 interface Props {
   readonly question: MCQ
@@ -27,6 +28,9 @@ export function MultipleChoiceQuestion({
   }
   return (
     <View>
+      {question.imageUrl ? (
+        <QuestionImageHeader uri={question.imageUrl} radius={theme.radius} />
+      ) : null}
       <Text style={[styles.title, { color: theme.colors.text, fontFamily: theme.fontFamily }]}>
         {question.title}
       </Text>

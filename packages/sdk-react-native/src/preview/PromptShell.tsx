@@ -18,7 +18,6 @@ export interface PromptShellProps {
   readonly questions: ReadonlyArray<Question>
   readonly currentQuestionId?: string | null
   readonly theme?: PromptTheme | null
-  readonly promptName?: string
 }
 
 // Tap-to-select questions auto-advance — mirrors PromptSheet:
@@ -38,7 +37,6 @@ export function PromptShell({
   questions,
   currentQuestionId,
   theme,
-  promptName,
 }: PromptShellProps): React.ReactElement {
   const resolvedTheme = useMemo<ResolvedTheme>(
     () => mergeTheme(DEFAULT_THEME, theme ?? undefined),
@@ -89,16 +87,6 @@ export function PromptShell({
             </Text>
           </View>
         </View>
-        {promptName ? (
-          <Text
-            style={[
-              styles.appName,
-              { color: resolvedTheme.colors.subtext, fontFamily: resolvedTheme.fontFamily },
-            ]}
-          >
-            {promptName}
-          </Text>
-        ) : null}
         <ScrollView contentContainerStyle={styles.body}>
           {current ? (
             <>
@@ -226,11 +214,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  appName: {
-    fontSize: 12,
-    textAlign: 'center',
-    marginBottom: 12,
   },
   body: {
     paddingBottom: 16,
