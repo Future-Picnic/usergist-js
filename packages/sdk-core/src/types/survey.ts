@@ -6,6 +6,7 @@
 
 import type { PromptTheme, FrequencyCaps } from './prompt.js'
 import type { PushFrequencyCap, PushSchedule } from './campaign.js'
+import type { AudienceSpec, TriggerSpec } from './targeting.js'
 
 export type SurveyQuestionType =
   | 'single_choice'
@@ -213,6 +214,12 @@ export interface SurveyCampaign {
   readonly status: 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'archived'
   readonly audienceSegmentId: string | null
   readonly triggerEventName: string | null
+  // Inline AudienceSpec + TriggerSpec mirroring prompts.audience/trigger.
+  // Null until the dashboard / API write them; legacy
+  // audienceSegmentId / triggerEventName remain authoritative until
+  // both sides have migrated.
+  readonly audience: AudienceSpec | null
+  readonly trigger: TriggerSpec | null
   readonly schedule: PushSchedule | null
   readonly frequencyCap: PushFrequencyCap
   readonly cooldownSeconds: number | null
