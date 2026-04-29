@@ -1,4 +1,8 @@
+import type { AudienceSpec, TriggerSpec } from './targeting.js'
+
 export type PushDeliveryMode = 'broadcast' | 'scheduled' | 'triggered' | 'transactional'
+
+export type PushPlatformFilter = 'all' | 'ios' | 'android'
 
 export type CampaignType = 'push' | 'survey'
 
@@ -82,6 +86,8 @@ export interface Campaign {
   readonly mode: PushDeliveryMode
   readonly status: CampaignStatus
   readonly audienceSegmentId: string | null
+  readonly audience: AudienceSpec | null
+  readonly trigger: TriggerSpec | null
   readonly triggerEventName: string | null
   readonly schedule: PushSchedule | null
   readonly frequencyCap: PushFrequencyCap
@@ -131,6 +137,8 @@ export interface CreateCampaignRequest {
   readonly name: string
   readonly mode: PushDeliveryMode
   readonly audienceSegmentId?: string | null
+  readonly audience?: AudienceSpec
+  readonly trigger?: TriggerSpec
   readonly triggerEventName?: string | null
   readonly schedule?: PushSchedule | null
   readonly frequencyCap?: PushFrequencyCap

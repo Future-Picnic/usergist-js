@@ -152,6 +152,13 @@ export type TriggerKind = TriggerSpec['kind']
  */
 export const APP_OPEN_EVENT_NAME = '$app_open'
 
+/**
+ * Synthetic event the engine indexes `audience_join` campaigns under.
+ * Mirrors APP_OPEN_EVENT_NAME so the same matching pipeline handles
+ * both lifecycle and audience-membership triggers.
+ */
+export const AUDIENCE_JOIN_EVENT_NAME = '$audience_join'
+
 export function defaultTriggerSpec(): TriggerSpec {
   return { kind: 'app_open' }
 }
