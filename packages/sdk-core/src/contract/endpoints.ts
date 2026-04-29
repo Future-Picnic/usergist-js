@@ -246,6 +246,7 @@ export interface CreatePromptRequest {
   readonly frequency?: FrequencyCaps
   readonly startAt?: string | null
   readonly endAt?: string | null
+  readonly status?: PromptStatus
 }
 
 export interface UpdatePromptRequest {
@@ -423,7 +424,34 @@ export const endpoints = {
   'POST /v1/apps/:appId/prompts/:promptId/test-on-device': {} as Endpoint<TestPromptOnDeviceRequest, { dispatched: true }>,
 
   'GET /v1/apps/:appId/prompts/:promptId/responses': {} as Endpoint<ListResponsesQuery, ReadonlyArray<PromptResponse>>,
-  'GET /v1/apps/:appId/prompts/:promptId/analytics': {} as Endpoint<void, PromptAnalytics>,
+  'GET /v1/apps/:appId/prompts/:promptId/analytics': {} as Endpoint<
+    { from?: string; to?: string },
+    PromptAnalytics
+  >,
+
+  // App-level analytics rollup — daily (or hourly for 24h) buckets across all
+  // four pillars. Used by the dashboard overview to render "last N days"
+  // performance charts without spamming per-resource analytics endpoints.
+  'GET /v1/apps/:appId/analytics/overview': {} as Endpoint<
+    { range?: '24h' | '7d' | '30d' },
+    {
+      readonly range: '24h' | '7d' | '30d'
+      readonly bucket: 'hour' | 'day'
+      readonly buckets: ReadonlyArray<{
+        readonly bucket: string
+        readonly push: { sent: number; opened: number; clicked: number }
+        readonly inapp: { impressions: number; dismissed: number; ctaClicked: number }
+        readonly prompts: { shown: number; responded: number; dismissed: number }
+        readonly surveys: { started: number; completed: number }
+      }>
+      readonly totals: {
+        readonly push: { sent: number; opened: number; clicked: number }
+        readonly inapp: { impressions: number; dismissed: number; ctaClicked: number }
+        readonly prompts: { shown: number; responded: number; dismissed: number }
+        readonly surveys: { started: number; completed: number }
+      }
+    }
+  >,
 
   // Inline AudienceSpec preview — count of users matching the (unsaved) spec.
   // Used by the dashboard's TARGET step to power the live count badge.
@@ -455,7 +483,10 @@ export const endpoints = {
   'POST /v1/apps/:appId/campaigns/:cid/resend': {} as Endpoint<void, { queued: number }>,
   'POST /v1/apps/:appId/campaigns/:cid/preview': {} as Endpoint<{ anonymousId?: string; mergeTags?: Record<string, unknown> }, ReadonlyArray<{ variantId: string; language: string | null; title: string; body: string }>>,
   'POST /v1/apps/:appId/campaigns/:cid/test-send': {} as Endpoint<{ anonymousId: string }, { queued: true }>,
-  'GET /v1/apps/:appId/campaigns/:cid/analytics': {} as Endpoint<void, CampaignAnalytics>,
+  'GET /v1/apps/:appId/campaigns/:cid/analytics': {} as Endpoint<
+    { from?: string; to?: string },
+    CampaignAnalytics
+  >,
   'GET /v1/apps/:appId/campaigns/:cid/deliveries': {} as Endpoint<void, ReadonlyArray<{ delivery_id: string; variant_id: string; language: string | null; anonymous_id: string; platform: string; sent_at: string; opened_at: string | null; clicked_at: string | null; error_code: string | null }>>,
 
   // Push credentials
@@ -497,7 +528,10 @@ export const endpoints = {
     SurveyCampaignWithFlow
   >,
   'POST /v1/apps/:appId/surveys/:sid/test-on-device': {} as Endpoint<{ anonymousId: string }, { dispatched: true }>,
-  'GET /v1/apps/:appId/surveys/:sid/analytics': {} as Endpoint<void, SurveyAnalytics>,
+  'GET /v1/apps/:appId/surveys/:sid/analytics': {} as Endpoint<
+    { from?: string; to?: string },
+    SurveyAnalytics
+  >,
   'GET /v1/apps/:appId/surveys/:sid/responses': {} as Endpoint<
     { from?: string; to?: string; page?: number; limit?: number; segmentId?: string; language?: string },
     ReadonlyArray<SurveyResponseRecord>
@@ -549,7 +583,10 @@ export const endpoints = {
   'DELETE /v1/apps/:appId/inapp-messages/:id': {} as Endpoint<void, { ok: true }>,
   'POST /v1/apps/:appId/inapp-messages/:id/activate': {} as Endpoint<void, InAppMessage>,
   'POST /v1/apps/:appId/inapp-messages/:id/pause': {} as Endpoint<void, InAppMessage>,
-  'GET /v1/apps/:appId/inapp-messages/:id/analytics': {} as Endpoint<void, InAppMessageAnalytics>,
+  'GET /v1/apps/:appId/inapp-messages/:id/analytics': {} as Endpoint<
+    { from?: string; to?: string },
+    InAppMessageAnalytics
+  >,
   'GET /v1/sdk/armed-inapp-messages': {} as Endpoint<
     { anonymousId: string; externalId?: string },
     SdkArmedInAppMessagesResponse

@@ -98,6 +98,7 @@ export interface CreateInAppMessageRequest {
   readonly ctas?: ReadonlyArray<InAppCta>
   readonly startAt?: string | null
   readonly endAt?: string | null
+  readonly status?: InAppMessageStatus
 }
 
 export interface UpdateInAppMessageRequest extends Partial<CreateInAppMessageRequest> {
