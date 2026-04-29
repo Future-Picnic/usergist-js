@@ -147,6 +147,7 @@ export interface CreateCampaignRequest {
   readonly startAt?: string | null
   readonly endAt?: string | null
   readonly variants: ReadonlyArray<Omit<PushVariant, 'id' | 'campaignId' | 'createdAt' | 'updatedAt'>>
+  readonly status?: CampaignStatus
 }
 
 export interface UpdateCampaignRequest extends Partial<CreateCampaignRequest> {

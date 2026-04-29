@@ -390,6 +390,7 @@ export interface CreateSurveyRequest {
   readonly theme?: PromptTheme
   readonly startAt?: string | null
   readonly endAt?: string | null
+  readonly status?: SurveyCampaign['status']
 }
 
 export interface UpdateSurveyRequest extends Partial<CreateSurveyRequest> {
