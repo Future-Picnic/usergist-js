@@ -1,7 +1,15 @@
 // Typed event emitter for public callbacks (onPromptShown/onResponse) and
 // internal UI signals (show/dismiss prompts from the matcher to Provider).
 
+import type { ArmedInAppMessage } from '@ritmus/sdk-core'
 import type { ShowPromptPayload, ResponseEmission } from './types.js'
+
+export interface ShowInAppMessagePayload {
+  readonly messageId: string
+  readonly message: ArmedInAppMessage
+  readonly shownAt: number
+  readonly triggerEventName: string
+}
 
 export interface SdkEvents {
   readonly promptShown: ShowPromptPayload
@@ -15,6 +23,7 @@ export interface SdkEvents {
     readonly name: string
     readonly source: string
   }
+  readonly showInAppMessage: ShowInAppMessagePayload
 }
 
 export type EventName = keyof SdkEvents
@@ -39,6 +48,7 @@ const BUFFERED_EVENTS: ReadonlyArray<EventName> = [
   'showPrompt',
   'showSurvey',
   'surveyInvite',
+  'showInAppMessage',
 ]
 
 export function createEventBus(): EventBus {

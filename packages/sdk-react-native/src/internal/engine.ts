@@ -27,6 +27,8 @@ import { createFrequencyCapManager, type FrequencyCapManager } from './frequency
 import { createUserStateStore, type UserStateStore } from './user-state.js'
 import { createTriggerMatcher, type TriggerMatcher } from './trigger-matcher.js'
 import { createSurveyMatcher, type SurveyMatcher } from './survey-matcher.js'
+import { createInAppRulesCache, type InAppRulesCache } from './inapp-rules-cache.js'
+import { createInAppMatcher, type InAppMatcher } from './inapp-matcher.js'
 import { createLifecycleManager, type LifecycleManager } from './lifecycle.js'
 import { createContextProvider, type ContextProvider } from './context.js'
 import { createEventBus, type EventBus } from './events.js'
@@ -57,10 +59,12 @@ export interface Engine {
   readonly transport: Transport
   readonly rules: RulesCache
   readonly surveyRules: SurveyRulesCache
+  readonly inAppRules: InAppRulesCache
   readonly caps: FrequencyCapManager
   readonly userState: UserStateStore
   readonly matcher: TriggerMatcher
   readonly surveyMatcher: SurveyMatcher
+  readonly inAppMatcher: InAppMatcher
   readonly lifecycle: LifecycleManager
   readonly context: ContextProvider
   readonly events: EventBus
@@ -101,6 +105,11 @@ export function createEngine(config: SdkConfig): Engine {
     transport,
     resolved.triggerSyncIntervalMs,
   )
+  const inAppRules = createInAppRulesCache(
+    storage,
+    transport,
+    resolved.triggerSyncIntervalMs,
+  )
   const caps = createFrequencyCapManager(storage)
   const userState = createUserStateStore(storage)
   const events = createEventBus()
@@ -115,6 +124,11 @@ export function createEngine(config: SdkConfig): Engine {
     rulesCache: surveyRules,
     frequencyCaps: caps,
     userState,
+    consent,
+    events,
+  })
+  const inAppMatcher = createInAppMatcher({
+    rulesCache: inAppRules,
     consent,
     events,
   })
@@ -141,6 +155,7 @@ export function createEngine(config: SdkConfig): Engine {
         await Promise.all([
           e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId }),
           e.surveyRules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId }),
+          e.inAppRules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId }),
         ])
         emitAppOpenWhenConsentReady(e)
         void flushNow(e)
@@ -158,6 +173,10 @@ export function createEngine(config: SdkConfig): Engine {
         anonymousId: id.anonymousId,
         externalId: id.externalId,
       })
+      void e.inAppRules.refresh({
+        anonymousId: id.anonymousId,
+        externalId: id.externalId,
+      })
       void pollSurveyOffers(e)
     },
     syncIntervalMs: resolved.triggerSyncIntervalMs,
@@ -172,10 +191,12 @@ export function createEngine(config: SdkConfig): Engine {
     transport,
     rules,
     surveyRules,
+    inAppRules,
     caps,
     userState,
     matcher,
     surveyMatcher,
+    inAppMatcher,
     lifecycle,
     context,
     events,
@@ -209,11 +230,16 @@ export async function ensureHydrated(engine: Engine): Promise<void> {
         engine.userState.hydrate(),
         engine.rules.hydrate(),
         engine.surveyRules.hydrate(),
+        engine.inAppRules.hydrate(),
       ])
       engine.hydrated = true
       const id = engine.identity.get()
       void engine.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
       void engine.surveyRules.refresh({
+        anonymousId: id.anonymousId,
+        externalId: id.externalId,
+      })
+      void engine.inAppRules.refresh({
         anonymousId: id.anonymousId,
         externalId: id.externalId,
       })
@@ -371,6 +397,7 @@ export function enqueueAndEvaluate(
     engine.userState.recordEvent(eventName, now)
     engine.matcher.evaluate(eventName)
     engine.surveyMatcher.evaluate(eventName)
+    engine.inAppMatcher.evaluate(eventName)
     if (engine.queue.size() >= engine.config.flushBatchSize) void flushNow(engine)
     else scheduleFlush(engine)
     return
@@ -386,6 +413,7 @@ export function enqueueAndEvaluate(
     engine.userState.recordEvent(eventName, now)
     engine.matcher.evaluate(eventName)
     engine.surveyMatcher.evaluate(eventName)
+    engine.inAppMatcher.evaluate(eventName)
     if (engine.queue.size() >= engine.config.flushBatchSize) void flushNow(engine)
     else scheduleFlush(engine)
   })
@@ -443,6 +471,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
     STORAGE_KEYS.queue,
     STORAGE_KEYS.rulesCache,
     STORAGE_KEYS.surveyRulesCache,
+    STORAGE_KEYS.inAppRulesCache,
     STORAGE_KEYS.frequencyCaps,
     STORAGE_KEYS.userProperties,
     STORAGE_KEYS.eventHistory,

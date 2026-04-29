@@ -88,6 +88,15 @@ export interface EventPerformedCondition {
   readonly minCount?: number
 }
 
+export interface AppVersionCondition {
+  readonly kind: 'app_version'
+  // String comparison for v1 — "2.10.0" sorts before "2.9.0" lexically.
+  // Acceptable until we ship a semver-aware compare; the dashboard
+  // input warns users.
+  readonly op: 'eq' | 'neq' | 'gte' | 'lte' | 'gt' | 'lt'
+  readonly version: string
+}
+
 export type AudienceCondition =
   | SegmentCondition
   | CountryCondition
@@ -96,6 +105,7 @@ export type AudienceCondition =
   | PlatformCondition
   | UserPropertyCondition
   | EventPerformedCondition
+  | AppVersionCondition
 
 export type AudienceConditionKind = AudienceCondition['kind']
 
@@ -148,7 +158,18 @@ export interface AudienceJoinTrigger {
   readonly activeWindow?: ActiveWindow
 }
 
-export type TriggerSpec = AppOpenTrigger | EventTrigger | AudienceJoinTrigger
+export interface AppVersionChangedTrigger {
+  readonly kind: 'app_version_changed'
+  readonly delaySeconds?: number
+  readonly onceOnly?: boolean
+  readonly activeWindow?: ActiveWindow
+}
+
+export type TriggerSpec =
+  | AppOpenTrigger
+  | EventTrigger
+  | AudienceJoinTrigger
+  | AppVersionChangedTrigger
 
 export type TriggerKind = TriggerSpec['kind']
 
@@ -166,6 +187,14 @@ export const APP_OPEN_EVENT_NAME = '$app_open'
  * both lifecycle and audience-membership triggers.
  */
 export const AUDIENCE_JOIN_EVENT_NAME = '$audience_join'
+
+/**
+ * Synthetic event the SDK emits on cold-start when the persisted app
+ * version differs from the running binary's version. Lets in-app
+ * messages (and feedback / surveys) target users right after an update
+ * — e.g. "What's new" modals.
+ */
+export const APP_VERSION_CHANGED_EVENT_NAME = '$app_version_changed'
 
 export function defaultTriggerSpec(): TriggerSpec {
   return { kind: 'app_open' }

@@ -74,9 +74,22 @@ interface SurveyHandlers {
   readonly onAbandon?: (surveyId: string, attemptId: string) => void
 }
 
+export interface InAppHandlers {
+  readonly onShow?: (messageId: string) => void
+  readonly onDismiss?: (messageId: string, reason: 'user' | 'auto') => void
+  readonly onCtaClick?: (args: {
+    readonly messageId: string
+    readonly action: 'open_url' | 'deep_link' | 'dismiss' | 'custom_event'
+    readonly target?: string
+    readonly label: string
+    readonly index: number
+  }) => void
+}
+
 let engine: Engine | null = null
 let surveyStore: SurveyStore | null = null
 let surveyHandlers: SurveyHandlers = {}
+let inAppHandlers: InAppHandlers = {}
 
 function requireEngine(): Engine {
   if (!engine) {
@@ -517,6 +530,10 @@ export const Ritmus = {
     surveyHandlers = { ...handlers }
   },
 
+  setInAppHandlers(handlers: InAppHandlers): void {
+    inAppHandlers = { ...handlers }
+  },
+
   async handleSurveyDeepLink(url: string): Promise<boolean> {
     try {
       const e = requireEngine()
@@ -585,6 +602,10 @@ export const Ritmus = {
   __internal_surveyStore(): SurveyStore | null {
     return surveyStore
   },
+  __internal_inAppHandlers(): InAppHandlers {
+    return inAppHandlers
+  },
+
   __internal_surveyHandlers(): SurveyHandlers {
     return surveyHandlers
   },

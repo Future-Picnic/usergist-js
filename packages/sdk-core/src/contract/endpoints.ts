@@ -66,6 +66,13 @@ import type {
   UpdateSurveyAttemptProgressRequest,
   UpdateSurveyRequest,
 } from '../types/survey.js'
+import type {
+  ArmedInAppMessage,
+  CreateInAppMessageRequest,
+  InAppMessage,
+  InAppMessageAnalytics,
+  UpdateInAppMessageRequest,
+} from '../types/inapp-message.js'
 
 // ---------- auth ----------
 
@@ -299,6 +306,12 @@ export interface SdkArmedTriggersResponse {
   readonly nextSyncMs: number
 }
 
+export interface SdkArmedInAppMessagesResponse {
+  readonly messages: ReadonlyArray<ArmedInAppMessage>
+  readonly serverTime: string
+  readonly nextSyncMs: number
+}
+
 export interface SdkArmedSurveysResponse {
   readonly surveys: ReadonlyArray<ArmedSurvey>
   readonly serverTime: string
@@ -527,6 +540,20 @@ export const endpoints = {
   'POST /v1/sdk/surveys/attempts/:attemptId/responses': {} as Endpoint<SubmitSurveyAnswersRequest, { ok: true }>,
   'POST /v1/sdk/surveys/attempts/:attemptId/complete': {} as Endpoint<CompleteSurveyAttemptRequest, { ok: true }>,
   'POST /v1/sdk/surveys/attempts/:attemptId/abandon': {} as Endpoint<void, { ok: true }>,
+
+  // ---------- in-app messages (4th pillar) ----------
+  'GET /v1/apps/:appId/inapp-messages': {} as Endpoint<void, ReadonlyArray<InAppMessage>>,
+  'POST /v1/apps/:appId/inapp-messages': {} as Endpoint<CreateInAppMessageRequest, InAppMessage>,
+  'GET /v1/apps/:appId/inapp-messages/:id': {} as Endpoint<void, InAppMessage>,
+  'PATCH /v1/apps/:appId/inapp-messages/:id': {} as Endpoint<UpdateInAppMessageRequest, InAppMessage>,
+  'DELETE /v1/apps/:appId/inapp-messages/:id': {} as Endpoint<void, { ok: true }>,
+  'POST /v1/apps/:appId/inapp-messages/:id/activate': {} as Endpoint<void, InAppMessage>,
+  'POST /v1/apps/:appId/inapp-messages/:id/pause': {} as Endpoint<void, InAppMessage>,
+  'GET /v1/apps/:appId/inapp-messages/:id/analytics': {} as Endpoint<void, InAppMessageAnalytics>,
+  'GET /v1/sdk/armed-inapp-messages': {} as Endpoint<
+    { anonymousId: string; externalId?: string },
+    SdkArmedInAppMessagesResponse
+  >,
 } as const
 
 export type EndpointKey = keyof typeof endpoints
