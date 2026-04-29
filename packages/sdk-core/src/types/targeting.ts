@@ -46,10 +46,18 @@ export interface LastActiveCondition {
 
 export interface InstallDateCondition {
   readonly kind: 'install_date'
-  readonly op: 'within_days' | 'before_days' | 'between'
+  // `*_days` operators are relative to today; `*_date` and `between`
+  // pin to user-picked calendar dates (ISO yyyy-mm-dd).
+  readonly op:
+    | 'within_days'
+    | 'before_days'
+    | 'after_date'
+    | 'before_date'
+    | 'between'
   readonly days?: number
-  readonly from?: string // ISO date
-  readonly to?: string // ISO date
+  readonly date?: string // ISO date — used by after_date / before_date
+  readonly from?: string // ISO date — used by between
+  readonly to?: string // ISO date — used by between
 }
 
 export interface PlatformCondition {
