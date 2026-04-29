@@ -19,6 +19,7 @@ import type {
 } from '../types/prompt.js'
 import type { Segment } from '../types/segment.js'
 import type { SegmentDsl } from '../types/segment-dsl.js'
+import type { AudienceSpec } from '../types/targeting.js'
 import type { PromptResponse, SubmitResponsePayload } from '../types/response.js'
 import type {
   App,
@@ -145,7 +146,11 @@ export interface UpdateEventDefinitionRequest {
 export interface CreateSegmentRequest {
   readonly name: string
   readonly description?: string
-  readonly rules: SegmentDsl
+  // New segments persist `definition: AudienceSpec` (the same shape
+  // feedback / surveys / push targeting use). `rules: SegmentDsl` is
+  // accepted for back-compat — exactly one of the two must be set.
+  readonly definition?: AudienceSpec
+  readonly rules?: SegmentDsl
   readonly refreshMode?: 'hot' | 'cold' | 'manual'
 }
 
