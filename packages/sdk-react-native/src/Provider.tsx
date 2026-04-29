@@ -5,12 +5,51 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Ritmus } from './Ritmus.js'
 import { PromptSheet } from './ui/PromptSheet.js'
 import { SurveyView } from './ui/SurveyView.js'
+import { InAppMessageView } from './ui/InAppMessageView.js'
 import type { ShowPromptPayload, ResponseEmission } from './internal/types.js'
 import type {
+  ArmedInAppMessage,
+  EventPropertyValue,
+  InAppCta,
   SurveyAnswerRecord,
   SurveyAttemptSource,
   SurveyCampaignWithFlow,
 } from '@ritmus/sdk-core'
+import {
+  INAPP_AUTO_DISMISSED_EVENT_NAME,
+  INAPP_CTA_CLICKED_EVENT_NAME,
+  INAPP_DISMISSED_EVENT_NAME,
+  INAPP_SHOWN_EVENT_NAME,
+} from '@ritmus/sdk-core'
+
+function safeInAppHandlers(): {
+  onShow?: (messageId: string) => void
+  onDismiss?: (messageId: string, reason: 'user' | 'auto') => void
+  onCtaClick?: (args: {
+    messageId: string
+    action: 'open_url' | 'deep_link' | 'dismiss' | 'custom_event'
+    target?: string
+    label: string
+    index: number
+  }) => void
+} {
+  try {
+    return Ritmus.__internal_inAppHandlers()
+  } catch {
+    return {}
+  }
+}
+
+function safeTrack(
+  event: string,
+  props?: Record<string, EventPropertyValue>,
+): void {
+  try {
+    Ritmus.track(event, props)
+  } catch {
+    // best-effort — never throw out of a UI side-effect
+  }
+}
 
 interface Props {
   readonly children?: React.ReactNode
@@ -29,12 +68,14 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
   const currentRef = useRef<ShowPromptPayload | null>(null)
 
   const [surveyState, setSurveyState] = useState<SurveyState | null>(null)
+  const [inAppMessage, setInAppMessage] = useState<ArmedInAppMessage | null>(null)
 
   useEffect(() => {
     let unsubShow: (() => void) | null = null
     let unsubDismiss: (() => void) | null = null
     let unsubShowSurvey: (() => void) | null = null
     let unsubInvite: (() => void) | null = null
+    let unsubShowInApp: (() => void) | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     function attach(): void {
       try {
@@ -49,6 +90,13 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
         })
         unsubShowSurvey = bus.on('showSurvey', (payload) => {
           void openSurvey(payload.surveyId, payload.source as SurveyAttemptSource)
+        })
+        unsubShowInApp = bus.on('showInAppMessage', (p) => {
+          setInAppMessage(p.message)
+          // Track impression so analytics + cross-pillar caps see it —
+          // the analytics endpoint pivots on properties.message_id.
+          safeTrack(INAPP_SHOWN_EVENT_NAME, { message_id: p.messageId })
+          safeInAppHandlers().onShow?.(p.messageId)
         })
         unsubInvite = bus.on('surveyInvite', (invite) => {
           // If host registered onInvite, defer rendering to them. Otherwise
@@ -81,6 +129,7 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
       if (unsubDismiss) unsubDismiss()
       if (unsubShowSurvey) unsubShowSurvey()
       if (unsubInvite) unsubInvite()
+      if (unsubShowInApp) unsubShowInApp()
     }
   }, [])
 
@@ -127,6 +176,39 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
     if (p) {
       void Ritmus.__internal_submitResponse(r, p.triggerEventName)
     }
+  }
+
+  function handleInAppDismiss(reason: 'user' | 'auto'): void {
+    const m = inAppMessage
+    setInAppMessage(null)
+    if (!m) return
+    safeTrack(
+      reason === 'auto'
+        ? INAPP_AUTO_DISMISSED_EVENT_NAME
+        : INAPP_DISMISSED_EVENT_NAME,
+      { message_id: m.messageId },
+    )
+    safeInAppHandlers().onDismiss?.(m.messageId, reason)
+  }
+
+  function handleInAppCta(cta: InAppCta, index: number): void {
+    const m = inAppMessage
+    if (!m) return
+    safeTrack(INAPP_CTA_CLICKED_EVENT_NAME, {
+      message_id: m.messageId,
+      cta_index: index,
+      cta_action: cta.action,
+      cta_label: cta.label,
+    })
+    safeInAppHandlers().onCtaClick?.({
+      messageId: m.messageId,
+      action: cta.action,
+      target: cta.target,
+      label: cta.label,
+      index,
+    })
+    // CTA tap implicitly closes the message.
+    setInAppMessage(null)
   }
 
   const themeOverride = (() => {
@@ -178,6 +260,12 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
           surveyHandlers.onAbandon?.(sid, aid)
           setSurveyState(null)
         }}
+      />
+      <InAppMessageView
+        message={inAppMessage}
+        themeOverride={themeOverride}
+        onCtaPress={handleInAppCta}
+        onDismiss={() => handleInAppDismiss('user')}
       />
     </>
   )
