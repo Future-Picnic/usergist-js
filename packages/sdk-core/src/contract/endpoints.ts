@@ -487,7 +487,26 @@ export const endpoints = {
     { from?: string; to?: string },
     CampaignAnalytics
   >,
-  'GET /v1/apps/:appId/campaigns/:cid/deliveries': {} as Endpoint<void, ReadonlyArray<{ delivery_id: string; variant_id: string; language: string | null; anonymous_id: string; platform: string; sent_at: string; opened_at: string | null; clicked_at: string | null; error_code: string | null }>>,
+  'GET /v1/apps/:appId/campaigns/:cid/deliveries': {} as Endpoint<
+    { limit?: number },
+    ReadonlyArray<{
+      delivery_id: string
+      variant_id: string
+      language: string | null
+      anonymous_id: string
+      external_id: string | null
+      platform: string
+      sent_at: string
+      delivered_at: string | null
+      displayed_at: string | null
+      opened_at: string | null
+      dismissed_at: string | null
+      clicked_at: string | null
+      error_code: string | null
+      bounce_class: string
+      provider_latency_ms: number
+    }>
+  >,
 
   // Push credentials
   'GET /v1/apps/:appId/push/credentials': {} as Endpoint<void, ReadonlyArray<PushCredentialSummary>>,
@@ -505,11 +524,128 @@ export const endpoints = {
     { segmentId?: string },
     { audienceSize: number; withPush: number; iosCount: number; androidCount: number }
   >,
+  'GET /v1/apps/:appId/push/reachability': {} as Endpoint<
+    void,
+    {
+      optedIn: number
+      reachable: number
+      unreachable: number
+      bouncedToday: number
+      pingedToday: number
+    }
+  >,
+
+  // Push channels (per-app NotificationChannel registry / iOS category id)
+  'GET /v1/apps/:appId/push/channels': {} as Endpoint<
+    void,
+    {
+      channels: ReadonlyArray<{
+        readonly app_id: string
+        readonly channel_id: string
+        readonly display_name: string
+        readonly description: string | null
+        readonly importance: number
+        readonly default_sound: string | null
+        readonly default_vibrate: boolean
+        readonly default_badge: boolean
+        readonly category: string
+      }>
+    }
+  >,
+  'PUT /v1/apps/:appId/push/channels': {} as Endpoint<
+    {
+      channelId: string
+      displayName: string
+      description?: string | null
+      importance?: number
+      defaultSound?: string | null
+      defaultVibrate?: boolean
+      defaultBadge?: boolean
+      category?: 'transactional' | 'marketing' | 'silent' | 'digest' | 'alert'
+    },
+    { saved: true }
+  >,
+  'DELETE /v1/apps/:appId/push/channels/:channelId': {} as Endpoint<void, { archived: true }>,
+
+  // Push outbound webhooks
+  'GET /v1/apps/:appId/push/webhooks': {} as Endpoint<
+    void,
+    {
+      webhooks: ReadonlyArray<{
+        id: string
+        url: string
+        event_types: ReadonlyArray<string>
+        active: boolean
+        description: string | null
+        last_success_at: string | null
+        last_failure_at: string | null
+        last_failure_reason: string | null
+        created_at: string
+        updated_at: string
+      }>
+    }
+  >,
+  'POST /v1/apps/:appId/push/webhooks': {} as Endpoint<
+    {
+      url: string
+      eventTypes: ReadonlyArray<string>
+      active?: boolean
+      description?: string | null
+    },
+    { id: string; secret: string }
+  >,
+  'PATCH /v1/apps/:appId/push/webhooks/:webhookId': {} as Endpoint<
+    Partial<{
+      url: string
+      eventTypes: ReadonlyArray<string>
+      active: boolean
+      description: string | null
+    }>,
+    { saved: true }
+  >,
+  'DELETE /v1/apps/:appId/push/webhooks/:webhookId': {} as Endpoint<void, { deleted: true }>,
+  'POST /v1/apps/:appId/push/webhooks/:webhookId/rotate': {} as Endpoint<void, { secret: string }>,
+  'POST /v1/apps/:appId/push/webhooks/:webhookId/test': {} as Endpoint<
+    void,
+    { success: boolean; statusCode: number; attempts: number; error?: string }
+  >,
 
   // Push device-token registration (SDK-facing, write-key auth)
   'POST /v1/sdk/push/register-token': {} as Endpoint<RegisterDeviceTokenPayload, { registered: true } | { skipped: 'consent' }>,
   'POST /v1/sdk/push/update-token': {} as Endpoint<UpdateDeviceTokenPayload, { updated: true }>,
   'POST /v1/sdk/push/invalidate-token': {} as Endpoint<InvalidateDeviceTokenPayload, { invalidated: true }>,
+  'POST /v1/sdk/push/rebind': {} as Endpoint<
+    { anonymousId: string; externalId: string; token: string },
+    { rebound: boolean }
+  >,
+  'POST /v1/sdk/push/app-open': {} as Endpoint<
+    { anonymousId: string; occurredAt?: string },
+    { recorded: true }
+  >,
+  'POST /v1/sdk/push/delivered': {} as Endpoint<
+    { deliveryId: string; occurredAt?: string; attemptId?: string; actionButton?: string },
+    { recorded: true }
+  >,
+  'POST /v1/sdk/push/displayed': {} as Endpoint<
+    { deliveryId: string; occurredAt?: string; attemptId?: string; actionButton?: string },
+    { recorded: true }
+  >,
+  'POST /v1/sdk/push/dismissed': {} as Endpoint<
+    { deliveryId: string; occurredAt?: string; attemptId?: string; actionButton?: string },
+    { recorded: true }
+  >,
+  'POST /v1/sdk/push/silent-ack': {} as Endpoint<
+    { pingId: string; anonymousId: string; receivedAt?: string },
+    { recorded: true; pingId: string }
+  >,
+  'GET /v1/sdk/push/channels': {} as Endpoint<
+    void,
+    { channels: ReadonlyArray<unknown> }
+  >,
+  'POST /v1/sdk/push/channels/subscription': {} as Endpoint<
+    { anonymousId: string; channelId: string; subscribed: boolean },
+    { saved: true }
+  >,
 
   // Transactional push (server API token auth)
   'POST /v1/apps/:appId/push/transactional': {} as Endpoint<PushTransactionalRequest, { queued: true; deliveryId: string; idempotent?: boolean }>,

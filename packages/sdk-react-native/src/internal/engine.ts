@@ -72,6 +72,8 @@ export interface Engine {
   hydratingPromise: Promise<void> | null
   flushTimer: ReturnType<typeof setTimeout> | null
   themeOverride: ResolvedTheme | null
+  /** Last push token registered with the server. Used by `rebindPushToken`. */
+  lastPushToken: string | null
 }
 
 export function resolveConfig(config: SdkConfig): ResolvedConfig {
@@ -204,6 +206,7 @@ export function createEngine(config: SdkConfig): Engine {
     hydratingPromise: null,
     flushTimer: null,
     themeOverride: null,
+    lastPushToken: null,
   }
   ref.value = engine
 
@@ -440,6 +443,11 @@ export async function submitResponse(
     dismissed: payload.dismissed,
     latencyMs: payload.latencyMs,
     triggerEventName,
+  })
+  debugLog('[ritmus:analyze] response-submit', {
+    promptId: payload.promptId,
+    answersCount: payload.answers.length,
+    dismissed: payload.dismissed,
   })
   if (!engine.consent.allowsFeedback()) return
   try {

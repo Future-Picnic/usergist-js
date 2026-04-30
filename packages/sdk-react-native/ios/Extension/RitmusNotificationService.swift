@@ -26,16 +26,24 @@ import UserNotifications
 ///      (it's the same pod the main app already uses; CocoaPods picks it
 ///      up via the extension's target stanza in your `Podfile`).
 ///
-/// **What this base class does:**
-///   - Downloads a remote image from `aps.mutable-content` payloads — the
-///     server includes `image_url` (Ritmus convention) or `fcm_options.image`
-///     (FCM convention) — and attaches it to the notification.
-///   - Honours an optional `subtitle` field.
-///   - Marks the delivery as received by writing the `delivery_id` to a
-///     shared App Group so the main app can fire `$push_delivered` on next
-///     launch (NSEs cannot make their own network calls reliably; the main
-///     app does the actual reporting). To enable this, set both targets'
-///     "App Groups" capability to `group.<your-bundle>.ritmus`.
+/// **Configuration (Info.plist of the NSE target, or shared App Group):**
+///   • `RitmusWriteKey`       — required; write key the main SDK uses.
+///   • `RitmusApiUrl`         — optional; defaults to https://api.ritmus.studio.
+///   • `RitmusAppGroup`       — optional; App Group id shared with main app.
+///   • `RitmusAnonymousId`    — optional; written by main SDK at init for
+///                              silent-ack scoping.
+///
+/// **What this base class does on each received push:**
+///   1. Detects silent reachability pings (`ritmus_silent: "1"`) and acks
+///      directly to /v1/sdk/push/silent-ack — never shows anything.
+///   2. For real notifications, fires `POST /v1/sdk/push/delivered` to
+///      record true delivered_at (separate from opened_at).
+///   3. As a network-fail fallback, writes the delivery_id to a shared
+///      App Group ledger; the main app drains it on next foreground.
+///   4. Honours an optional `subtitle` field.
+///   5. Downloads any image attachment from `extra.imageUrl` (Ritmus
+///      convention) or `fcm_options.image` (FCM convention) and attaches
+///      it to the notification.
 open class RitmusNotificationService: UNNotificationServiceExtension {
 
   private var contentHandler: ((UNNotificationContent) -> Void)?
@@ -46,29 +54,37 @@ open class RitmusNotificationService: UNNotificationServiceExtension {
     self.contentHandler = contentHandler
     self.bestAttempt = request.content.mutableCopy() as? UNMutableNotificationContent
 
+    let userInfo = request.content.userInfo
+
+    // ---------- Silent reachability ping ----------
+    if (userInfo["ritmus_silent"] as? String) == "1" {
+      let pingId = (userInfo["ritmus_ping_id"] as? String) ?? ""
+      RitmusBeaconClient.silentAck(pingId: pingId) {
+        // Empty content — no banner, no sound, no badge.
+        contentHandler(UNNotificationContent())
+      }
+      return
+    }
+
     guard let bestAttempt = self.bestAttempt else {
       contentHandler(request.content)
       return
     }
 
-    // Record the delivery_id into the App Group so the main app can fire
-    // $push_delivered on next foreground. App-group key matches what the
-    // main `Ritmus.handlePushDelivered()` reads.
-    if let deliveryId = (request.content.userInfo["delivery_id"] as? String)
-        ?? (request.content.userInfo["ritmus_delivery_id"] as? String) {
+    // ---------- Delivered beacon (direct, with App Group fallback) ----------
+    if let deliveryId = extractDeliveryId(from: userInfo) {
+      RitmusBeaconClient.delivered(deliveryId: deliveryId)
       RitmusDeliveryLedger.recordDelivered(deliveryId: deliveryId)
     }
 
-    if let subtitle = request.content.userInfo["subtitle"] as? String {
+    if let subtitle = userInfo["subtitle"] as? String {
       bestAttempt.subtitle = subtitle
     }
 
-    let imageUrlString =
-      (request.content.userInfo["image_url"] as? String)
-      ?? ((request.content.userInfo["fcm_options"] as? [String: Any])?["image"] as? String)
+    // ---------- Rich-media attachment ----------
+    let imageUrlString = extractImageUrl(from: userInfo)
 
-    guard let imageUrlString = imageUrlString,
-          let imageUrl = URL(string: imageUrlString) else {
+    guard let raw = imageUrlString, let imageUrl = URL(string: raw) else {
       contentHandler(bestAttempt)
       return
     }
@@ -88,7 +104,30 @@ open class RitmusNotificationService: UNNotificationServiceExtension {
     }
   }
 
-  // MARK: - Attachment download
+  // MARK: - Helpers
+
+  private func extractDeliveryId(from userInfo: [AnyHashable: Any]) -> String? {
+    if let ritmus = userInfo["ritmus"] as? [String: Any],
+       let id = ritmus["deliveryId"] as? String {
+      return id
+    }
+    return (userInfo["delivery_id"] as? String)
+        ?? (userInfo["ritmus_delivery_id"] as? String)
+  }
+
+  private func extractImageUrl(from userInfo: [AnyHashable: Any]) -> String? {
+    if let ritmus = userInfo["ritmus"] as? [String: Any],
+       let extra = ritmus["extra"] as? [String: Any],
+       let url = extra["imageUrl"] as? String {
+      return url
+    }
+    if let direct = userInfo["image_url"] as? String { return direct }
+    if let fcm = userInfo["fcm_options"] as? [String: Any],
+       let image = fcm["image"] as? String {
+      return image
+    }
+    return nil
+  }
 
   private func downloadAttachment(from url: URL, completion: @escaping (UNNotificationAttachment?) -> Void) {
     let task = URLSession.shared.downloadTask(with: url) { tempLocation, response, _ in
@@ -114,13 +153,89 @@ open class RitmusNotificationService: UNNotificationServiceExtension {
   }
 }
 
-/// Tiny App Group ledger used by the NSE to record delivered IDs that the
-/// main app reads on next launch. Falls back to a no-op when the consumer
-/// hasn't configured an App Group — log-only side effects.
+/// Network beacon client used by the NSE. NSEs *can* make network calls
+/// reliably — Apple just gives us a tight 30s budget. We use 5s timeouts
+/// + URLSession's background-friendly default config.
+enum RitmusBeaconClient {
+
+  static func delivered(deliveryId: String) {
+    guard !deliveryId.isEmpty else { return }
+    guard let writeKey = RitmusNSEConfig.writeKey,
+          let apiUrl = RitmusNSEConfig.apiUrl else { return }
+
+    let url = apiUrl.appendingPathComponent("v1/sdk/push/delivered")
+    var req = URLRequest(url: url, timeoutInterval: 5)
+    req.httpMethod = "POST"
+    req.setValue("Bearer \(writeKey)", forHTTPHeaderField: "Authorization")
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let body: [String: Any] = [
+      "deliveryId": deliveryId,
+      "occurredAt": ISO8601DateFormatter().string(from: Date()),
+    ]
+    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    URLSession.shared.dataTask(with: req).resume()
+  }
+
+  static func silentAck(pingId: String, completion: @escaping () -> Void) {
+    guard !pingId.isEmpty else { return completion() }
+    guard let writeKey = RitmusNSEConfig.writeKey,
+          let apiUrl = RitmusNSEConfig.apiUrl,
+          let anonymousId = RitmusNSEConfig.anonymousId else { return completion() }
+
+    let url = apiUrl.appendingPathComponent("v1/sdk/push/silent-ack")
+    var req = URLRequest(url: url, timeoutInterval: 5)
+    req.httpMethod = "POST"
+    req.setValue("Bearer \(writeKey)", forHTTPHeaderField: "Authorization")
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let body: [String: Any] = [
+      "pingId": pingId,
+      "anonymousId": anonymousId,
+      "receivedAt": ISO8601DateFormatter().string(from: Date()),
+    ]
+    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    let task = URLSession.shared.dataTask(with: req) { _, _, _ in
+      completion()
+    }
+    task.resume()
+    // Safety net so we still call contentHandler if the request hangs.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { completion() }
+  }
+}
+
+/// Configuration plumbing. Reads from the App Group's UserDefaults first
+/// (so the main SDK can rotate values without requiring an extension
+/// rebuild) then falls back to the extension target's Info.plist.
+enum RitmusNSEConfig {
+
+  static var writeKey: String? { return readString(key: "RitmusWriteKey") }
+  static var anonymousId: String? { return readString(key: "RitmusAnonymousId") }
+  static var apiUrl: URL? {
+    let raw = readString(key: "RitmusApiUrl") ?? "https://api.ritmus.studio"
+    return URL(string: raw)
+  }
+
+  private static func readString(key: String) -> String? {
+    if let group = Bundle.main.object(forInfoDictionaryKey: "RitmusAppGroup") as? String,
+       let defaults = UserDefaults(suiteName: group),
+       let value = defaults.string(forKey: key),
+       !value.isEmpty {
+      return value
+    }
+    if let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+       !value.isEmpty {
+      return value
+    }
+    return nil
+  }
+}
+
+/// Tiny App Group ledger used by the NSE as a fallback when the direct
+/// beacon couldn't fire (network down at receive time). The main app
+/// drains it on next launch and re-fires the beacons.
 public enum RitmusDeliveryLedger {
 
   /// Override at runtime if the consumer's App Group identifier differs.
-  /// Default: `group.<main-bundle-identifier>.ritmus`.
+  /// Default: read from `RitmusAppGroup` in the main bundle's Info.plist.
   public static var appGroupIdentifier: String? = nil
 
   private static var defaults: UserDefaults? {

@@ -59,6 +59,60 @@ See DEV_PRD §6. The SDK is a singleton that orchestrates:
 
 Every public method is `try/catch`-wrapped — the SDK never throws across its boundary.
 
+## iOS Notification Service Extension (NSE) — required for true delivery tracking
+
+The NSE runs in-process when each push arrives, BEFORE the system displays it.
+Without it, on iOS we cannot distinguish "delivered" from "user opened the
+notification" — `delivered_at` only fills when the user actually taps.
+
+### One-time Xcode setup
+
+1. **File → New → Target → Notification Service Extension**
+   - Name: `RitmusNotificationServiceExtension`
+   - Bundle id: `<your-app-bundle>.RitmusNotificationServiceExtension`
+2. **Replace the auto-generated `NotificationService.swift`** with:
+   ```swift
+   import UserNotifications
+   import RitmusFeedback
+
+   class NotificationService: RitmusNotificationService { }
+   ```
+3. **Configure the NSE target's Info.plist** (or write to the App Group's
+   `UserDefaults` from the main app — preferred, supports rotation):
+   - `RitmusWriteKey` — required; same write key the main SDK uses.
+   - `RitmusApiUrl` — optional; defaults to `https://api.ritmus.studio`.
+   - `RitmusAppGroup` — optional; App Group id shared with main app.
+   - `RitmusAnonymousId` — populated by main SDK at init via App Group.
+4. **Add `pod 'RitmusFeedback/Extension'`** to the NSE target stanza in your
+   `Podfile` and run `pod install`.
+
+The `RitmusNotificationService` base class:
+- Detects silent reachability pings (`ritmus_silent: "1"`) and acks them
+  — the system shows nothing.
+- Beacons `POST /v1/sdk/push/delivered` with the `ritmus.deliveryId` so
+  we record true delivered_at, distinct from when the user opens.
+- Falls back to an App Group ledger if the network beacon fails; the main
+  app drains it on next foreground.
+- Downloads any rich-media `imageUrl` and attaches it as a
+  `UNNotificationAttachment`.
+
+## Android NotificationChannels
+
+Android 8+ requires every notification to belong to a registered channel —
+notifications without a channel are silently dropped by the OS. Call
+`Ritmus.push.registerDefaultChannels(context)` at app start to create
+the SDK's `transactional` / `marketing` / `silent` channel set, or
+`Ritmus.push.registerChannels(context, channels)` with your own list.
+
+Server-driven channels: the dashboard's per-app channel registry is
+fetched by the SDK on init and used to keep on-device channels in sync.
+
+## Forward `applicationDidBecomeActive` / `onResume`
+
+Call `Ritmus.push.appDidBecomeActive()` from your foreground hook so the
+server's reachability worker knows this device is alive — skips the next
+silent-ping cycle for this user (saves provider quota + battery).
+
 ## Notes / deferred items
 
 - **gzip**: RN does not ship zlib. Bodies are plain JSON for v0; gzip will move to a tiny native module.

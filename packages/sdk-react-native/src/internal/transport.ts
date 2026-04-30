@@ -85,6 +85,36 @@ export interface PushInvalidateTokenPayload {
   readonly token: string
 }
 
+export interface PushRebindPayload {
+  readonly anonymousId: string
+  readonly externalId: string
+  readonly token: string
+}
+
+export interface PushDeliveryBeaconPayload {
+  readonly deliveryId: string
+  readonly occurredAt?: string
+  readonly attemptId?: string
+  readonly actionButton?: string
+}
+
+export interface PushSilentAckPayload {
+  readonly pingId: string
+  readonly anonymousId: string
+  readonly receivedAt?: string
+}
+
+export interface PushAppOpenPayload {
+  readonly anonymousId: string
+  readonly occurredAt?: string
+}
+
+export interface PushChannelSubscriptionPayload {
+  readonly anonymousId: string
+  readonly channelId: string
+  readonly subscribed: boolean
+}
+
 export interface Transport {
   readonly ingest: (batch: IngestBatch) => Promise<SdkIngestResponse>
   readonly armedTriggers: (p: {
@@ -104,6 +134,14 @@ export interface Transport {
   readonly submitResponse: (p: SubmitResponsePayload) => Promise<{ ok: true }>
   readonly pushRegisterToken: (p: PushRegisterTokenPayload) => Promise<unknown>
   readonly pushInvalidateToken: (p: PushInvalidateTokenPayload) => Promise<unknown>
+  readonly pushRebind: (p: PushRebindPayload) => Promise<unknown>
+  readonly pushDelivered: (p: PushDeliveryBeaconPayload) => Promise<unknown>
+  readonly pushDisplayed: (p: PushDeliveryBeaconPayload) => Promise<unknown>
+  readonly pushDismissed: (p: PushDeliveryBeaconPayload) => Promise<unknown>
+  readonly pushSilentAck: (p: PushSilentAckPayload) => Promise<unknown>
+  readonly pushAppOpen: (p: PushAppOpenPayload) => Promise<unknown>
+  readonly pushChannelSubscription: (p: PushChannelSubscriptionPayload) => Promise<unknown>
+  readonly pushChannelsList: () => Promise<{ channels: ReadonlyArray<unknown> }>
   readonly surveysAvailable: (p: {
     readonly anonymousId: string
     readonly externalId: string | null
@@ -298,6 +336,61 @@ export function createTransport(cfg: TransportConfig): Transport {
         method: 'POST',
         path: '/v1/sdk/push/invalidate-token',
         body: p,
+        idempotent: true,
+      }),
+    pushRebind: (p) =>
+      request<unknown>({
+        method: 'POST',
+        path: '/v1/sdk/push/rebind',
+        body: p,
+        idempotent: true,
+      }),
+    pushDelivered: (p) =>
+      request<unknown>({
+        method: 'POST',
+        path: '/v1/sdk/push/delivered',
+        body: p,
+        idempotent: true,
+      }),
+    pushDisplayed: (p) =>
+      request<unknown>({
+        method: 'POST',
+        path: '/v1/sdk/push/displayed',
+        body: p,
+        idempotent: true,
+      }),
+    pushDismissed: (p) =>
+      request<unknown>({
+        method: 'POST',
+        path: '/v1/sdk/push/dismissed',
+        body: p,
+        idempotent: true,
+      }),
+    pushSilentAck: (p) =>
+      request<unknown>({
+        method: 'POST',
+        path: '/v1/sdk/push/silent-ack',
+        body: p,
+        idempotent: true,
+      }),
+    pushAppOpen: (p) =>
+      request<unknown>({
+        method: 'POST',
+        path: '/v1/sdk/push/app-open',
+        body: p,
+        idempotent: true,
+      }),
+    pushChannelSubscription: (p) =>
+      request<unknown>({
+        method: 'POST',
+        path: '/v1/sdk/push/channels/subscription',
+        body: p,
+        idempotent: true,
+      }),
+    pushChannelsList: () =>
+      request<{ channels: ReadonlyArray<unknown> }>({
+        method: 'GET',
+        path: '/v1/sdk/push/channels',
         idempotent: true,
       }),
     surveysAvailable: ({ anonymousId, externalId }) => {

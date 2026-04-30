@@ -30,6 +30,9 @@ export interface PushActionButton {
   readonly target?: string
 }
 
+export type PushUrgency = 'time_sensitive' | 'normal' | 'low'
+export type PushInterruptionLevel = 'passive' | 'active' | 'time-sensitive' | 'critical'
+
 export interface PushVariant {
   readonly id: string
   readonly campaignId: string
@@ -46,6 +49,13 @@ export interface PushVariant {
   readonly weight: number
   readonly createdAt: string
   readonly updatedAt: string
+  // Delivery controls (server-side, optional in legacy variants).
+  readonly ttlSeconds?: number | null
+  readonly collapseKey?: string | null
+  readonly urgency?: PushUrgency
+  readonly androidChannelId?: string | null
+  readonly iosThreadId?: string | null
+  readonly interruptionLevel?: PushInterruptionLevel | null
 }
 
 export interface PushSchedule {

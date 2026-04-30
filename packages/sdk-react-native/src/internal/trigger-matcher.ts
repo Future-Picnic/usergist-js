@@ -17,7 +17,7 @@ import type { FrequencyCapManager } from './frequency-cap.js'
 import type { UserStateStore } from './user-state.js'
 import type { ConsentManager } from './consent.js'
 import type { EventBus } from './events.js'
-import { logTrace } from './debug.js'
+import { debugLog, logTrace } from './debug.js'
 
 export interface TriggerMatcher {
   readonly evaluate: (eventName: string) => void
@@ -69,6 +69,11 @@ export function createTriggerMatcher(params: {
     // Fire
     frequencyCaps.recordShown(trigger.promptId)
     const shownAt = Date.now()
+    debugLog('[ritmus:analyze] prompt-show', {
+      promptId: trigger.promptId,
+      questionsCount: trigger.prompt.questions.length,
+      triggerEventName: eventName,
+    })
     events.emit('showPrompt', {
       promptId: trigger.promptId,
       prompt: trigger.prompt,

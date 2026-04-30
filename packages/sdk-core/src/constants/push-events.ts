@@ -5,10 +5,14 @@
 export const PUSH_EVENTS = {
   SENT: '$push_sent',
   DELIVERED: '$push_delivered',
-  OPENED: '$push_opened',
-  CLICKED: '$push_clicked',
+  DISPLAYED: '$push_displayed',
   RECEIVED: '$push_received',
+  OPENED: '$push_opened',
+  DISMISSED: '$push_dismissed',
+  CLICKED: '$push_clicked',
   ACTION_CLICKED: '$push_action_clicked',
+  BOUNCED: '$push_bounced',
+  SILENT_ACK: '$push_silent_ack',
 } as const
 
 export type PushEventName = (typeof PUSH_EVENTS)[keyof typeof PUSH_EVENTS]

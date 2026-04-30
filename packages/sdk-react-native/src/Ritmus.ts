@@ -238,6 +238,10 @@ export const Ritmus = {
         enqueueAndEvaluate(e, '$identify', cleanProps)
         if (!e.consent.allowsTransport()) return
         try {
+          // Re-bind any registered push token to the new user so future
+          // sends to this externalId reach the device. Fire-and-forget;
+          // it doesn't block the identify call.
+          void Ritmus.rebindPushToken(userId)
           await e.transport.identify({
             anonymousId: e.identity.get().anonymousId,
             externalId: userId,
@@ -358,6 +362,43 @@ export const Ritmus = {
     }
   },
 
+  /**
+   * Subscribe to push lifecycle events: `$push_received`, `$push_displayed`,
+   * `$push_opened`, `$push_dismissed`, `$push_action_clicked`.
+   *
+   * Each callback receives `(eventName, props)` where `props` carries
+   * `{ campaign_id, variant_id, delivery_id, language, action_button? }`.
+   *
+   * Use this to forward push events to a host-app analytics tool
+   * (Amplitude, Mixpanel, Segment, etc.). The SDK is analytics-tool
+   * agnostic — you plumb to whatever stack you use.
+   *
+   * Example:
+   *   import { track as amplitudeTrack } from '@amplitude/analytics-react-native'
+   *   Ritmus.onPushEvent((name, props) => amplitudeTrack(name, props))
+   *
+   * Returns an unsubscribe fn.
+   */
+  onPushEvent(
+    cb: (name: string, props: Readonly<Record<string, unknown>>) => void,
+  ): () => void {
+    try {
+      return requireEngine().events.on('pushEvent', (p) => cb(p.name, p.props))
+    } catch (err) {
+      reportError('onPushEvent failed', err)
+      return () => {}
+    }
+  },
+
+  /** SDK-internal: invoked by Push.ts for every $push_* event. */
+  _notifyPushEvent(name: string, props: Readonly<Record<string, unknown>>): void {
+    try {
+      engine?.events.emit('pushEvent', { name, props })
+    } catch {
+      // Listener errors must never cross the SDK boundary.
+    }
+  },
+
   async registerPushToken(
     token: string,
     platform: 'ios' | 'android',
@@ -385,6 +426,7 @@ export const Ritmus = {
         sdkVersion: 'rn-0.1.0',
         optIn: true,
       })
+      e.lastPushToken = token
       debugLog('push token registered with server')
     } catch (err) {
       reportError('registerPushToken failed', err)
@@ -403,6 +445,101 @@ export const Ritmus = {
       })
     } catch (err) {
       reportError('invalidatePushToken failed', err)
+    }
+  },
+
+  /**
+   * Re-bind the latest registered device token to a newly-identified user.
+   * Called from inside `identify()` so that subsequent campaign sends to
+   * the now-identified user reach this device. No-op when no push token
+   * is registered on this device.
+   */
+  async rebindPushToken(externalId: string): Promise<void> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      const token = e.lastPushToken
+      if (!token) return
+      await e.transport.pushRebind({
+        anonymousId: id.anonymousId,
+        externalId,
+        token,
+      })
+    } catch (err) {
+      reportError('rebindPushToken failed', err)
+    }
+  },
+
+  /** SDK-internal: emit a delivery beacon. */
+  async pushBeacon(
+    kind: 'delivered' | 'displayed' | 'dismissed',
+    deliveryId: string,
+  ): Promise<void> {
+    try {
+      if (!deliveryId) return
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const dispatch = {
+        delivered: e.transport.pushDelivered,
+        displayed: e.transport.pushDisplayed,
+        dismissed: e.transport.pushDismissed,
+      } as const
+      await dispatch[kind]({ deliveryId })
+    } catch (err) {
+      reportError(`pushBeacon ${kind} failed`, err)
+    }
+  },
+
+  /** Ack a silent reachability ping. */
+  async pushAckSilent(pingId: string): Promise<void> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      await e.transport.pushSilentAck({ pingId, anonymousId: id.anonymousId })
+    } catch (err) {
+      reportError('pushAckSilent failed', err)
+    }
+  },
+
+  /** Forward an applicationDidBecomeActive / onResume signal to the server. */
+  async pushAppOpen(): Promise<void> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      await e.transport.pushAppOpen({ anonymousId: id.anonymousId })
+    } catch (err) {
+      reportError('pushAppOpen failed', err)
+    }
+  },
+
+  /** Fetch the per-app channel registry. */
+  async pushFetchChannels(): Promise<ReadonlyArray<import('@ritmus/sdk-core').PushChannelDef>> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const resp = await e.transport.pushChannelsList()
+      return (resp.channels ?? []) as ReadonlyArray<import('@ritmus/sdk-core').PushChannelDef>
+    } catch (err) {
+      reportError('pushFetchChannels failed', err)
+      return []
+    }
+  },
+
+  async pushSetChannelSubscription(channelId: string, subscribed: boolean): Promise<void> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      await e.transport.pushChannelSubscription({
+        anonymousId: id.anonymousId,
+        channelId,
+        subscribed,
+      })
+    } catch (err) {
+      reportError('pushSetChannelSubscription failed', err)
     }
   },
 

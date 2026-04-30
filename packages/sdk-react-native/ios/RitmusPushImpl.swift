@@ -47,6 +47,13 @@ public final class RitmusPushImpl: NSObject {
     Self.installUNDelegateSwizzleIfNeeded()
   }
 
+  /// Exposed to Obj-C so RitmusPushSwizzle.m's setDelegate: interceptor
+  /// can fetch the shared UN delegate and reinstall it whenever some
+  /// other SDK (FirebaseAnalytics, OneSignal, etc.) tries to take over.
+  @objc public static func ritmusUNDelegate() -> AnyObject {
+    return RitmusUNDelegateSwizzler.sharedDelegateAccessor
+  }
+
   // MARK: - Bridge wiring
 
   /// Called by `RitmusPush.mm -init`. Swift never imports React-Core, so we
@@ -229,8 +236,23 @@ public final class RitmusPushImpl: NSObject {
       out["body"] = alertString
     }
     out["data"] = data
-    if let deliveryId = data["delivery_id"] as? String ?? data["ritmus_delivery_id"] as? String {
+    // delivery_id can land in three places depending on payload shape:
+    //   1. flat   data["ritmus_delivery_id"]   — FCM data-only path
+    //   2. flat   data["delivery_id"]          — legacy / generic path
+    //   3. nested data["ritmus"]["deliveryId"] — current APNs payload
+    // Without fallback (3), iOS opens land with deliveryId=nil and the
+    // server-side patcher early-returns → opened_at never updates.
+    let nestedRitmus = data["ritmus"] as? [String: Any]
+    if let deliveryId =
+      (data["delivery_id"] as? String)
+      ?? (data["ritmus_delivery_id"] as? String)
+      ?? (nestedRitmus?["deliveryId"] as? String)
+    {
       out["deliveryId"] = deliveryId
+    }
+    if let actionId = nestedRitmus?["actionIdentifier"] as? String {
+      // Carry a server-set action id through if present (none today, future-proof).
+      out["actionIdentifier"] = actionId
     }
     return out
   }
@@ -242,8 +264,18 @@ public final class RitmusPushImpl: NSObject {
   private static func installUNDelegateSwizzleIfNeeded() {
     guard !unDelegateInstalled else { return }
     unDelegateInstalled = true
-    DispatchQueue.main.async {
-      RitmusUNDelegateSwizzler.install()
+    // Install synchronously — at +load time we're on the main thread and
+    // Firebase's setDelegate call runs synchronously on main. Deferring
+    // via DispatchQueue.main.async would let Firebase's call land first.
+    RitmusUNDelegateSwizzler.install()
+    // Re-install whenever the app foregrounds. Belt-and-braces against
+    // any SDK that re-takes the delegate while the app is backgrounded.
+    NotificationCenter.default.addObserver(
+      forName: UIApplication.didBecomeActiveNotification,
+      object: nil,
+      queue: .main,
+    ) { _ in
+      RitmusUNDelegateSwizzler.reinstallIfHijacked()
     }
   }
 }
@@ -260,7 +292,9 @@ public final class RitmusPushImpl: NSObject {
 
 @objc private final class RitmusUNDelegateSwizzler: NSObject, UNUserNotificationCenterDelegate {
 
-  private static let sharedDelegate = RitmusUNDelegateSwizzler()
+  fileprivate static let sharedDelegate = RitmusUNDelegateSwizzler()
+  /// Public access to the shared instance for the Obj-C swizzle bridge.
+  @objc fileprivate static var sharedDelegateAccessor: AnyObject { return sharedDelegate }
   private weak var existingDelegate: UNUserNotificationCenterDelegate?
 
   fileprivate static func install() {
@@ -269,6 +303,31 @@ public final class RitmusPushImpl: NSObject {
       sharedDelegate.existingDelegate = existing
     }
     center.delegate = sharedDelegate
+    NSLog("[RitmusPush] UN delegate installed (chained=\(sharedDelegate.existingDelegate != nil))")
+  }
+
+  /// Re-install if some other SDK has stolen the delegate since we last set it.
+  /// Called on every foreground transition.
+  fileprivate static func reinstallIfHijacked() {
+    let center = UNUserNotificationCenter.current()
+    guard center.delegate !== sharedDelegate else { return }
+    NSLog("[RitmusPush] delegate hijacked by \(String(describing: type(of: center.delegate))) — reinstalling")
+    if let existing = center.delegate, existing !== sharedDelegate {
+      sharedDelegate.existingDelegate = existing
+    }
+    center.delegate = sharedDelegate
+  }
+
+  /// Resolve the foreign delegate to chain to: prefer the most recent one
+  /// captured by the Obj-C setDelegate: interceptor (catches Firebase /
+  /// OneSignal / etc. that install AFTER our swizzle ran), fall back to
+  /// whatever was on the center when our swizzle first installed.
+  private func chainTarget() -> UNUserNotificationCenterDelegate? {
+    if let foreign = _RitmusGetLastForeignDelegate() as? UNUserNotificationCenterDelegate,
+       foreign !== self {
+      return foreign
+    }
+    return existingDelegate
   }
 
   // Foreground delivery
@@ -276,7 +335,7 @@ public final class RitmusPushImpl: NSObject {
                               willPresent notification: UNNotification,
                               withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
     RitmusPushImpl.shared.recordNotificationReceived(userInfo: notification.request.content.userInfo)
-    if let existing = existingDelegate,
+    if let existing = chainTarget(),
        existing.responds(to: #selector(UNUserNotificationCenterDelegate.userNotificationCenter(_:willPresent:withCompletionHandler:))) {
       existing.userNotificationCenter?(center, willPresent: notification, withCompletionHandler: completionHandler)
       return
@@ -296,7 +355,7 @@ public final class RitmusPushImpl: NSObject {
       userInfo: response.notification.request.content.userInfo,
       actionIdentifier: response.actionIdentifier
     )
-    if let existing = existingDelegate,
+    if let existing = chainTarget(),
        existing.responds(to: #selector(UNUserNotificationCenterDelegate.userNotificationCenter(_:didReceive:withCompletionHandler:))) {
       existing.userNotificationCenter?(center, didReceive: response, withCompletionHandler: completionHandler)
       return

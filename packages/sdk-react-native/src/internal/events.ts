@@ -11,6 +11,12 @@ export interface ShowInAppMessagePayload {
   readonly triggerEventName: string
 }
 
+export interface PushEventPayload {
+  /** $push_received | $push_displayed | $push_opened | $push_dismissed | $push_action_clicked */
+  readonly name: string
+  readonly props: Readonly<Record<string, unknown>>
+}
+
 export interface SdkEvents {
   readonly promptShown: ShowPromptPayload
   readonly response: ResponseEmission
@@ -24,6 +30,7 @@ export interface SdkEvents {
     readonly source: string
   }
   readonly showInAppMessage: ShowInAppMessagePayload
+  readonly pushEvent: PushEventPayload
 }
 
 export type EventName = keyof SdkEvents
