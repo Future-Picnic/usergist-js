@@ -58,14 +58,26 @@ export interface PushVariant {
   readonly interruptionLevel?: PushInterruptionLevel | null
 }
 
-export interface PushSchedule {
-  readonly kind: 'once_utc' | 'once_local' | 'cron'
-  readonly at?: string
-  readonly date?: string
-  readonly hourLocal?: number
-  readonly minuteLocal?: number
-  readonly cron?: string
-}
+export type PeriodicFrequency = 'daily' | 'weekly' | 'monthly'
+
+export type PushSchedule =
+  | { readonly kind: 'once_utc'; readonly at: string }
+  | {
+      readonly kind: 'once_local'
+      readonly date: string
+      readonly hourLocal: number
+      readonly minuteLocal?: number
+    }
+  | {
+      readonly kind: 'periodic'
+      readonly frequency: PeriodicFrequency
+      readonly hourLocal: number
+      readonly minuteLocal?: number
+      readonly weekday?: number
+      readonly dayOfMonth?: number
+      readonly localPerRecipient?: boolean
+      readonly referenceTimezone?: string
+    }
 
 export interface PushFrequencyCap {
   readonly perCampaignDays?: number
