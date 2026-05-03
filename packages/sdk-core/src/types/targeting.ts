@@ -188,6 +188,8 @@ export const APP_OPEN_EVENT_NAME = '$app_open'
  */
 export const AUDIENCE_JOIN_EVENT_NAME = '$audience_join'
 
+export const AUDIENCE_JOIN_TRIGGER_KIND: AudienceJoinTrigger['kind'] = 'audience_join'
+
 /**
  * Synthetic event the SDK emits on cold-start when the persisted app
  * version differs from the running binary's version. Lets in-app

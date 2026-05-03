@@ -457,7 +457,7 @@ export const endpoints = {
   // Used by the dashboard's TARGET step to power the live count badge.
   'POST /v1/apps/:appId/audience/preview': {} as Endpoint<
     import('../types/targeting.js').AudienceSpec,
-    { matching: number }
+    { matching: number; sampleUsers: ReadonlyArray<AppUserSummary> }
   >,
 
   // SDK-facing (authenticated via write key)
