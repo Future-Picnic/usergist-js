@@ -104,32 +104,9 @@ import type {
 } from '../types/request.js'
 
 // ---------- auth ----------
-
-export interface LoginPasswordRequest {
-  readonly email: string
-  readonly password: string
-}
-
-export interface LoginMagicLinkRequest {
-  readonly email: string
-}
-
-export interface LoginMagicLinkConsumeRequest {
-  readonly token: string
-}
-
-export interface SignupRequest {
-  readonly email: string
-  readonly password: string
-  readonly name?: string
-  readonly workspaceName: string
-}
-
-export interface AuthSession {
-  readonly user: User
-  readonly token: string
-  readonly expiresAt: string
-}
+// Sign-in / sign-up / sign-out are handled by WorkOS AuthKit on the
+// dashboard side. The API exposes only /v1/me to surface the locally
+// mapped user + workspace state.
 
 // ---------- workspaces ----------
 
@@ -380,11 +357,6 @@ export interface GdprExportRequest {
 export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
 
 export const endpoints = {
-  'POST /v1/auth/signup': {} as Endpoint<SignupRequest, AuthSession>,
-  'POST /v1/auth/login': {} as Endpoint<LoginPasswordRequest, AuthSession>,
-  'POST /v1/auth/magic-link': {} as Endpoint<LoginMagicLinkRequest, { sent: true }>,
-  'POST /v1/auth/magic-link/consume': {} as Endpoint<LoginMagicLinkConsumeRequest, AuthSession>,
-  'POST /v1/auth/logout': {} as Endpoint<void, { ok: true }>,
   'GET /v1/me': {} as Endpoint<void, { user: User; workspaces: ReadonlyArray<Workspace> }>,
 
   'GET /v1/workspaces': {} as Endpoint<void, ReadonlyArray<Workspace>>,
