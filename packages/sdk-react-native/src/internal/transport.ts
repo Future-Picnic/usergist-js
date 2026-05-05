@@ -24,6 +24,12 @@ import type {
   SurveyCampaignWithFlow,
   SurveySummary,
   UpdateSurveyAttemptProgressRequest,
+  Request as RequestDto,
+  RequestSearchResult as RequestSearchResultDto,
+  RequestVote as RequestVoteDto,
+  RequestFollow as RequestFollowDto,
+  RequestComment as RequestCommentDto,
+  GetRequestsResult as RequestsListResponse,
 } from '@ritmus/sdk-core'
 import { reportError, debugLog } from './debug.js'
 
@@ -170,11 +176,79 @@ export interface Transport {
   ) => Promise<{ ok: true }>
   readonly surveyAbandon: (attemptId: string) => Promise<{ ok: true }>
   readonly surveyResolveLink: (body: ResolveSurveyLinkRequest) => Promise<ResolveSurveyLinkResponse>
+  // ---------- feature requests (5th pillar) ----------
+  readonly requestBranding: () => Promise<{
+    readonly entryLabel: string
+    readonly accentColor: string | null
+    readonly logoUrl: string | null
+    readonly introCopy: string | null
+  }>
+  readonly requestsList: (p: {
+    readonly anonymousId: string
+    readonly externalId: string | null
+    readonly sort?: string
+    readonly statuses?: ReadonlyArray<string>
+    readonly mine?: string
+    readonly q?: string
+    readonly cursor?: string | null
+    readonly limit?: number
+  }) => Promise<RequestsListResponse>
+  readonly requestsSearch: (p: {
+    readonly q: string
+    readonly anonymousId: string
+    readonly externalId: string | null
+    readonly limit?: number
+  }) => Promise<{ results: ReadonlyArray<RequestSearchResultDto> }>
+  readonly requestGet: (p: {
+    readonly requestId: string
+    readonly anonymousId: string
+    readonly externalId: string | null
+  }) => Promise<RequestDto>
+  readonly requestSubmit: (p: {
+    readonly anonymousId: string
+    readonly externalId: string | null
+    readonly title: string
+    readonly description: string
+  }) => Promise<RequestDto>
+  readonly requestVote: (p: {
+    readonly requestId: string
+    readonly anonymousId: string
+    readonly externalId: string | null
+    readonly vote: boolean
+  }) => Promise<RequestVoteDto>
+  readonly requestFollow: (p: {
+    readonly requestId: string
+    readonly anonymousId: string
+    readonly externalId: string | null
+    readonly follow: boolean
+  }) => Promise<RequestFollowDto>
+  readonly requestCommentsList: (p: {
+    readonly requestId: string
+    readonly anonymousId: string
+    readonly externalId: string | null
+  }) => Promise<{ items: ReadonlyArray<RequestCommentDto> }>
+  readonly requestCommentPost: (p: {
+    readonly requestId: string
+    readonly anonymousId: string
+    readonly externalId: string | null
+    readonly body: string
+  }) => Promise<RequestCommentDto>
+  readonly requestCommentEdit: (p: {
+    readonly requestId: string
+    readonly commentId: string
+    readonly anonymousId: string
+    readonly body: string
+  }) => Promise<RequestCommentDto>
+  readonly requestCommentDelete: (p: {
+    readonly requestId: string
+    readonly commentId: string
+    readonly anonymousId: string
+  }) => Promise<{ ok: true }>
   readonly cancelAll: () => void
 }
 
 interface RequestOpts {
-  readonly method: 'GET' | 'POST' | 'PATCH'
+  readonly method: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   readonly path: string
   readonly body?: unknown
   readonly idempotent: boolean
@@ -453,6 +527,104 @@ export function createTransport(cfg: TransportConfig): Transport {
         body,
         idempotent: true,
       }),
+    // ---------- feature requests ----------
+    requestBranding: () =>
+      request<{
+        entryLabel: string
+        accentColor: string | null
+        logoUrl: string | null
+        introCopy: string | null
+      }>({
+        method: 'GET',
+        path: '/v1/sdk/request-branding',
+        idempotent: true,
+      }),
+    requestsList: ({ anonymousId, externalId, sort, statuses, mine, q, cursor, limit }) => {
+      const params = new URLSearchParams({ anonymousId })
+      if (externalId) params.append('externalId', externalId)
+      if (sort) params.append('sort', sort)
+      if (statuses) for (const s of statuses) params.append('statuses', s)
+      if (mine) params.append('mine', mine)
+      if (q) params.append('q', q)
+      if (cursor) params.append('cursor', cursor)
+      if (limit !== undefined) params.append('limit', String(limit))
+      return request<RequestsListResponse>({
+        method: 'GET',
+        path: `/v1/sdk/requests?${params.toString()}`,
+        idempotent: true,
+      })
+    },
+    requestsSearch: ({ q, anonymousId, externalId, limit }) => {
+      const params = new URLSearchParams({ q, anonymousId })
+      if (externalId) params.append('externalId', externalId)
+      if (limit !== undefined) params.append('limit', String(limit))
+      return request<{ results: ReadonlyArray<RequestSearchResultDto> }>({
+        method: 'GET',
+        path: `/v1/sdk/requests/search?${params.toString()}`,
+        idempotent: true,
+      })
+    },
+    requestGet: ({ requestId, anonymousId, externalId }) => {
+      const params = new URLSearchParams({ anonymousId })
+      if (externalId) params.append('externalId', externalId)
+      return request<RequestDto>({
+        method: 'GET',
+        path: `/v1/sdk/requests/${requestId}?${params.toString()}`,
+        idempotent: true,
+      })
+    },
+    requestSubmit: ({ anonymousId, externalId, title, description }) =>
+      request<RequestDto>({
+        method: 'POST',
+        path: '/v1/sdk/requests',
+        body: { anonymousId, externalId, title, description },
+        idempotent: false,
+      }),
+    requestVote: ({ requestId, anonymousId, externalId, vote }) =>
+      request<RequestVoteDto>({
+        method: 'POST',
+        path: `/v1/sdk/requests/${requestId}/vote`,
+        body: { anonymousId, externalId, vote },
+        idempotent: true,
+      }),
+    requestFollow: ({ requestId, anonymousId, externalId, follow }) =>
+      request<RequestFollowDto>({
+        method: 'POST',
+        path: `/v1/sdk/requests/${requestId}/follow`,
+        body: { anonymousId, externalId, follow },
+        idempotent: true,
+      }),
+    requestCommentsList: ({ requestId, anonymousId, externalId }) => {
+      const params = new URLSearchParams({ anonymousId })
+      if (externalId) params.append('externalId', externalId)
+      return request<{ items: ReadonlyArray<RequestCommentDto> }>({
+        method: 'GET',
+        path: `/v1/sdk/requests/${requestId}/comments?${params.toString()}`,
+        idempotent: true,
+      })
+    },
+    requestCommentPost: ({ requestId, anonymousId, externalId, body }) =>
+      request<RequestCommentDto>({
+        method: 'POST',
+        path: `/v1/sdk/requests/${requestId}/comments`,
+        body: { anonymousId, externalId, body },
+        idempotent: false,
+      }),
+    requestCommentEdit: ({ requestId, commentId, anonymousId, body }) =>
+      request<RequestCommentDto>({
+        method: 'PATCH',
+        path: `/v1/sdk/requests/${requestId}/comments/${commentId}`,
+        body: { anonymousId, body },
+        idempotent: true,
+      }),
+    requestCommentDelete: ({ requestId, commentId, anonymousId }) => {
+      const params = new URLSearchParams({ anonymousId })
+      return request<{ ok: true }>({
+        method: 'DELETE',
+        path: `/v1/sdk/requests/${requestId}/comments/${commentId}?${params.toString()}`,
+        idempotent: true,
+      })
+    },
     cancelAll(): void {
       try {
         abortController.abort()

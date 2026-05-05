@@ -20,6 +20,11 @@ import type {
   SurveySummary,
 } from '@ritmus/sdk-core'
 import {
+  REQUEST_COMMENTED_EVENT_NAME,
+  REQUEST_COMMENT_EDITED_EVENT_NAME,
+  REQUEST_COMMENT_DELETED_EVENT_NAME,
+} from '@ritmus/sdk-core'
+import {
   asEventProps,
   clearAllState,
   createEngine,
@@ -90,12 +95,36 @@ let engine: Engine | null = null
 let surveyStore: SurveyStore | null = null
 let surveyHandlers: SurveyHandlers = {}
 let inAppHandlers: InAppHandlers = {}
+let requestsHandlers: import('@ritmus/sdk-core').RequestsHandlers = {}
+let requestsCache: ReturnType<
+  typeof import('./internal/requests.js').createRequestsCache
+> | null = null
+
+function ensureRequestsCache() {
+  if (!requestsCache) {
+    // Lazy-imported to keep cold-start fast for apps that don't use requests.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('./internal/requests.js') as typeof import('./internal/requests.js')
+    requestsCache = mod.createRequestsCache()
+  }
+  return requestsCache
+}
 
 function requireEngine(): Engine {
   if (!engine) {
     throw new Error('Ritmus.init must be called before using the SDK')
   }
   return engine
+}
+
+function validateCommentBody(body: unknown): asserts body is string {
+  if (
+    typeof body !== 'string' ||
+    body.trim().length === 0 ||
+    body.length > 1000
+  ) {
+    throw new Error('comment body required, max 1000 chars')
+  }
 }
 
 // ---------- Native push listener wiring (Phase 7) ----------
@@ -843,6 +872,331 @@ export const Ritmus = {
       await e.transport.surveyAbandon(attemptId)
     } catch (err) {
       reportError('abandonAttempt failed', err)
+    }
+  },
+
+  // ============================================================
+  // Feature requests (5th pillar)
+  // ============================================================
+  // Consent decision: feature-request engagement maps onto the existing
+  // `feedback` consent purpose. No new consent migration required.
+
+  async getRequests(
+    options: import('@ritmus/sdk-core').GetRequestsOptions = {},
+  ): Promise<import('@ritmus/sdk-core').GetRequestsResult> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      const result = await e.transport.requestsList({
+        anonymousId: id.anonymousId,
+        externalId: id.externalId ?? null,
+        sort: options.sort,
+        statuses: options.statuses,
+        mine: options.mine,
+        q: options.q,
+        cursor: options.cursor ?? null,
+        limit: options.limit,
+      })
+      ensureRequestsCache().upsertList(
+        result.items.map((s) => ({
+          id: s.id,
+          appId: '',
+          title: s.title,
+          description: s.description,
+          status: s.status,
+          devResponse: null,
+          upvoteCount: s.upvoteCount,
+          followerCount: s.followerCount,
+          createdAt: s.createdAt,
+          updatedAt: s.createdAt,
+          statusChangedAt: s.statusChangedAt,
+          lastRespondedAt: null,
+          viewerHasUpvoted: s.viewerHasUpvoted,
+          viewerIsFollowing: s.viewerIsFollowing,
+          viewerIsSubmitter: false,
+        })),
+      )
+      return result
+    } catch (err) {
+      reportError('getRequests failed', err)
+      return { items: [], nextCursor: null }
+    }
+  },
+
+  submitRequest(
+    title: string,
+    description: string,
+    callback?: (
+      err: Error | null,
+      req?: import('@ritmus/sdk-core').Request,
+    ) => void,
+  ): void {
+    try {
+      const e = requireEngine()
+      if (typeof title !== 'string' || title.length === 0 || title.length > 120) {
+        callback?.(new Error('title required, max 120 chars'))
+        return
+      }
+      if (
+        typeof description !== 'string' ||
+        description.length === 0 ||
+        description.length > 1500
+      ) {
+        callback?.(new Error('description required, max 1500 chars'))
+        return
+      }
+      void (async () => {
+        try {
+          await ensureHydrated(e)
+          const id = e.identity.get()
+          const req = await e.transport.requestSubmit({
+            anonymousId: id.anonymousId,
+            externalId: id.externalId ?? null,
+            title,
+            description,
+          })
+          ensureRequestsCache().upsert(req)
+          enqueueAndEvaluate(e, '$request_submitted', {
+            request_id: req.id,
+            title: req.title,
+          })
+          requestsHandlers.onSubmit?.(req)
+          callback?.(null, req)
+        } catch (err) {
+          callback?.(err instanceof Error ? err : new Error(String(err)))
+        }
+      })()
+    } catch (err) {
+      reportError('submitRequest failed', err)
+      callback?.(err instanceof Error ? err : new Error(String(err)))
+    }
+  },
+
+  async voteOnRequest(requestId: string, vote: boolean): Promise<void> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const cache = ensureRequestsCache()
+      const rollback = cache.applyOptimisticVote(requestId, vote)
+      try {
+        const id = e.identity.get()
+        const result = await e.transport.requestVote({
+          requestId,
+          anonymousId: id.anonymousId,
+          externalId: id.externalId ?? null,
+          vote,
+        })
+        cache.commitVote(requestId, result)
+        enqueueAndEvaluate(e, vote ? '$request_upvoted' : '$request_unupvoted', {
+          request_id: requestId,
+        })
+        requestsHandlers.onVote?.(result)
+      } catch (err) {
+        rollback()
+        throw err
+      }
+    } catch (err) {
+      reportError('voteOnRequest failed', err)
+      throw err
+    }
+  },
+
+  async followRequest(requestId: string, follow: boolean): Promise<void> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const cache = ensureRequestsCache()
+      const rollback = cache.applyOptimisticFollow(requestId, follow)
+      try {
+        const id = e.identity.get()
+        const result = await e.transport.requestFollow({
+          requestId,
+          anonymousId: id.anonymousId,
+          externalId: id.externalId ?? null,
+          follow,
+        })
+        cache.commitFollow(requestId, result)
+        enqueueAndEvaluate(e, follow ? '$request_followed' : '$request_unfollowed', {
+          request_id: requestId,
+          source: result.source,
+        })
+        requestsHandlers.onFollow?.(result)
+      } catch (err) {
+        rollback()
+        throw err
+      }
+    } catch (err) {
+      reportError('followRequest failed', err)
+      throw err
+    }
+  },
+
+  /**
+   * Fetch the per-app branding the dashboard configured for this pillar
+   * (entry label, accent color, logo URL, intro copy). Host apps use
+   * this to theme the requests UI so it matches the rest of the product
+   * without hard-coding colors. Cached for 60s at the edge.
+   */
+  async getRequestBranding(): Promise<{
+    entryLabel: string
+    accentColor: string | null
+    logoUrl: string | null
+    introCopy: string | null
+  } | null> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      return await e.transport.requestBranding()
+    } catch (err) {
+      reportError('getRequestBranding failed', err)
+      return null
+    }
+  },
+
+  /**
+   * Fetch a single request by id with full detail (description, dev
+   * response, viewer flags). The list endpoint returns a `RequestSummary`
+   * that intentionally omits `devResponse` to keep payloads small —
+   * call this when rendering a detail view that needs the response.
+   */
+  async getRequest(
+    requestId: string,
+  ): Promise<import('@ritmus/sdk-core').Request | null> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      const req = await e.transport.requestGet({
+        requestId,
+        anonymousId: id.anonymousId,
+        externalId: id.externalId ?? null,
+      })
+      ensureRequestsCache().upsert(req)
+      return req
+    } catch (err) {
+      reportError('getRequest failed', err)
+      return null
+    }
+  },
+
+  openRequestsBoard(): void {
+    try {
+      const e = requireEngine()
+      e.events.emit('showRequestsBoard', undefined)
+    } catch (err) {
+      reportError('openRequestsBoard failed', err)
+    }
+  },
+
+  openRequestDetail(requestId: string): void {
+    try {
+      const e = requireEngine()
+      e.events.emit('showRequestDetail', { requestId })
+    } catch (err) {
+      reportError('openRequestDetail failed', err)
+    }
+  },
+
+  setRequestsHandlers(handlers: import('@ritmus/sdk-core').RequestsHandlers): void {
+    requestsHandlers = { ...handlers }
+  },
+
+  // ---------- comments ----------
+
+  /** List comments for a request, ordered oldest-first. */
+  async getComments(
+    requestId: string,
+  ): Promise<ReadonlyArray<import('@ritmus/sdk-core').RequestComment>> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      const result = await e.transport.requestCommentsList({
+        requestId,
+        anonymousId: id.anonymousId,
+        externalId: id.externalId ?? null,
+      })
+      return result.items
+    } catch (err) {
+      reportError('getComments failed', err)
+      return []
+    }
+  },
+
+  /** Post a comment on a request. Returns the new row, or null on failure. */
+  async postComment(
+    requestId: string,
+    body: string,
+  ): Promise<import('@ritmus/sdk-core').RequestComment | null> {
+    try {
+      const e = requireEngine()
+      validateCommentBody(body)
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      const comment = await e.transport.requestCommentPost({
+        requestId,
+        anonymousId: id.anonymousId,
+        externalId: id.externalId ?? null,
+        body,
+      })
+      enqueueAndEvaluate(e, REQUEST_COMMENTED_EVENT_NAME, {
+        request_id: requestId,
+        comment_id: comment.id,
+      })
+      return comment
+    } catch (err) {
+      reportError('postComment failed', err)
+      throw err
+    }
+  },
+
+  /** Edit one of the viewer's own comments. Server returns 404 if not theirs. */
+  async editComment(
+    requestId: string,
+    commentId: string,
+    body: string,
+  ): Promise<import('@ritmus/sdk-core').RequestComment | null> {
+    try {
+      const e = requireEngine()
+      validateCommentBody(body)
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      const comment = await e.transport.requestCommentEdit({
+        requestId,
+        commentId,
+        anonymousId: id.anonymousId,
+        body,
+      })
+      enqueueAndEvaluate(e, REQUEST_COMMENT_EDITED_EVENT_NAME, {
+        request_id: requestId,
+        comment_id: commentId,
+      })
+      return comment
+    } catch (err) {
+      reportError('editComment failed', err)
+      throw err
+    }
+  },
+
+  /** Delete one of the viewer's own comments. */
+  async deleteComment(requestId: string, commentId: string): Promise<void> {
+    try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      const id = e.identity.get()
+      await e.transport.requestCommentDelete({
+        requestId,
+        commentId,
+        anonymousId: id.anonymousId,
+      })
+      enqueueAndEvaluate(e, REQUEST_COMMENT_DELETED_EVENT_NAME, {
+        request_id: requestId,
+        comment_id: commentId,
+      })
+    } catch (err) {
+      reportError('deleteComment failed', err)
+      throw err
     }
   },
 } as const

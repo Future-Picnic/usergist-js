@@ -31,6 +31,8 @@ export interface SdkEvents {
   }
   readonly showInAppMessage: ShowInAppMessagePayload
   readonly pushEvent: PushEventPayload
+  readonly showRequestsBoard: undefined
+  readonly showRequestDetail: { readonly requestId: string }
 }
 
 export type EventName = keyof SdkEvents
@@ -56,6 +58,8 @@ const BUFFERED_EVENTS: ReadonlyArray<EventName> = [
   'showSurvey',
   'surveyInvite',
   'showInAppMessage',
+  'showRequestsBoard',
+  'showRequestDetail',
 ]
 
 export function createEventBus(): EventBus {

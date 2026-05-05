@@ -73,6 +73,35 @@ import type {
   InAppMessageAnalytics,
   UpdateInAppMessageRequest,
 } from '../types/inapp-message.js'
+import type {
+  Request,
+  RequestStatus,
+  RequestSummary,
+  RequestDetail,
+  RequestSearchResult,
+  RequestVote,
+  RequestFollow,
+  GetRequestsOptions,
+  GetRequestsResult,
+  SubmitRequestPayload,
+  RequestSettings,
+  UpdateRequestSettingsRequest,
+  UpdateRequestStatusRequest,
+  UpdateRequestResponseRequest,
+  UpdateRequestModerationRequest,
+  MergeRequestsRequest,
+  BulkUpdateStatusRequest,
+  ListRequestsQuery,
+  RequestUpvoterSegmentBreakdown,
+  RequestTimelineEntry,
+  RequestAnalytics,
+  RequestPublicSummary,
+  RequestPublicDetail,
+  RequestPublicBranding,
+  RequestComment,
+  PostCommentPayload,
+  EditCommentPayload,
+} from '../types/request.js'
 
 // ---------- auth ----------
 
@@ -727,6 +756,103 @@ export const endpoints = {
     { anonymousId: string; externalId?: string },
     SdkArmedInAppMessagesResponse
   >,
+
+  // ---------- feature requests (5th pillar) — dashboard ----------
+  'GET /v1/apps/:appId/requests': {} as Endpoint<ListRequestsQuery, ReadonlyArray<RequestSummary>>,
+  'GET /v1/apps/:appId/requests/:requestId': {} as Endpoint<void, RequestDetail>,
+  'PATCH /v1/apps/:appId/requests/:requestId/status':
+    {} as Endpoint<UpdateRequestStatusRequest, RequestDetail>,
+  'PUT /v1/apps/:appId/requests/:requestId/response':
+    {} as Endpoint<UpdateRequestResponseRequest, RequestDetail>,
+  'PATCH /v1/apps/:appId/requests/:requestId/moderation':
+    {} as Endpoint<UpdateRequestModerationRequest, RequestDetail>,
+  'POST /v1/apps/:appId/requests/merge':
+    {} as Endpoint<MergeRequestsRequest, { canonicalId: string; mergedCount: number }>,
+  'POST /v1/apps/:appId/requests/bulk/status':
+    {} as Endpoint<BulkUpdateStatusRequest, { updated: number }>,
+  'GET /v1/apps/:appId/requests/:requestId/upvoter-segments':
+    {} as Endpoint<void, RequestUpvoterSegmentBreakdown>,
+  'GET /v1/apps/:appId/requests/:requestId/timeline':
+    {} as Endpoint<void, ReadonlyArray<RequestTimelineEntry>>,
+  'GET /v1/apps/:appId/requests/:requestId/analytics':
+    {} as Endpoint<{ from?: string; to?: string }, RequestAnalytics>,
+  'GET /v1/apps/:appId/requests/:requestId/audience-spec':
+    {} as Endpoint<void, { audience: AudienceSpec }>,
+  'GET /v1/apps/:appId/request-settings': {} as Endpoint<void, RequestSettings>,
+  'PUT /v1/apps/:appId/request-settings':
+    {} as Endpoint<UpdateRequestSettingsRequest, RequestSettings>,
+  'GET /v1/apps/:appId/request-settings/slug-available':
+    {} as Endpoint<{ slug: string }, { available: boolean }>,
+  'POST /v1/apps/:appId/requests/seed-segments': {} as Endpoint<void, { created: number }>,
+
+  // ---------- feature requests — SDK (write-key) ----------
+  'GET /v1/sdk/requests': {} as Endpoint<
+    GetRequestsOptions & { anonymousId: string; externalId?: string },
+    GetRequestsResult
+  >,
+  'GET /v1/sdk/request-branding': {} as Endpoint<
+    void,
+    {
+      readonly entryLabel: string
+      readonly accentColor: string | null
+      readonly logoUrl: string | null
+      readonly introCopy: string | null
+    }
+  >,
+  'GET /v1/sdk/requests/search': {} as Endpoint<
+    { q: string; anonymousId: string; externalId?: string; limit?: number },
+    { results: ReadonlyArray<RequestSearchResult> }
+  >,
+  'GET /v1/sdk/requests/:requestId': {} as Endpoint<
+    { anonymousId: string; externalId?: string },
+    Request
+  >,
+  'POST /v1/sdk/requests': {} as Endpoint<SubmitRequestPayload, Request>,
+  'POST /v1/sdk/requests/:requestId/vote': {} as Endpoint<
+    { anonymousId: string; externalId?: string | null; vote: boolean },
+    RequestVote
+  >,
+  'POST /v1/sdk/requests/:requestId/follow': {} as Endpoint<
+    { anonymousId: string; externalId?: string | null; follow: boolean },
+    RequestFollow
+  >,
+
+  // ---------- feature requests — comments ----------
+  // Dashboard (cookie auth)
+  'GET /v1/apps/:appId/requests/:requestId/comments': {} as Endpoint<
+    void,
+    { items: ReadonlyArray<RequestComment> }
+  >,
+  'DELETE /v1/apps/:appId/requests/:requestId/comments/:commentId': {} as Endpoint<
+    void,
+    { ok: true }
+  >,
+
+  // SDK (write-key)
+  'GET /v1/sdk/requests/:requestId/comments': {} as Endpoint<
+    { anonymousId: string; externalId?: string | null },
+    { items: ReadonlyArray<RequestComment> }
+  >,
+  'POST /v1/sdk/requests/:requestId/comments': {} as Endpoint<
+    PostCommentPayload,
+    RequestComment
+  >,
+  'PATCH /v1/sdk/requests/:requestId/comments/:commentId': {} as Endpoint<
+    EditCommentPayload,
+    RequestComment
+  >,
+  'DELETE /v1/sdk/requests/:requestId/comments/:commentId': {} as Endpoint<
+    { anonymousId: string },
+    { ok: true }
+  >,
+
+  // ---------- feature requests — public web roadmap (no auth) ----------
+  'GET /v1/public/roadmap/:slug': {} as Endpoint<
+    { status?: RequestStatus | ReadonlyArray<RequestStatus>; sort?: 'top' | 'newest' | 'recently_updated'; page?: number; limit?: number },
+    { items: ReadonlyArray<RequestPublicSummary>; total: number }
+  >,
+  'GET /v1/public/roadmap/:slug/r/:requestId': {} as Endpoint<void, RequestPublicDetail>,
+  'GET /v1/public/roadmap/:slug/branding': {} as Endpoint<void, RequestPublicBranding>,
 } as const
 
 export type EndpointKey = keyof typeof endpoints
