@@ -24,9 +24,20 @@ Status legend:
 | **Surveys** — `handleSurveyDeepLink(uri)` | full | **stub** (P5.1 in flight) | full | full |
 | Save-and-resume across relaunches (surveys) | full | **stub** | full | full |
 | Branching evaluator (sdk-core `nextQuestionId`) | full | **stub** | full | full |
+| **Requests** — `openRequestsBoard()` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
+| **Requests** — `openRequestDetail(requestId)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
+| **Requests** — `submitRequest(...)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
+| **Requests** — `getRequests(options)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
+| **Requests** — `voteOnRequest(requestId, vote)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
+| **Requests** — `followRequest(requestId, follow)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
+| **Requests** — `setRequestsHandlers({...})` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
+| Optimistic vote/follow rollback | full | **missing** | **missing** | **missing** |
+| Search-as-you-type (300ms debounce) | full | **missing** | **missing** | **missing** |
 
 ## Known gaps (tracked separately)
 
+- **Native feature-requests UIs** (`packages/sdk-{ios,android,flutter}`) — public Swift/Kotlin/Dart API surface ships in this PR so host apps can compile against it; HTTP wiring + native UI screens (RequestsBoard, RequestDetail, SubmitRequestSheet) tracked under P5.req-{ios,android,flutter}. RN reference is `full` — iOS/Android/Flutter consumers should call into RN-bridged code or wait for native parity.
+- **Native push fanout for status-change notifications** — `services/request-notify.ts` v1 publishes NATS in-app instructions only. FCM/APNs delivery via a synthetic transactional campaign is tracked as a follow-up — users in foreground get notifications immediately; users in background see them on next session.
 - **iOS surveys** (`packages/sdk-ios/Sources/RitmusFeedback/Surveys/`) — full UI renderer + branching + save/resume targeted in P5.1. Until then, do not advertise iOS surveys as GA.
 - **Secure storage** — consent + identity currently in plaintext `AsyncStorage` / `UserDefaults` / `SharedPreferences` / `shared_preferences`. Migration to `react-native-encrypted-storage` / Keychain / `EncryptedSharedPreferences` / `flutter_secure_storage` tracked in P5.2.
 - **TLS pinning** — none of the SDKs pin `api.ritmus.studio`. Tracked in P5.4.
