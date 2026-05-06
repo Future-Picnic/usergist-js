@@ -24,6 +24,11 @@ export interface User {
   readonly name?: string | null
   readonly emailVerifiedAt?: string | null
   readonly createdAt: string
+  // Cross-workspace operator flag. Set on a tiny number of internal
+  // accounts; surfaced so the dashboard can render the /admin
+  // surface. SDK consumers never see this — it's only populated by
+  // /v1/me which write-keys can't call.
+  readonly isSuperAdmin?: boolean
 }
 
 export interface App {

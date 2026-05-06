@@ -34,6 +34,14 @@ import type {
 } from '../types/workspace.js'
 import type { Consent } from '../types/sdk.js'
 import type {
+  AdminWorkspaceSummary,
+  BillingCheckoutRequest,
+  BillingCheckoutResponse,
+  BillingPlan,
+  BillingUsage,
+  Subscription,
+} from '../types/billing.js'
+import type {
   Campaign,
   CampaignAnalytics,
   CampaignWithVariants,
@@ -816,6 +824,58 @@ export const endpoints = {
   'DELETE /v1/sdk/requests/:requestId/comments/:commentId': {} as Endpoint<
     { anonymousId: string },
     { ok: true }
+  >,
+
+  // ---------- billing (Paddle) ----------
+  'GET /v1/workspaces/:wid/billing/plans': {} as Endpoint<
+    void,
+    { plans: ReadonlyArray<BillingPlan> }
+  >,
+  'GET /v1/workspaces/:wid/billing/subscription': {} as Endpoint<
+    void,
+    {
+      subscription: Subscription | null
+      plan: BillingPlan | null
+      usage: BillingUsage
+    }
+  >,
+  'POST /v1/workspaces/:wid/billing/checkout': {} as Endpoint<
+    BillingCheckoutRequest,
+    BillingCheckoutResponse
+  >,
+  'POST /v1/workspaces/:wid/billing/portal': {} as Endpoint<
+    void,
+    { url: string }
+  >,
+
+  // ---------- super admin ----------
+  'GET /v1/admin/workspaces': {} as Endpoint<
+    void,
+    { workspaces: ReadonlyArray<AdminWorkspaceSummary> }
+  >,
+  'GET /v1/admin/plans': {} as Endpoint<
+    void,
+    { plans: ReadonlyArray<BillingPlan> }
+  >,
+  'GET /v1/admin/workspaces/:wid': {} as Endpoint<
+    void,
+    {
+      workspace: { id: string; name: string; slug: string }
+      subscription: Subscription | null
+      plan: BillingPlan | null
+      mau: number
+      events: ReadonlyArray<{
+        id: string
+        event_type: string
+        received_at: string
+        processed_at: string | null
+        processing_error: string | null
+      }>
+    }
+  >,
+  'POST /v1/admin/workspaces/:wid/plan': {} as Endpoint<
+    { planId: string },
+    { subscription: Subscription }
   >,
 
   // ---------- feature requests — public web roadmap (no auth) ----------
