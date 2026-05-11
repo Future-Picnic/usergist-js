@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:terminals": "./scripts/run-dev-terminals.sh",
     "dev:api": "pnpm --filter @ritmus/api dev",
     "dev:dashboard": "pnpm --filter @ritmus/dashboard dev",
     "dev:landing": "pnpm --filter @ritmus/landing dev",
