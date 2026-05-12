@@ -17,13 +17,15 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "db:migrate": "pnpm --filter @ritmus/api db:migrate",
-    "db:seed": "pnpm --filter @ritmus/api db:seed"
+    "db:seed": "pnpm --filter @ritmus/api db:seed",
+    "parity": "tsx tools/check-parity.ts"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
     "typescript": "^5.5.4"
   }
 }

@@ -15,34 +15,67 @@ Status legend:
 | `track(name, properties)` | full | full | full | full |
 | `setConsent({ feedback, push, survey })` | full | full | full | full |
 | `reset()` | full | full | full | full |
+| `flush()` | full | full | full | full |
+| `setDebug(enabled)` | full | full | full | full |
+| `setThemeOverrides(theme)` | full | full | full | full |
+| `getAnonymousId()` | full | full | full | full |
 | `onPromptShown` / `onResponse` | full | full | full | full |
-| Push: `registerToken` / `invalidateToken` | full | full | full | full |
-| Theme overrides | full | full | full | full |
-| **Surveys** — `getAvailableSurveys()` | full | **stub** (P5.1 in flight) | full | full |
-| **Surveys** — `openSurvey(surveyId)` | full | **stub** (P5.1 in flight) | full | full |
-| **Surveys** — `setSurveyHandlers({...})` | full | **stub** (P5.1 in flight) | full | full |
-| **Surveys** — `handleSurveyDeepLink(uri)` | full | **stub** (P5.1 in flight) | full | full |
-| Save-and-resume across relaunches (surveys) | full | **stub** | full | full |
-| Branching evaluator (sdk-core `nextQuestionId`) | full | **stub** | full | full |
-| **Requests** — `openRequestsBoard()` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
-| **Requests** — `openRequestDetail(requestId)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
-| **Requests** — `submitRequest(...)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
-| **Requests** — `getRequests(options)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
-| **Requests** — `voteOnRequest(requestId, vote)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
-| **Requests** — `followRequest(requestId, follow)` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
-| **Requests** — `setRequestsHandlers({...})` | full | **stub** (P5.req-ios) | **stub** (P5.req-android) | **stub** (P5.req-flutter) |
-| Optimistic vote/follow rollback | full | **missing** | **missing** | **missing** |
-| Search-as-you-type (300ms debounce) | full | **missing** | **missing** | **missing** |
+| `onPushEvent(cb)` | full | full | full | full |
+| Push: `registerPushToken` / `invalidatePushToken` | full | full | full | full |
+| Push: `rebindPushToken` | full | full | full | full |
+| Push: `enablePush` / `disablePush` | full | full | full | full |
+| Push: `getPushPermissionStatus` | full | full | full | full |
+| Push: `setPushBadgeCount` | full | full | full | full |
+| Push: `getInitialPushNotification` | full | full | full | full |
+| Push: `pushBeacon` / `pushAckSilent` | full | full | full | full |
+| Push: `pushAppOpen` / `pushFetchChannels` / `pushSetChannelSubscription` | full | full | full | full |
+| `setInAppHandlers({...})` | full | full | full | full |
+| **Surveys** — `getAvailableSurveys()` | full | full | full | full |
+| **Surveys** — `openSurvey(surveyId)` | full | full | full | full |
+| **Surveys** — `setSurveyHandlers({...})` | full | full | full | full |
+| **Surveys** — `handleSurveyDeepLink(uri)` | full | full | full | full |
+| Save-and-resume across relaunches (surveys) | full | full | full | full |
+| Branching evaluator (sdk-core `nextQuestionId`) | full | full | full | full |
+| **Requests** — `openRequestsBoard()` | full | full | full | full |
+| **Requests** — `openRequestDetail(requestId)` | full | full | full | full |
+| **Requests** — `submitRequest(...)` | full | full | full | full |
+| **Requests** — `getRequests(options)` | full | full | full | full |
+| **Requests** — `getRequest(requestId)` | full | full | full | full |
+| **Requests** — `voteOnRequest(requestId, vote)` | full | full | full | full |
+| **Requests** — `followRequest(requestId, follow)` | full | full | full | full |
+| **Requests** — `getComments(requestId)` | full | full | full | full |
+| **Requests** — `postComment(requestId, body)` | full | full | full | full |
+| **Requests** — `editComment(requestId, commentId, body)` | full | full | full | full |
+| **Requests** — `deleteComment(requestId, commentId)` | full | full | full | full |
+| **Requests** — `getRequestBranding()` | full | full | full | full |
+| **Requests** — `setRequestsHandlers({...})` | full | full | full | full |
+| Optimistic vote/follow rollback | full | full | full | full |
+| Search-as-you-type (300ms debounce) | full | full | full | full |
+| Persisted-queue schema versioning | full | full | full | full |
+| Secure storage (identity + consent + push token) | full | full | full | full |
+| TLS pinning (`api.ritmus.studio`, SPKI) | full | full | full | full |
 
-## Known gaps (tracked separately)
+## Implementation notes
 
-- **Native feature-requests UIs** (`packages/sdk-{ios,android,flutter}`) — public Swift/Kotlin/Dart API surface ships in this PR so host apps can compile against it; HTTP wiring + native UI screens (RequestsBoard, RequestDetail, SubmitRequestSheet) tracked under P5.req-{ios,android,flutter}. RN reference is `full` — iOS/Android/Flutter consumers should call into RN-bridged code or wait for native parity.
-- **Native push fanout for status-change notifications** — `services/request-notify.ts` v1 publishes NATS in-app instructions only. FCM/APNs delivery via a synthetic transactional campaign is tracked as a follow-up — users in foreground get notifications immediately; users in background see them on next session.
-- **iOS surveys** (`packages/sdk-ios/Sources/RitmusFeedback/Surveys/`) — full UI renderer + branching + save/resume targeted in P5.1. Until then, do not advertise iOS surveys as GA.
-- **Secure storage** — consent + identity currently in plaintext `AsyncStorage` / `UserDefaults` / `SharedPreferences` / `shared_preferences`. Migration to `react-native-encrypted-storage` / Keychain / `EncryptedSharedPreferences` / `flutter_secure_storage` tracked in P5.2.
-- **TLS pinning** — none of the SDKs pin `api.ritmus.studio`. Tracked in P5.4.
-- **Persisted-queue schema versioning** — RN already wraps as `{version,events}`; iOS / Android / Flutter still write bare arrays. Bumping the schema in those SDKs requires versioning first.
+- **iOS surveys** (`packages/sdk-ios/Sources/RitmusFeedback/Internal/Surveys/`) — native SwiftUI renderer (`SurveyView` / `SurveyHost`) drives questions through the local `BranchEvaluator`, persisting per-attempt progress via `SurveyStore`. On `openSurvey`, the runtime fetches the flow from `/v1/sdk/surveys/{id}/flow`, resumes the prior attempt if one exists, and presents the host modally.
+- **Native Requests pillar** — all three native SDKs wire the seven SDK endpoints (`/v1/sdk/requests`, `:requestId`, `/vote`, `/follow`, `/comments`) through their existing HTTP transport. The optimistic cache (`RequestsCache.{swift,kt,dart}`) mirrors the RN invariants exactly: upvote auto-creates follow; un-upvote does NOT remove the follow.
+- **Search-as-you-type** uses a 300ms debounce + sequence-number guard so stale in-flight requests are dropped. Identical semantics on all four platforms.
+- **Persisted-queue schema versioning**: iOS uses a wrapped JSON envelope (`{version, events}`); Android & Flutter use a `{"version":1}` header line followed by NDJSON events. All three legacy-migrate bare-array snapshots on hydrate.
+- **Secure storage**: iOS Keychain (`kSecAttrAccessibleAfterFirstUnlock`), Android `EncryptedSharedPreferences`, Flutter `flutter_secure_storage`. Plaintext rows from prior installs are migrated once on first launch.
+- **TLS pinning**: `api.ritmus.studio` is pinned against two SHA-256 SPKI hashes sourced from `RITMUS_TLS_PIN_LEAF` / `RITMUS_TLS_PIN_BACKUP` environment variables. Localhost / preview hosts are unpinned so dev workflows still work. Pin rotation requires shipping the new backup pin in a build before retiring the leaf.
 
-## CI guard (planned)
+## CI guard (active)
 
-Add `tools/check-parity.ts` to assert every public symbol in `packages/sdk-core/src/index.ts` has a corresponding row in this file. Lands with the iOS surveys work.
+`tools/check-parity.ts` runs on every PR (`pnpm parity`). The script:
+
+1. Asserts that every public method on the RN reference (`packages/sdk-react-native/src/Ritmus.ts`) appears as a row in this file.
+2. Asserts that every iOS / Android / Flutter cell reads exactly `full`.
+
+Staged work can be granted a one-PR exemption with `pnpm parity --allow=<row-label-substring>`; production merges must not use the flag.
+
+## Out-of-band follow-ups
+
+These items did NOT block the cross-platform parity flip and are tracked separately:
+
+- **iOS UIKit availability under SwiftPM** — `swift build` on macOS without an iOS SDK reports "no such module 'UIKit'" for `AppLifecycle.swift` and related host-app touchpoints. Real iOS builds via `xcodebuild` are unaffected.
+- **Cert-pin material** — production pin SHA-256 values must be set in the host app's environment (`RITMUS_TLS_PIN_LEAF`, `RITMUS_TLS_PIN_BACKUP`) before shipping. Empty pins fall back to system trust.
