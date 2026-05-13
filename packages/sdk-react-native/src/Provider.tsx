@@ -6,6 +6,7 @@ import { Ritmus } from './Ritmus.js'
 import { PromptSheet } from './ui/PromptSheet.js'
 import { SurveyView } from './ui/SurveyView.js'
 import { InAppMessageView } from './ui/InAppMessageView.js'
+import { RequestsHost } from './ui/requests/RequestsHost.js'
 import type { ShowPromptPayload, ResponseEmission } from './internal/types.js'
 import type {
   ArmedInAppMessage,
@@ -267,6 +268,7 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
         onCtaPress={handleInAppCta}
         onDismiss={() => handleInAppDismiss('user')}
       />
+      <RequestsHost />
     </>
   )
 }
