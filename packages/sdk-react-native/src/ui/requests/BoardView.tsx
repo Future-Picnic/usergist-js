@@ -17,8 +17,8 @@ import {
   Text,
   View,
 } from 'react-native'
-import type { RequestStatus, RequestSummary } from '@ritmus/sdk-core'
-import { Ritmus } from '../../Ritmus.js'
+import type { RequestStatus, RequestSummary } from '@usergist/sdk-core'
+import { UserGist } from '../../UserGist.js'
 import {
   STATUS_COLOR,
   STATUS_KEYS,
@@ -54,7 +54,7 @@ export function BoardView({
     if (asRefresh) setRefreshing(true)
     else setLoading(true)
     try {
-      const result = await Ritmus.getRequests({ sort: 'top', limit: 50 })
+      const result = await UserGist.getRequests({ sort: 'top', limit: 50 })
       setItems(result.items)
     } catch (e) {
       Alert.alert('Could not load suggestions', String(e))
@@ -91,7 +91,7 @@ export function BoardView({
       prev.map((r) => (r.id === item.id ? applyOptimisticVote(r, next) : r)),
     )
     try {
-      await Ritmus.voteOnRequest(item.id, next)
+      await UserGist.voteOnRequest(item.id, next)
     } catch (e) {
       setItems((prev) => prev.map((r) => (r.id === item.id ? item : r)))
       Alert.alert('Vote failed', String(e))

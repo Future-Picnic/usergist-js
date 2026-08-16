@@ -42,7 +42,7 @@ export function logTrace(trace: DecisionTrace): void {
   if (!__DEV__ || !state.enabled) return
   try {
     // eslint-disable-next-line no-console
-    globalThis.console?.log?.('[ritmus]', 'trace', trace)
+    globalThis.console?.log?.('[usergist]', 'trace', trace)
   } catch {
     // swallow
   }
@@ -52,7 +52,7 @@ export function reportError(message: string, error?: unknown): void {
   if (!__DEV__ || !state.enabled) return
   try {
     // eslint-disable-next-line no-console
-    globalThis.console?.warn?.('[ritmus]', message, error)
+    globalThis.console?.warn?.('[usergist]', message, error)
   } catch {
     // swallow
   }
@@ -62,7 +62,7 @@ export function debugLog(message: string, detail?: unknown): void {
   if (!__DEV__ || !state.enabled) return
   try {
     // eslint-disable-next-line no-console
-    globalThis.console?.log?.('[ritmus]', message, detail ?? '')
+    globalThis.console?.log?.('[usergist]', message, detail ?? '')
   } catch {
     // swallow
   }

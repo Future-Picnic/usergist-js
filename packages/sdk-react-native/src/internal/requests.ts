@@ -8,7 +8,7 @@
 //     wasn't already following).
 //   - Un-upvoting does NOT remove the follow.
 
-import type { Request as RequestDto, RequestVote, RequestFollow } from '@ritmus/sdk-core'
+import type { Request as RequestDto, RequestVote, RequestFollow } from '@usergist/sdk-core'
 
 export interface RequestsCache {
   readonly upsert: (req: RequestDto) => void

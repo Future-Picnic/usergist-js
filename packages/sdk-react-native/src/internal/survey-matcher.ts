@@ -14,8 +14,8 @@
 // Server reconciles asynchronously (the offer-ledger insert from the
 // trigger-engine still runs for analytics correctness).
 
-import type { ArmedSurvey, FrequencyCaps } from '@ritmus/sdk-core'
-import { evaluateSerializedSegmentRules } from '@ritmus/sdk-core'
+import type { ArmedSurvey, FrequencyCaps } from '@usergist/sdk-core'
+import { evaluateSerializedSegmentRules } from '@usergist/sdk-core'
 import type { SurveyRulesCache } from './survey-rules-cache.js'
 import type { FrequencyCapManager } from './frequency-cap.js'
 import type { UserStateStore } from './user-state.js'

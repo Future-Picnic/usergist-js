@@ -2,7 +2,7 @@
 // Pulls from react-native Platform + NativeModules when available. All lookups
 // are defensive — if a host doesn't expose a field, we simply omit it.
 
-import type { IngestContext, SdkPlatform } from '@ritmus/sdk-core'
+import type { IngestContext, SdkPlatform } from '@usergist/sdk-core'
 
 const SDK_VERSION = '0.1.0'
 

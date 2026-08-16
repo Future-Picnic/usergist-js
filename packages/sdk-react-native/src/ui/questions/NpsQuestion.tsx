@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import type { NpsQuestion as NpsQ } from '@ritmus/sdk-core'
+import type { NpsQuestion as NpsQ } from '@usergist/sdk-core'
 import type { ResolvedTheme } from '../theme.js'
 import { QuestionImageHeader } from '../QuestionImageHeader.js'
 

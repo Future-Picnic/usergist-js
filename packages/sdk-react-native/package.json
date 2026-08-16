@@ -1,7 +1,7 @@
 {
-  "name": "@ritmus/feedback-react-native",
+  "name": "@usergist/feedback-react-native",
   "version": "0.1.0",
-  "description": "Ritmus feedback + push SDK for React Native (self-contained, no Firebase/OneSignal/WonderPush required)",
+  "description": "userGist feedback + push SDK for React Native (self-contained, no Firebase/OneSignal/WonderPush required)",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "module": "./dist/index.js",
@@ -21,7 +21,7 @@
     "src",
     "ios",
     "android",
-    "RitmusFeedback.podspec",
+    "UserGistFeedback.podspec",
     "react-native.config.js",
     "README.md"
   ],
@@ -37,7 +37,7 @@
     "react-native-safe-area-context": ">=4"
   },
   "dependencies": {
-    "@ritmus/sdk-core": "workspace:*"
+    "@usergist/sdk-core": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
@@ -47,11 +47,11 @@
     "typescript": "^5.5.4"
   },
   "codegenConfig": {
-    "name": "RNRitmusPushSpec",
+    "name": "RNUserGistPushSpec",
     "type": "modules",
     "jsSrcsDir": "src",
     "android": {
-      "javaPackageName": "studio.ritmus.feedback"
+      "javaPackageName": "studio.usergist.feedback"
     }
   }
 }

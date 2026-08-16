@@ -16,8 +16,8 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import type { RequestComment } from '@ritmus/sdk-core'
-import { Ritmus } from '../../Ritmus.js'
+import type { RequestComment } from '@usergist/sdk-core'
+import { UserGist } from '../../UserGist.js'
 
 interface CommentsSectionProps {
   readonly requestId: string
@@ -34,7 +34,7 @@ export function CommentsSection({ requestId, accent }: CommentsSectionProps) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const items = await Ritmus.getComments(requestId)
+      const items = await UserGist.getComments(requestId)
       setComments(items)
     } finally {
       setLoading(false)
@@ -56,7 +56,7 @@ export function CommentsSection({ requestId, accent }: CommentsSectionProps) {
     if (!canPost) return
     setPosting(true)
     try {
-      const created = await Ritmus.postComment(requestId, trimmed)
+      const created = await UserGist.postComment(requestId, trimmed)
       if (created) {
         setComments((prev) => [...prev, created])
         setDraft('')
@@ -79,7 +79,7 @@ export function CommentsSection({ requestId, accent }: CommentsSectionProps) {
         ),
       )
       try {
-        const updated = await Ritmus.editComment(requestId, commentId, body)
+        const updated = await UserGist.editComment(requestId, commentId, body)
         if (updated) {
           setComments((prev) => prev.map((c) => (c.id === commentId ? updated : c)))
         }
@@ -96,7 +96,7 @@ export function CommentsSection({ requestId, accent }: CommentsSectionProps) {
       const confirm = () => {
         const before = comments
         setComments((prev) => prev.filter((c) => c.id !== commentId))
-        void Ritmus.deleteComment(requestId, commentId).catch((e: unknown) => {
+        void UserGist.deleteComment(requestId, commentId).catch((e: unknown) => {
           setComments(before)
           Alert.alert('Could not delete', String((e as Error)?.message ?? e))
         })

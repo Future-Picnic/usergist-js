@@ -7,7 +7,7 @@
 
 import React, { useMemo } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import type { PromptTheme, Question } from '@ritmus/sdk-core'
+import type { PromptTheme, Question } from '@usergist/sdk-core'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from '../ui/theme.js'
 import { RatingQuestion } from '../ui/questions/RatingQuestion.js'
 import { NpsQuestion } from '../ui/questions/NpsQuestion.js'

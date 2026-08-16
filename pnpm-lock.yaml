@@ -65,7 +65,7 @@ importers:
       '@paddle/paddle-node-sdk':
         specifier: ^2.0.0
         version: 2.8.0
-      '@ritmus/sdk-core':
+      '@usergist/sdk-core':
         specifier: workspace:*
         version: link:../../packages/sdk-core
       '@sentry/node':
@@ -168,10 +168,10 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.1.3
         version: 1.2.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@ritmus/feedback-react-native':
+      '@usergist/feedback-react-native':
         specifier: workspace:^
         version: link:../../packages/sdk-react-native
-      '@ritmus/sdk-core':
+      '@usergist/sdk-core':
         specifier: workspace:*
         version: link:../../packages/sdk-core
       '@tanstack/react-query':
@@ -365,7 +365,7 @@ importers:
 
   apps/web-roadmap:
     dependencies:
-      '@ritmus/sdk-core':
+      '@usergist/sdk-core':
         specifier: workspace:*
         version: link:../../packages/sdk-core
       next:
@@ -412,7 +412,7 @@ importers:
       '@react-native-async-storage/async-storage':
         specifier: '>=1.19'
         version: 3.0.2(react-native@0.74.0(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)
-      '@ritmus/sdk-core':
+      '@usergist/sdk-core':
         specifier: workspace:*
         version: link:../sdk-core
     devDependencies:

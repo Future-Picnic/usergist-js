@@ -1,4 +1,4 @@
-package studio.ritmus.feedback
+package studio.usergist.feedback
 
 import android.Manifest
 import android.app.Activity
@@ -20,23 +20,23 @@ import com.google.android.gms.tasks.OnCompleteListener
 import com.google.firebase.messaging.FirebaseMessaging
 
 /**
- * Native bridge for the Ritmus push pipeline on Android.
+ * Native bridge for the UserGist push pipeline on Android.
  *
  * Responsibilities:
  *   - Request POST_NOTIFICATIONS at runtime on Android 13+.
  *   - Surface the current FCM token via FirebaseMessaging.getInstance().token.
  *   - Forward token-refresh + RemoteMessage delivery to JS.  The actual
- *     RemoteMessage handling lives in RitmusFirebaseMessagingService;
+ *     RemoteMessage handling lives in UserGistFirebaseMessagingService;
  *     this module exposes only the imperative side (JS -> native calls).
  */
-class RitmusPushModule(reactContext: ReactApplicationContext) :
+class UserGistPushModule(reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
   init {
     // Wire ourselves into the static event-emit helper so the Firebase
     // service can hand events back without holding a strong reference to
     // the React module.
-    RitmusPushEventBus.attach(reactContext)
+    UserGistPushEventBus.attach(reactContext)
   }
 
   override fun getName(): String = NAME
@@ -137,7 +137,7 @@ class RitmusPushModule(reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun getInitialNotification(promise: Promise) {
-    promise.resolve(RitmusPushEventBus.takeInitialNotification())
+    promise.resolve(UserGistPushEventBus.takeInitialNotification())
   }
 
   // Required for RN's NativeEventEmitter API even though we emit from a
@@ -161,7 +161,7 @@ class RitmusPushModule(reactContext: ReactApplicationContext) :
         val token = task.result
         // Emit on top of resolving so JS gets both the resolution AND the
         // refresh-style event (idempotent on the server side).
-        RitmusPushEventBus.emitToken(token)
+        UserGistPushEventBus.emitToken(token)
         promise.resolve(buildResult(granted = true, status = status, token = token))
       }
     )
@@ -183,17 +183,17 @@ class RitmusPushModule(reactContext: ReactApplicationContext) :
   }
 
   companion object {
-    const val NAME = "RitmusPush"
+    const val NAME = "UserGistPush"
     private const val REQUEST_CODE = 0x52A1 // arbitrary 16-bit; "RA" in hex
   }
 }
 
 /**
- * Static bus owned by the RitmusFirebaseMessagingService; lets the service
+ * Static bus owned by the UserGistFirebaseMessagingService; lets the service
  * forward events to JS without holding a strong reference to the
  * (possibly-not-yet-initialized) React Native bridge.
  */
-internal object RitmusPushEventBus {
+internal object UserGistPushEventBus {
   @Volatile private var reactContext: ReactApplicationContext? = null
   private val pending: MutableList<Pair<String, WritableMap>> = mutableListOf()
   private var initialNotification: WritableMap? = null
@@ -212,11 +212,11 @@ internal object RitmusPushEventBus {
     val map = Arguments.createMap()
     map.putString("token", token)
     map.putString("platform", "android")
-    emit("RitmusPush:tokenReceived", map)
+    emit("UserGistPush:tokenReceived", map)
   }
 
   fun emitNotificationReceived(body: WritableMap) {
-    emit("RitmusPush:notificationReceived", body)
+    emit("UserGistPush:notificationReceived", body)
   }
 
   fun emitNotificationOpened(body: WritableMap) {
@@ -224,7 +224,7 @@ internal object RitmusPushEventBus {
       // Snapshot so getInitialNotification() can return it once.
       initialNotification = Arguments.createMap().apply { merge(body) }
     }
-    emit("RitmusPush:notificationOpened", body)
+    emit("UserGistPush:notificationOpened", body)
   }
 
   fun takeInitialNotification(): WritableMap? {

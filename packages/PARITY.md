@@ -1,6 +1,6 @@
 # SDK Parity Matrix
 
-Single source of truth for what each Ritmus SDK ships. Updated whenever a public API lands or moves between **stub** → **partial** → **full**.
+Single source of truth for what each userGist SDK ships. Updated whenever a public API lands or moves between **stub** → **partial** → **full**.
 
 Status legend:
 - **full** — implemented + tested + at parity with the React Native reference.
@@ -53,27 +53,27 @@ Status legend:
 | Search-as-you-type (300ms debounce) | full | full | full | full |
 | Persisted-queue schema versioning | full | full | full | full |
 | Secure storage (identity + consent + push token) | full | full | full | full |
-| TLS pinning (`api.ritmus.studio`, SPKI) | full | full | full | full |
+| TLS pinning (`api.usergist.studio`, SPKI) | full | full | full | full |
 
 ## Implementation notes
 
-- **iOS surveys** (`packages/sdk-ios/Sources/RitmusFeedback/Internal/Surveys/`) — native SwiftUI renderer (`SurveyView` / `SurveyHost`) drives questions through the local `BranchEvaluator`, persisting per-attempt progress via `SurveyStore`. On `openSurvey`, the runtime fetches the flow from `/v1/sdk/surveys/{id}/flow`, resumes the prior attempt if one exists, and presents the host modally.
-- **Native Requests pillar — drop-in UI on every platform**. Calling `Ritmus.openRequestsBoard()` opens a fully-styled board / detail / submit / comments flow without any host-side UI code:
-  - **RN**: a single root `<Modal presentationStyle="fullScreen">` mounted inside `<RitmusProvider>` — internal state machine swaps board / detail / submit views (no nested modals). Branding pulled from `getRequestBranding()`.
+- **iOS surveys** (`packages/sdk-ios/Sources/UserGistFeedback/Internal/Surveys/`) — native SwiftUI renderer (`SurveyView` / `SurveyHost`) drives questions through the local `BranchEvaluator`, persisting per-attempt progress via `SurveyStore`. On `openSurvey`, the runtime fetches the flow from `/v1/sdk/surveys/{id}/flow`, resumes the prior attempt if one exists, and presents the host modally.
+- **Native Requests pillar — drop-in UI on every platform**. Calling `UserGist.openRequestsBoard()` opens a fully-styled board / detail / submit / comments flow without any host-side UI code:
+  - **RN**: a single root `<Modal presentationStyle="fullScreen">` mounted inside `<UserGistProvider>` — internal state machine swaps board / detail / submit views (no nested modals). Branding pulled from `getRequestBranding()`.
   - **iOS**: `RequestsBoardHost.swift` presents a `UIHostingController` modally over the topmost view controller.
   - **Android**: `RequestsBoardActivity` launched via `Intent`. Mode (board / detail) is carried in extras.
-  - **Flutter**: `RequestsNavHost` mounted inside `RitmusProvider` (`MaterialApp.builder`) listens on a singleton stream; `Ritmus.openRequestsBoard()` pushes a `MaterialPageRoute` onto the root navigator. No `BuildContext` required at the call site.
+  - **Flutter**: `RequestsNavHost` mounted inside `UserGistProvider` (`MaterialApp.builder`) listens on a singleton stream; `UserGist.openRequestsBoard()` pushes a `MaterialPageRoute` onto the root navigator. No `BuildContext` required at the call site.
   All four SDKs wire the eight `/v1/sdk/requests/...` endpoints + `/v1/sdk/request-branding` through their existing HTTP transport with PATCH + DELETE helpers added for comment edit/delete. The optimistic cache (`RequestsCache.{swift,kt,dart}`) mirrors the RN invariants exactly: upvote auto-creates follow; un-upvote does NOT remove the follow.
 - **Search-as-you-type** uses a 300ms debounce + sequence-number guard so stale in-flight requests are dropped. Identical semantics on all four platforms.
 - **Persisted-queue schema versioning**: iOS uses a wrapped JSON envelope (`{version, events}`); Android & Flutter use a `{"version":1}` header line followed by NDJSON events. All three legacy-migrate bare-array snapshots on hydrate.
 - **Secure storage**: iOS Keychain (`kSecAttrAccessibleAfterFirstUnlock`), Android `EncryptedSharedPreferences`, Flutter `flutter_secure_storage`. Plaintext rows from prior installs are migrated once on first launch.
-- **TLS pinning**: `api.ritmus.studio` is pinned against two SHA-256 SPKI hashes sourced from `RITMUS_TLS_PIN_LEAF` / `RITMUS_TLS_PIN_BACKUP` environment variables. Localhost / preview hosts are unpinned so dev workflows still work. Pin rotation requires shipping the new backup pin in a build before retiring the leaf.
+- **TLS pinning**: `api.usergist.studio` is pinned against two SHA-256 SPKI hashes sourced from `USERGIST_TLS_PIN_LEAF` / `USERGIST_TLS_PIN_BACKUP` environment variables. Localhost / preview hosts are unpinned so dev workflows still work. Pin rotation requires shipping the new backup pin in a build before retiring the leaf.
 
 ## CI guard (active)
 
 `tools/check-parity.ts` runs on every PR (`pnpm parity`). The script:
 
-1. Asserts that every public method on the RN reference (`packages/sdk-react-native/src/Ritmus.ts`) appears as a row in this file.
+1. Asserts that every public method on the RN reference (`packages/sdk-react-native/src/UserGist.ts`) appears as a row in this file.
 2. Asserts that every iOS / Android / Flutter cell reads exactly `full`.
 
 Staged work can be granted a one-PR exemption with `pnpm parity --allow=<row-label-substring>`; production merges must not use the flag.
@@ -83,4 +83,4 @@ Staged work can be granted a one-PR exemption with `pnpm parity --allow=<row-lab
 These items did NOT block the cross-platform parity flip and are tracked separately:
 
 - **iOS UIKit availability under SwiftPM** — `swift build` on macOS without an iOS SDK reports "no such module 'UIKit'" for `AppLifecycle.swift` and related host-app touchpoints. Real iOS builds via `xcodebuild` are unaffected.
-- **Cert-pin material** — production pin SHA-256 values must be set in the host app's environment (`RITMUS_TLS_PIN_LEAF`, `RITMUS_TLS_PIN_BACKUP`) before shipping. Empty pins fall back to system trust.
+- **Cert-pin material** — production pin SHA-256 values must be set in the host app's environment (`USERGIST_TLS_PIN_LEAF`, `USERGIST_TLS_PIN_BACKUP`) before shipping. Empty pins fall back to system trust.

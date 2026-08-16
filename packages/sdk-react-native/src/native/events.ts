@@ -1,17 +1,17 @@
 /**
- * Native event names emitted by RitmusPushImpl (iOS) /
- * RitmusFirebaseMessagingService (Android). Keep in sync with the
+ * Native event names emitted by UserGistPushImpl (iOS) /
+ * UserGistFirebaseMessagingService (Android). Keep in sync with the
  * native sides — these are the contract.
  */
-export const RITMUS_PUSH_EVENTS = {
-  TOKEN_RECEIVED: 'RitmusPush:tokenReceived',
-  TOKEN_ERROR: 'RitmusPush:tokenError',
-  NOTIFICATION_RECEIVED: 'RitmusPush:notificationReceived',
-  NOTIFICATION_OPENED: 'RitmusPush:notificationOpened',
+export const USERGIST_PUSH_EVENTS = {
+  TOKEN_RECEIVED: 'UserGistPush:tokenReceived',
+  TOKEN_ERROR: 'UserGistPush:tokenError',
+  NOTIFICATION_RECEIVED: 'UserGistPush:notificationReceived',
+  NOTIFICATION_OPENED: 'UserGistPush:notificationOpened',
 } as const
 
-export type RitmusPushEventName =
-  (typeof RITMUS_PUSH_EVENTS)[keyof typeof RITMUS_PUSH_EVENTS]
+export type UserGistPushEventName =
+  (typeof USERGIST_PUSH_EVENTS)[keyof typeof USERGIST_PUSH_EVENTS]
 
 export interface TokenReceivedPayload {
   readonly token: string

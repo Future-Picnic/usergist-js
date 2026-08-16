@@ -1,5 +1,5 @@
 /**
- * Ritmus Push — React Native public surface.
+ * UserGist Push — React Native public surface.
  *
  * Host apps own APNs / FCM plumbing (via `@react-native-firebase/messaging`
  * or `notifee`). They forward tokens and message payloads here.
@@ -12,8 +12,8 @@
  *  • Token rebind on identify
  */
 
-import { isSilentPushPayload, type PushChannelDef } from '@ritmus/sdk-core'
-import { Ritmus } from './Ritmus.js'
+import { isSilentPushPayload, type PushChannelDef } from '@usergist/sdk-core'
+import { UserGist } from './UserGist.js'
 
 export type PushPermissionStatus =
   | 'not_determined'
@@ -22,7 +22,7 @@ export type PushPermissionStatus =
   | 'provisional'
   | 'ephemeral'
 
-export interface RitmusPushMessage {
+export interface UserGistPushMessage {
   readonly campaignId?: string
   readonly variantId?: string
   readonly deliveryId?: string
@@ -35,27 +35,27 @@ export interface RitmusPushMessage {
 }
 
 export interface PushHandlers {
-  readonly onReceive?: (message: RitmusPushMessage, raw: Record<string, unknown>) => void
-  readonly onOpen?: (message: RitmusPushMessage) => void
-  readonly onAction?: (message: RitmusPushMessage, actionButton: string) => void
-  readonly onDismiss?: (message: RitmusPushMessage) => void
+  readonly onReceive?: (message: UserGistPushMessage, raw: Record<string, unknown>) => void
+  readonly onOpen?: (message: UserGistPushMessage) => void
+  readonly onAction?: (message: UserGistPushMessage, actionButton: string) => void
+  readonly onDismiss?: (message: UserGistPushMessage) => void
   readonly onSilent?: (pingId: string) => void
 }
 
 let handlers: PushHandlers = {}
 
-export function parseIosPayload(userInfo: Record<string, unknown>): RitmusPushMessage | null {
-  const ritmus = userInfo?.['ritmus'] as Record<string, unknown> | undefined
-  if (!ritmus) return null
+export function parseIosPayload(userInfo: Record<string, unknown>): UserGistPushMessage | null {
+  const usergist = userInfo?.['usergist'] as Record<string, unknown> | undefined
+  if (!usergist) return null
   const aps = userInfo?.['aps'] as Record<string, unknown> | undefined
   const alert = aps?.['alert'] as Record<string, unknown> | undefined
-  const extra = ritmus['extra'] as Record<string, unknown> | undefined
+  const extra = usergist['extra'] as Record<string, unknown> | undefined
   return {
-    campaignId: ritmus['campaignId'] as string | undefined,
-    variantId: ritmus['variantId'] as string | undefined,
-    deliveryId: ritmus['deliveryId'] as string | undefined,
-    language: ritmus['language'] as string | undefined,
-    deepLink: ritmus['deepLink'] as string | undefined,
+    campaignId: usergist['campaignId'] as string | undefined,
+    variantId: usergist['variantId'] as string | undefined,
+    deliveryId: usergist['deliveryId'] as string | undefined,
+    language: usergist['language'] as string | undefined,
+    deepLink: usergist['deepLink'] as string | undefined,
     title: alert?.['title'] as string | undefined,
     body: alert?.['body'] as string | undefined,
     imageUrl: extra?.['imageUrl'] as string | undefined,
@@ -65,18 +65,18 @@ export function parseIosPayload(userInfo: Record<string, unknown>): RitmusPushMe
 export function parseFcmData(
   data: Record<string, string>,
   notification?: { title?: string; body?: string },
-): RitmusPushMessage | null {
-  if (!data.ritmus_campaign_id) return null
+): UserGistPushMessage | null {
+  if (!data.usergist_campaign_id) return null
   return {
-    campaignId: data.ritmus_campaign_id,
-    variantId: data.ritmus_variant_id,
-    deliveryId: data.ritmus_delivery_id,
-    language: data.ritmus_language,
-    deepLink: data.ritmus_deep_link,
-    title: notification?.title ?? data.ritmus_title,
-    body: notification?.body ?? data.ritmus_body,
-    imageUrl: data.ritmus_image_url,
-    androidChannelId: data.ritmus_channel_id,
+    campaignId: data.usergist_campaign_id,
+    variantId: data.usergist_variant_id,
+    deliveryId: data.usergist_delivery_id,
+    language: data.usergist_language,
+    deepLink: data.usergist_deep_link,
+    title: notification?.title ?? data.usergist_title,
+    body: notification?.body ?? data.usergist_body,
+    imageUrl: data.usergist_image_url,
+    androidChannelId: data.usergist_channel_id,
   }
 }
 
@@ -87,7 +87,7 @@ function emitEvent(
     | '$push_opened'
     | '$push_dismissed'
     | '$push_action_clicked',
-  msg: RitmusPushMessage,
+  msg: UserGistPushMessage,
   extra?: Record<string, unknown>,
 ): void {
   const props = {
@@ -97,11 +97,11 @@ function emitEvent(
     language: msg.language ?? null,
     ...(extra ?? {}),
   }
-  Ritmus.track(name, props)
+  UserGist.track(name, props)
   // Also surface to host-app subscribers (e.g. Amplitude / Mixpanel /
   // Segment) via the public `onPushEvent` API. Analytics-tool agnostic
   // — the host plumbs to whichever stack they use.
-  Ritmus._notifyPushEvent(name, props)
+  UserGist._notifyPushEvent(name, props)
 }
 
 interface PushHandlerArgs {
@@ -110,7 +110,7 @@ interface PushHandlerArgs {
   readonly notification?: { title?: string; body?: string }
 }
 
-function parsePushArgs(args: PushHandlerArgs): RitmusPushMessage | null {
+function parsePushArgs(args: PushHandlerArgs): UserGistPushMessage | null {
   if (args.userInfo !== undefined) return parseIosPayload(args.userInfo)
   if (args.data) return parseFcmData(args.data, args.notification)
   return null
@@ -127,11 +127,11 @@ export const Push = {
     opts?: { environment?: 'production' | 'sandbox' },
   ): Promise<void> {
     if (!token) return
-    await Ritmus.registerPushToken(token, platform, opts)
+    await UserGist.registerPushToken(token, platform, opts)
   },
 
   async invalidateDeviceToken(token: string): Promise<void> {
-    await Ritmus.invalidatePushToken(token)
+    await UserGist.invalidatePushToken(token)
   },
 
   /**
@@ -140,7 +140,7 @@ export const Push = {
    * users skip silent-ping cycles entirely.
    */
   async appDidBecomeActive(): Promise<void> {
-    await Ritmus.pushAppOpen()
+    await UserGist.pushAppOpen()
   },
 
   /**
@@ -150,11 +150,11 @@ export const Push = {
    * are silently dropped.
    */
   async fetchChannels(): Promise<ReadonlyArray<PushChannelDef>> {
-    return Ritmus.pushFetchChannels()
+    return UserGist.pushFetchChannels()
   },
 
   async setChannelSubscription(channelId: string, subscribed: boolean): Promise<void> {
-    await Ritmus.pushSetChannelSubscription(channelId, subscribed)
+    await UserGist.pushSetChannelSubscription(channelId, subscribed)
   },
 
   /**
@@ -168,10 +168,10 @@ export const Push = {
   }): Promise<boolean> {
     const raw = (args.userInfo ?? args.data ?? {}) as Record<string, unknown>
     if (!isSilentPushPayload(raw)) return false
-    const pingId = String(raw.ritmus_ping_id ?? '')
+    const pingId = String(raw.usergist_ping_id ?? '')
     if (!pingId) return true
     handlers.onSilent?.(pingId)
-    await Ritmus.pushAckSilent(pingId)
+    await UserGist.pushAckSilent(pingId)
     return true
   },
 
@@ -182,19 +182,19 @@ export const Push = {
    */
   async beaconDelivered(deliveryId: string): Promise<void> {
     if (!deliveryId) return
-    await Ritmus.pushBeacon('delivered', deliveryId)
+    await UserGist.pushBeacon('delivered', deliveryId)
   },
 
   /** Beacon: SDK rendered a local notification (Android data-only path). */
   async beaconDisplayed(deliveryId: string): Promise<void> {
     if (!deliveryId) return
-    await Ritmus.pushBeacon('displayed', deliveryId)
+    await UserGist.pushBeacon('displayed', deliveryId)
   },
 
   /** Beacon: user dismissed the notification without opening. */
   async beaconDismissed(deliveryId: string): Promise<void> {
     if (!deliveryId) return
-    await Ritmus.pushBeacon('dismissed', deliveryId)
+    await UserGist.pushBeacon('dismissed', deliveryId)
   },
 
   handleReceived(args: PushHandlerArgs): void {
@@ -208,14 +208,14 @@ export const Push = {
     const msg = parsePushArgs(args)
     if (!msg) return
     emitEvent('$push_displayed', msg)
-    if (msg.deliveryId) void Ritmus.pushBeacon('displayed', msg.deliveryId)
+    if (msg.deliveryId) void UserGist.pushBeacon('displayed', msg.deliveryId)
   },
 
   handleDismissed(args: PushHandlerArgs): void {
     const msg = parsePushArgs(args)
     if (!msg) return
     emitEvent('$push_dismissed', msg)
-    if (msg.deliveryId) void Ritmus.pushBeacon('dismissed', msg.deliveryId)
+    if (msg.deliveryId) void UserGist.pushBeacon('dismissed', msg.deliveryId)
     handlers.onDismiss?.(msg)
   },
 

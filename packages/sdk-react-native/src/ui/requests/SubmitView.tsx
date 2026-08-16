@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Ritmus } from '../../Ritmus.js'
+import { UserGist } from '../../UserGist.js'
 import type { Branding } from './shared.js'
 
 export interface SubmitViewProps {
@@ -40,7 +40,7 @@ export function SubmitView({ branding, onCancel, onPosted }: SubmitViewProps) {
   const handleSubmit = () => {
     if (!canSubmit) return
     setSubmitting(true)
-    Ritmus.submitRequest(trimmedTitle, trimmedDesc, (err, req) => {
+    UserGist.submitRequest(trimmedTitle, trimmedDesc, (err, req) => {
       setSubmitting(false)
       if (err) {
         Alert.alert('Could not submit', err.message)

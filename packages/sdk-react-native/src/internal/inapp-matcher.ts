@@ -2,7 +2,7 @@
 // shape as the feedback + survey matchers; ships without the segment
 // / frequency client-side gates (server is authoritative for v1).
 
-import type { ArmedInAppMessage } from '@ritmus/sdk-core'
+import type { ArmedInAppMessage } from '@usergist/sdk-core'
 import type { InAppRulesCache } from './inapp-rules-cache.js'
 import type { ConsentManager } from './consent.js'
 import type { EventBus } from './events.js'

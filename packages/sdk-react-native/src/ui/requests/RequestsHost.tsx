@@ -4,12 +4,12 @@
  * switches between Board / Detail / Submit views via an internal
  * state machine — NO nested modals.
  *
- * Mounted automatically by <RitmusProvider>; host apps never render
- * this themselves. They open it with `Ritmus.openRequestsBoard()`.
+ * Mounted automatically by <UserGistProvider>; host apps never render
+ * this themselves. They open it with `UserGist.openRequestsBoard()`.
  */
 import React, { useEffect, useState } from 'react'
 import { Modal, SafeAreaView, StatusBar, StyleSheet } from 'react-native'
-import { Ritmus } from '../../Ritmus.js'
+import { UserGist } from '../../UserGist.js'
 import { BoardView } from './BoardView.js'
 import { DetailView } from './DetailView.js'
 import { SubmitView } from './SubmitView.js'
@@ -32,7 +32,7 @@ export function RequestsHost(): React.ReactElement | null {
 
     function attach(): void {
       try {
-        const bus = Ritmus.__internal_events()
+        const bus = UserGist.__internal_events()
         unsubBoard = bus.on('showRequestsBoard', () => {
           setView({ kind: 'board' })
         })

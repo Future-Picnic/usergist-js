@@ -7,9 +7,9 @@ import {
   Text,
   View,
 } from 'react-native'
-import type { ArmedInAppMessage, InAppCta } from '@ritmus/sdk-core'
+import type { ArmedInAppMessage, InAppCta } from '@usergist/sdk-core'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './theme.js'
-import type { PromptTheme } from '@ritmus/sdk-core'
+import type { PromptTheme } from '@usergist/sdk-core'
 
 interface Props {
   readonly message: ArmedInAppMessage | null

@@ -3,7 +3,7 @@
 // flushing. This lets us capture events before the user decides, and then
 // either flush (if granted later) or drop (if reset is called).
 
-import type { Consent } from '@ritmus/sdk-core'
+import type { Consent } from '@usergist/sdk-core'
 import { STORAGE_KEYS, type StorageScope } from './storage.js'
 import { reportError } from './debug.js'
 import type { ConsentState } from './types.js'

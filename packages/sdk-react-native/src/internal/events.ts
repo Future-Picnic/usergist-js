@@ -1,7 +1,7 @@
 // Typed event emitter for public callbacks (onPromptShown/onResponse) and
 // internal UI signals (show/dismiss prompts from the matcher to Provider).
 
-import type { ArmedInAppMessage } from '@ritmus/sdk-core'
+import type { ArmedInAppMessage } from '@usergist/sdk-core'
 import type { ShowPromptPayload, ResponseEmission } from './types.js'
 
 export interface ShowInAppMessagePayload {
@@ -50,7 +50,7 @@ type AnyListener = (payload: unknown) => void
 
 // Events that drive UX (showing a prompt / a survey invite) are buffered
 // until a listener exists. Without this, the matcher could fire on cold
-// launch before <RitmusProvider>'s useEffect mounts and the prompt would
+// launch before <UserGistProvider>'s useEffect mounts and the prompt would
 // be silently lost. Other events (response, promptShown) don't need
 // buffering — they're observational only.
 const BUFFERED_EVENTS: ReadonlyArray<EventName> = [

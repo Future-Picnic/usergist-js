@@ -30,7 +30,7 @@ import type {
   RequestFollow as RequestFollowDto,
   RequestComment as RequestCommentDto,
   GetRequestsResult as RequestsListResponse,
-} from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
 import { reportError, debugLog } from './debug.js'
 
 const MAX_ATTEMPTS = 5

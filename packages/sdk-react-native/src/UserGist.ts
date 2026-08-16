@@ -1,4 +1,4 @@
-// Ritmus — public singleton facade.
+// UserGist — public singleton facade.
 //
 // Philosophy:
 //  - `init()` does NOT perform any I/O. It snapshots config and returns.
@@ -18,12 +18,12 @@ import type {
   SurveyAttemptSource,
   SurveyCampaignWithFlow,
   SurveySummary,
-} from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
 import {
   REQUEST_COMMENTED_EVENT_NAME,
   REQUEST_COMMENT_EDITED_EVENT_NAME,
   REQUEST_COMMENT_DELETED_EVENT_NAME,
-} from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
 import {
   asEventProps,
   clearAllState,
@@ -48,7 +48,7 @@ import type { FrequencyCapManager } from './internal/frequency-cap.js'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './ui/theme.js'
 import { createSurveyStore, type SurveyStore } from './internal/survey-store.js'
 import {
-  RitmusPushNative,
+  UserGistPushNative,
   onTokenReceived,
   onNotificationReceived,
   onNotificationOpened,
@@ -65,7 +65,7 @@ interface SurveyHandlers {
   /**
    * Called when a triggered or scheduled survey becomes available for this
    * user. Host app typically renders an invite (banner/toast) and calls
-   * `Ritmus.openSurvey(surveyId)` to launch the full flow on tap.
+   * `UserGist.openSurvey(surveyId)` to launch the full flow on tap.
    * If no handler is registered, the survey auto-opens — convenient for
    * dev/testing, but you'll likely want a banner UX in production.
    */
@@ -95,7 +95,7 @@ let engine: Engine | null = null
 let surveyStore: SurveyStore | null = null
 let surveyHandlers: SurveyHandlers = {}
 let inAppHandlers: InAppHandlers = {}
-let requestsHandlers: import('@ritmus/sdk-core').RequestsHandlers = {}
+let requestsHandlers: import('@usergist/sdk-core').RequestsHandlers = {}
 let requestsCache: ReturnType<
   typeof import('./internal/requests.js').createRequestsCache
 > | null = null
@@ -112,7 +112,7 @@ function ensureRequestsCache() {
 
 function requireEngine(): Engine {
   if (!engine) {
-    throw new Error('Ritmus.init must be called before using the SDK')
+    throw new Error('UserGist.init must be called before using the SDK')
   }
   return engine
 }
@@ -156,14 +156,14 @@ function attachEnginePushListeners(): void {
   AppState.addEventListener('change', (state) => {
     if (state !== 'active') return
     if (!lastEnablePushOptions) return
-    void Ritmus.enablePush(lastEnablePushOptions).catch(() => undefined)
+    void UserGist.enablePush(lastEnablePushOptions).catch(() => undefined)
   })
 
   onTokenReceived((p) => {
     void (async () => {
       try {
         const platform = (p.platform === 'ios' ? 'ios' : 'android') as 'ios' | 'android'
-        await Ritmus.registerPushToken(p.token, platform, {
+        await UserGist.registerPushToken(p.token, platform, {
           environment: defaultEnvironment(),
         })
       } catch (err) {
@@ -188,14 +188,14 @@ function attachEnginePushListeners(): void {
 function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened'): void {
   const data = p.data ?? {}
   if (p.deliveryId) {
-    ;(data as Record<string, unknown>).ritmus_delivery_id = p.deliveryId
+    ;(data as Record<string, unknown>).usergist_delivery_id = p.deliveryId
   }
   if (Platform.OS === 'ios') {
     const userInfo: Record<string, unknown> = {
       aps: {
         alert: { title: p.title, body: p.body },
       },
-      ritmus: {
+      usergist: {
         deliveryId: p.deliveryId,
       },
     }
@@ -226,11 +226,11 @@ function trackInternal(
   enqueueAndEvaluate(engine, name, props)
 }
 
-export const Ritmus = {
+export const UserGist = {
   init(config: SdkConfig): void {
     try {
       if (engine) {
-        debugLog('Ritmus.init called twice; ignoring')
+        debugLog('UserGist.init called twice; ignoring')
         return
       }
       engine = createEngine(config)
@@ -270,7 +270,7 @@ export const Ritmus = {
           // Re-bind any registered push token to the new user so future
           // sends to this externalId reach the device. Fire-and-forget;
           // it doesn't block the identify call.
-          void Ritmus.rebindPushToken(userId)
+          void UserGist.rebindPushToken(userId)
           await e.transport.identify({
             anonymousId: e.identity.get().anonymousId,
             externalId: userId,
@@ -404,7 +404,7 @@ export const Ritmus = {
    *
    * Example:
    *   import { track as amplitudeTrack } from '@amplitude/analytics-react-native'
-   *   Ritmus.onPushEvent((name, props) => amplitudeTrack(name, props))
+   *   UserGist.onPushEvent((name, props) => amplitudeTrack(name, props))
    *
    * Returns an unsubscribe fn.
    */
@@ -545,12 +545,12 @@ export const Ritmus = {
   },
 
   /** Fetch the per-app channel registry. */
-  async pushFetchChannels(): Promise<ReadonlyArray<import('@ritmus/sdk-core').PushChannelDef>> {
+  async pushFetchChannels(): Promise<ReadonlyArray<import('@usergist/sdk-core').PushChannelDef>> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
       const resp = await e.transport.pushChannelsList()
-      return (resp.channels ?? []) as ReadonlyArray<import('@ritmus/sdk-core').PushChannelDef>
+      return (resp.channels ?? []) as ReadonlyArray<import('@usergist/sdk-core').PushChannelDef>
     } catch (err) {
       reportError('pushFetchChannels failed', err)
       return []
@@ -577,7 +577,7 @@ export const Ritmus = {
   // `enablePush()` is the single high-level entry point — it acquires the
   // OS-level push permission, fetches the platform token (APNs / FCM)
   // through the bundled native module, and registers the token with the
-  // Ritmus API. Token-refresh + foreground/background delivery + tap
+  // UserGist API. Token-refresh + foreground/background delivery + tap
   // callbacks are wired automatically once any of these are called.
   //
   // Consumers do NOT need @react-native-firebase/messaging,
@@ -597,16 +597,16 @@ export const Ritmus = {
       // Snapshot the caller's options so the AppState foreground listener
       // can re-run enablePush idempotently with the same environment.
       lastEnablePushOptions = { environment: opts?.environment }
-      const result = await RitmusPushNative.enablePush(opts ?? {})
+      const result = await UserGistPushNative.enablePush(opts ?? {})
       // Server-side registration runs on the tokenReceived event; if the
       // native module already had a cached token it surfaces here.
       if (result.granted && result.token) {
         const platform = (result.platform === 'ios' ? 'ios' : 'android') as 'ios' | 'android'
-        await Ritmus.registerPushToken(result.token, platform, {
+        await UserGist.registerPushToken(result.token, platform, {
           environment: opts?.environment ?? (defaultEnvironment()),
         })
       }
-      return result as Awaited<ReturnType<typeof Ritmus.enablePush>>
+      return result as Awaited<ReturnType<typeof UserGist.enablePush>>
     } catch (err) {
       reportError('enablePush failed', err)
       return {
@@ -619,7 +619,7 @@ export const Ritmus = {
 
   async disablePush(): Promise<void> {
     try {
-      await RitmusPushNative.disablePush()
+      await UserGistPushNative.disablePush()
     } catch (err) {
       reportError('disablePush failed', err)
     }
@@ -629,7 +629,7 @@ export const Ritmus = {
     'authorized' | 'provisional' | 'denied' | 'not_determined'
   > {
     try {
-      return await RitmusPushNative.getPermissionStatus()
+      return await UserGistPushNative.getPermissionStatus()
     } catch (err) {
       reportError('getPushPermissionStatus failed', err)
       return 'not_determined'
@@ -638,7 +638,7 @@ export const Ritmus = {
 
   async setPushBadgeCount(count: number): Promise<void> {
     try {
-      await RitmusPushNative.setBadgeCount(count)
+      await UserGistPushNative.setBadgeCount(count)
     } catch (err) {
       reportError('setPushBadgeCount failed', err)
     }
@@ -646,7 +646,7 @@ export const Ritmus = {
 
   async getInitialPushNotification(): Promise<NotificationPayload | null> {
     try {
-      return await RitmusPushNative.getInitialNotification()
+      return await UserGistPushNative.getInitialNotification()
     } catch (err) {
       reportError('getInitialPushNotification failed', err)
       return null
@@ -749,7 +749,7 @@ export const Ritmus = {
     }
   },
 
-  // Called by <RitmusProvider>.
+  // Called by <UserGistProvider>.
   __internal_submitResponse(
     response: ResponseEmission,
     triggerEventName: string,
@@ -882,8 +882,8 @@ export const Ritmus = {
   // `feedback` consent purpose. No new consent migration required.
 
   async getRequests(
-    options: import('@ritmus/sdk-core').GetRequestsOptions = {},
-  ): Promise<import('@ritmus/sdk-core').GetRequestsResult> {
+    options: import('@usergist/sdk-core').GetRequestsOptions = {},
+  ): Promise<import('@usergist/sdk-core').GetRequestsResult> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
@@ -929,7 +929,7 @@ export const Ritmus = {
     description: string,
     callback?: (
       err: Error | null,
-      req?: import('@ritmus/sdk-core').Request,
+      req?: import('@usergist/sdk-core').Request,
     ) => void,
   ): void {
     try {
@@ -1062,7 +1062,7 @@ export const Ritmus = {
    */
   async getRequest(
     requestId: string,
-  ): Promise<import('@ritmus/sdk-core').Request | null> {
+  ): Promise<import('@usergist/sdk-core').Request | null> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
@@ -1098,7 +1098,7 @@ export const Ritmus = {
     }
   },
 
-  setRequestsHandlers(handlers: import('@ritmus/sdk-core').RequestsHandlers): void {
+  setRequestsHandlers(handlers: import('@usergist/sdk-core').RequestsHandlers): void {
     requestsHandlers = { ...handlers }
   },
 
@@ -1107,7 +1107,7 @@ export const Ritmus = {
   /** List comments for a request, ordered oldest-first. */
   async getComments(
     requestId: string,
-  ): Promise<ReadonlyArray<import('@ritmus/sdk-core').RequestComment>> {
+  ): Promise<ReadonlyArray<import('@usergist/sdk-core').RequestComment>> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
@@ -1128,7 +1128,7 @@ export const Ritmus = {
   async postComment(
     requestId: string,
     body: string,
-  ): Promise<import('@ritmus/sdk-core').RequestComment | null> {
+  ): Promise<import('@usergist/sdk-core').RequestComment | null> {
     try {
       const e = requireEngine()
       validateCommentBody(body)
@@ -1156,7 +1156,7 @@ export const Ritmus = {
     requestId: string,
     commentId: string,
     body: string,
-  ): Promise<import('@ritmus/sdk-core').RequestComment | null> {
+  ): Promise<import('@usergist/sdk-core').RequestComment | null> {
     try {
       const e = requireEngine()
       validateCommentBody(body)
@@ -1201,4 +1201,4 @@ export const Ritmus = {
   },
 } as const
 
-export type RitmusStatic = typeof Ritmus
+export type UserGistStatic = typeof UserGist

@@ -1,6 +1,6 @@
 import React from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
-import type { ShortTextQuestion as STQ } from '@ritmus/sdk-core'
+import type { ShortTextQuestion as STQ } from '@usergist/sdk-core'
 import type { ResolvedTheme } from '../theme.js'
 import { QuestionImageHeader } from '../QuestionImageHeader.js'
 

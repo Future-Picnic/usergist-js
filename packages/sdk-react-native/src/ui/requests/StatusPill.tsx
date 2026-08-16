@@ -1,6 +1,6 @@
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import type { RequestStatus } from '@ritmus/sdk-core'
+import type { RequestStatus } from '@usergist/sdk-core'
 import { STATUS_COLOR, STATUS_LABEL } from './shared.js'
 
 export interface StatusPillProps {

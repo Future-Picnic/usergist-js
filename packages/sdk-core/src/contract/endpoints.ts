@@ -182,7 +182,7 @@ export interface AppUserSummary {
   readonly lastSeenAt: string
   readonly eventCount?: number
   readonly topProperties?: Readonly<Record<string, string | number | boolean | null>>
-  // Latest device-context fields surfaced from ritmus.events (argMax
+  // Latest device-context fields surfaced from usergist.events (argMax
   // by occurred_at). Useful in the users list + user detail card.
   readonly country?: string | null
   readonly platform?: string | null

@@ -19,16 +19,16 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 
-#if __has_include("RitmusFeedback-Swift.h")
-#import "RitmusFeedback-Swift.h"
+#if __has_include("UserGistFeedback-Swift.h")
+#import "UserGistFeedback-Swift.h"
 #else
-#import <RitmusFeedback/RitmusFeedback-Swift.h>
+#import <UserGistFeedback/UserGistFeedback-Swift.h>
 #endif
 
-@interface RitmusPushSwizzle : NSObject
+@interface UserGistPushSwizzle : NSObject
 @end
 
-@implementation RitmusPushSwizzle
+@implementation UserGistPushSwizzle
 
 + (void)load {
     // The UN setter-swizzle MUST run as early as possible — before
@@ -41,14 +41,14 @@
     // shared UN delegate is available the very first time the setter
     // swizzle fires. Otherwise the first foreign `setDelegate:` call
     // (typically Firebase) would still hit the original setter because
-    // ritmusUNDelegate() returned nil.
-    Class implCls = NSClassFromString(@"RitmusFeedback.RitmusPushImpl");
-    if (!implCls) implCls = NSClassFromString(@"RitmusPushImpl");
+    // usergistUNDelegate() returned nil.
+    Class implCls = NSClassFromString(@"UserGistFeedback.UserGistPushImpl");
+    if (!implCls) implCls = NSClassFromString(@"UserGistPushImpl");
     if (implCls) {
         SEL sharedSel = NSSelectorFromString(@"shared");
         if ([implCls respondsToSelector:sharedSel]) {
             (void)((id (*)(id, SEL))objc_msgSend)(implCls, sharedSel);
-            NSLog(@"[RitmusPush] +load: RitmusPushImpl.shared force-initialized");
+            NSLog(@"[UserGistPush] +load: UserGistPushImpl.shared force-initialized");
         }
     }
 
@@ -57,33 +57,33 @@
     // Defer those to UIApplicationDidFinishLaunchingNotification.
     [[NSNotificationCenter defaultCenter]
         addObserver:self
-           selector:@selector(_ritmusInstallSwizzles:)
+           selector:@selector(_usergistInstallSwizzles:)
                name:UIApplicationDidFinishLaunchingNotification
              object:nil];
 }
 
-+ (void)_ritmusInstallSwizzles:(NSNotification *)note {
++ (void)_usergistInstallSwizzles:(NSNotification *)note {
     [[NSNotificationCenter defaultCenter] removeObserver:self
                                                     name:UIApplicationDidFinishLaunchingNotification
                                                   object:nil];
     Class delegateClass = [[[UIApplication sharedApplication] delegate] class];
     if (!delegateClass) {
-        NSLog(@"[RitmusPush] +load swizzle: no AppDelegate at didFinishLaunching — skipping");
+        NSLog(@"[UserGistPush] +load swizzle: no AppDelegate at didFinishLaunching — skipping");
         return;
     }
-    NSLog(@"[RitmusPush] +load swizzle: target class = %@", NSStringFromClass(delegateClass));
+    NSLog(@"[UserGistPush] +load swizzle: target class = %@", NSStringFromClass(delegateClass));
 
     [self installDidRegister:delegateClass];
     [self installDidFail:delegateClass];
 
-    NSLog(@"[RitmusPush] +load swizzle: complete");
+    NSLog(@"[UserGistPush] +load swizzle: complete");
 }
 
 // Holds whoever the host (or another SDK like FirebaseAnalytics) most
 // recently tried to install as the UNUserNotificationCenter delegate.
-// Read by RitmusUNDelegateSwizzler so it can chain didReceive / willPresent
+// Read by UserGistUNDelegateSwizzler so it can chain didReceive / willPresent
 // to the displaced delegate.
-static id<NSObject> _ritmus_lastForeignDelegate = nil;
+static id<NSObject> _usergist_lastForeignDelegate = nil;
 
 // Swizzle UNUserNotificationCenter.setDelegate: so any code that tries to
 // install its own delegate (FirebaseAnalytics, OneSignal, Notifee, the
@@ -94,52 +94,52 @@ static id<NSObject> _ritmus_lastForeignDelegate = nil;
     SEL setterSel = @selector(setDelegate:);
     Method existing = class_getInstanceMethod(cls, setterSel);
     if (!existing) {
-        NSLog(@"[RitmusPush] setDelegate: not found on UNUserNotificationCenter — skipping");
+        NSLog(@"[UserGistPush] setDelegate: not found on UNUserNotificationCenter — skipping");
         return;
     }
     IMP origImp = method_getImplementation(existing);
     IMP newImp = imp_implementationWithBlock(
         ^(UNUserNotificationCenter *_self, id<NSObject> incoming) {
             // Pull the Swift-side shared delegate via the public Swift class.
-            // RitmusFeedback-Swift.h exposes RitmusPushImpl; we route through
+            // UserGistFeedback-Swift.h exposes UserGistPushImpl; we route through
             // it to install + record the foreign chain target.
-            Class implCls = NSClassFromString(@"RitmusFeedback.RitmusPushImpl");
-            if (!implCls) implCls = NSClassFromString(@"RitmusPushImpl");
+            Class implCls = NSClassFromString(@"UserGistFeedback.UserGistPushImpl");
+            if (!implCls) implCls = NSClassFromString(@"UserGistPushImpl");
             id sharedDelegate = nil;
             if (implCls) {
-                SEL ritmusSharedSel = NSSelectorFromString(@"ritmusUNDelegate");
-                if ([implCls respondsToSelector:ritmusSharedSel]) {
-                    sharedDelegate = ((id (*)(id, SEL))objc_msgSend)(implCls, ritmusSharedSel);
+                SEL usergistSharedSel = NSSelectorFromString(@"usergistUNDelegate");
+                if ([implCls respondsToSelector:usergistSharedSel]) {
+                    sharedDelegate = ((id (*)(id, SEL))objc_msgSend)(implCls, usergistSharedSel);
                 }
             }
             if (incoming && sharedDelegate && incoming != sharedDelegate) {
-                NSLog(@"[RitmusPush] setDelegate: foreign=%@, keeping ours; chain target captured",
+                NSLog(@"[UserGistPush] setDelegate: foreign=%@, keeping ours; chain target captured",
                       NSStringFromClass([incoming class]));
-                _ritmus_lastForeignDelegate = incoming;
+                _usergist_lastForeignDelegate = incoming;
                 ((void (*)(id, SEL, id))origImp)(_self, setterSel, sharedDelegate);
                 return;
             }
             ((void (*)(id, SEL, id))origImp)(_self, setterSel, incoming);
         });
     method_setImplementation(existing, newImp);
-    NSLog(@"[RitmusPush] UN setDelegate swizzle installed");
+    NSLog(@"[UserGistPush] UN setDelegate swizzle installed");
 }
 
 // Exposed to Swift via the bridging header — the Swift swizzler reads this
 // when chaining didReceive / willPresent.
-NSObject *_RitmusGetLastForeignDelegate(void) {
-    return (NSObject *)_ritmus_lastForeignDelegate;
+NSObject *_UserGistGetLastForeignDelegate(void) {
+    return (NSObject *)_usergist_lastForeignDelegate;
 }
 
 + (void)installDidRegister:(Class)cls {
     SEL sel = @selector(application:didRegisterForRemoteNotificationsWithDeviceToken:);
     IMP newImp = imp_implementationWithBlock(^(id _self, UIApplication *app, NSData *deviceToken) {
-        NSLog(@"[RitmusPush] swizzled didRegister fired (token len=%lu)",
+        NSLog(@"[UserGistPush] swizzled didRegister fired (token len=%lu)",
               (unsigned long)deviceToken.length);
-        [[RitmusPushImpl shared] recordTokenWithDeviceToken:deviceToken];
+        [[UserGistPushImpl shared] recordTokenWithDeviceToken:deviceToken];
         // Chain — if the original delegate had its own impl we replaced, the
-        // exchanged IMP lives under sel `_ritmus_orig_didRegister:`.
-        SEL chainSel = NSSelectorFromString(@"_ritmus_orig_application:didRegisterForRemoteNotificationsWithDeviceToken:");
+        // exchanged IMP lives under sel `_usergist_orig_didRegister:`.
+        SEL chainSel = NSSelectorFromString(@"_usergist_orig_application:didRegisterForRemoteNotificationsWithDeviceToken:");
         if ([_self respondsToSelector:chainSel]) {
             ((void (*)(id, SEL, UIApplication *, NSData *))objc_msgSend)(_self, chainSel, app, deviceToken);
         }
@@ -147,7 +147,7 @@ NSObject *_RitmusGetLastForeignDelegate(void) {
     Method existing = class_getInstanceMethod(cls, sel);
     if (existing) {
         // Save the original under a different selector so we can chain.
-        SEL chainSel = NSSelectorFromString(@"_ritmus_orig_application:didRegisterForRemoteNotificationsWithDeviceToken:");
+        SEL chainSel = NSSelectorFromString(@"_usergist_orig_application:didRegisterForRemoteNotificationsWithDeviceToken:");
         class_addMethod(cls, chainSel, method_getImplementation(existing), method_getTypeEncoding(existing));
         method_setImplementation(existing, newImp);
     } else {
@@ -158,16 +158,16 @@ NSObject *_RitmusGetLastForeignDelegate(void) {
 + (void)installDidFail:(Class)cls {
     SEL sel = @selector(application:didFailToRegisterForRemoteNotificationsWithError:);
     IMP newImp = imp_implementationWithBlock(^(id _self, UIApplication *app, NSError *err) {
-        NSLog(@"[RitmusPush] swizzled didFail fired: %@", err.localizedDescription);
-        [[RitmusPushImpl shared] recordTokenErrorWithError:err];
-        SEL chainSel = NSSelectorFromString(@"_ritmus_orig_application:didFailToRegisterForRemoteNotificationsWithError:");
+        NSLog(@"[UserGistPush] swizzled didFail fired: %@", err.localizedDescription);
+        [[UserGistPushImpl shared] recordTokenErrorWithError:err];
+        SEL chainSel = NSSelectorFromString(@"_usergist_orig_application:didFailToRegisterForRemoteNotificationsWithError:");
         if ([_self respondsToSelector:chainSel]) {
             ((void (*)(id, SEL, UIApplication *, NSError *))objc_msgSend)(_self, chainSel, app, err);
         }
     });
     Method existing = class_getInstanceMethod(cls, sel);
     if (existing) {
-        SEL chainSel = NSSelectorFromString(@"_ritmus_orig_application:didFailToRegisterForRemoteNotificationsWithError:");
+        SEL chainSel = NSSelectorFromString(@"_usergist_orig_application:didFailToRegisterForRemoteNotificationsWithError:");
         class_addMethod(cls, chainSel, method_getImplementation(existing), method_getTypeEncoding(existing));
         method_setImplementation(existing, newImp);
     } else {

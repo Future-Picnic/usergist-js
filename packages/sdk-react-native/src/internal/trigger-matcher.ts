@@ -10,8 +10,8 @@
 // Server reconciles asynchronously via ingest — if the client fires the wrong
 // prompt, the server flags it but we don't roll back.
 
-import type { ArmedTrigger } from '@ritmus/sdk-core'
-import { evaluateSerializedSegmentRules } from '@ritmus/sdk-core'
+import type { ArmedTrigger } from '@usergist/sdk-core'
+import { evaluateSerializedSegmentRules } from '@usergist/sdk-core'
 import type { RulesCache } from './rules-cache.js'
 import type { FrequencyCapManager } from './frequency-cap.js'
 import type { UserStateStore } from './user-state.js'
@@ -69,7 +69,7 @@ export function createTriggerMatcher(params: {
     // Fire
     frequencyCaps.recordShown(trigger.promptId)
     const shownAt = Date.now()
-    debugLog('[ritmus:analyze] prompt-show', {
+    debugLog('[usergist:analyze] prompt-show', {
       promptId: trigger.promptId,
       questionsCount: trigger.prompt.questions.length,
       triggerEventName: eventName,

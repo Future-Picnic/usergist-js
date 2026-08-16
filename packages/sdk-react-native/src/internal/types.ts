@@ -2,7 +2,7 @@ import type {
   ArmedTrigger,
   ClientPrompt,
   PromptTheme,
-} from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
 
 export interface ResolvedConfig {
   readonly writeKey: string
@@ -45,7 +45,7 @@ export interface StoredRulesCache {
 }
 
 export interface StoredSurveyRulesCache {
-  readonly surveys: ReadonlyArray<import('@ritmus/sdk-core').ArmedSurvey>
+  readonly surveys: ReadonlyArray<import('@usergist/sdk-core').ArmedSurvey>
   readonly fetchedAt: string
   readonly serverTime: string
   readonly nextSyncMs: number

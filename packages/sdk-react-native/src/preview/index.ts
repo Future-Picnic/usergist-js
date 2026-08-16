@@ -8,7 +8,7 @@
 // same component tree the SDK actually ships.
 //
 // Do NOT add imports from `../internal/`, `../native/`, or
-// `../Ritmus.js` here — keep this surface dependency-light so it
+// `../UserGist.js` here — keep this surface dependency-light so it
 // tree-shakes cleanly into a Next.js bundle.
 
 export { SurveyShell, type SurveyShellProps } from './SurveyShell.js'

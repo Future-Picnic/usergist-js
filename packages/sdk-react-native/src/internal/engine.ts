@@ -1,5 +1,5 @@
 // The engine owns all singleton state and orchestrates the modules.
-// `Ritmus.ts` wraps these functions in a thin, try/catch-guarded public API.
+// `UserGist.ts` wraps these functions in a thin, try/catch-guarded public API.
 
 import type {
   EventPropertyValue,
@@ -7,8 +7,8 @@ import type {
   IngestEvent,
   SdkConfig,
   SubmitResponsePayload,
-} from '@ritmus/sdk-core'
-import { APP_OPEN_EVENT_NAME } from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
+import { APP_OPEN_EVENT_NAME } from '@usergist/sdk-core'
 import {
   STORAGE_KEYS,
   createStorageScope,
@@ -41,7 +41,7 @@ import type {
 import type { ResolvedTheme } from '../ui/theme.js'
 
 const DEFAULTS = {
-  apiUrl: 'https://api.ritmus.studio',
+  apiUrl: 'https://api.usergist.studio',
   environment: 'production' as const,
   flushIntervalMs: 15_000,
   flushBatchSize: 100,
@@ -78,7 +78,7 @@ export interface Engine {
 
 export function resolveConfig(config: SdkConfig): ResolvedConfig {
   if (!config || typeof config.writeKey !== 'string' || config.writeKey.length === 0) {
-    throw new Error('Ritmus.init requires a writeKey')
+    throw new Error('UserGist.init requires a writeKey')
   }
   return {
     writeKey: config.writeKey,
@@ -444,7 +444,7 @@ export async function submitResponse(
     latencyMs: payload.latencyMs,
     triggerEventName,
   })
-  debugLog('[ritmus:analyze] response-submit', {
+  debugLog('[usergist:analyze] response-submit', {
     promptId: payload.promptId,
     answersCount: payload.answers.length,
     dismissed: payload.dismissed,

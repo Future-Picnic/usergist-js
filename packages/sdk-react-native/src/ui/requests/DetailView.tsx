@@ -8,8 +8,8 @@ import {
   Text,
   View,
 } from 'react-native'
-import type { Request as RequestDetailDto } from '@ritmus/sdk-core'
-import { Ritmus } from '../../Ritmus.js'
+import type { Request as RequestDetailDto } from '@usergist/sdk-core'
+import { UserGist } from '../../UserGist.js'
 import { applyOptimisticFollow, applyOptimisticVote, type Branding } from './shared.js'
 import { StatusPill } from './StatusPill.js'
 import { CommentsSection } from './CommentsSection.js'
@@ -30,7 +30,7 @@ export function DetailView({ branding, requestId, onBack }: DetailViewProps) {
     void (async () => {
       setLoading(true)
       try {
-        const r = await Ritmus.getRequest(requestId)
+        const r = await UserGist.getRequest(requestId)
         if (!cancelled) setData(r)
       } finally {
         if (!cancelled) setLoading(false)
@@ -47,7 +47,7 @@ export function DetailView({ branding, requestId, onBack }: DetailViewProps) {
     const next = !data.viewerHasUpvoted
     setData(applyOptimisticVote(data, next))
     try {
-      await Ritmus.voteOnRequest(data.id, next)
+      await UserGist.voteOnRequest(data.id, next)
     } catch (e) {
       setData(before)
       Alert.alert('Vote failed', String(e))
@@ -60,7 +60,7 @@ export function DetailView({ branding, requestId, onBack }: DetailViewProps) {
     const next = !data.viewerIsFollowing
     setData(applyOptimisticFollow(data, next))
     try {
-      await Ritmus.followRequest(data.id, next)
+      await UserGist.followRequest(data.id, next)
     } catch (e) {
       setData(before)
       Alert.alert('Follow failed', String(e))

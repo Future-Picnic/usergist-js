@@ -4,7 +4,7 @@
 
 import { createStorageScope, type StorageScope } from './storage.js'
 import { reportError } from './debug.js'
-import type { SurveyAnswerRecord } from '@ritmus/sdk-core'
+import type { SurveyAnswerRecord } from '@usergist/sdk-core'
 
 const PENDING_KEY = 'surveys:pending'
 

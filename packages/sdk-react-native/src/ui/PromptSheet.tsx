@@ -21,7 +21,7 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { Question } from '@ritmus/sdk-core'
+import type { Question } from '@usergist/sdk-core'
 import type { ShowPromptPayload, ResponseEmission } from '../internal/types.js'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './theme.js'
 import { animateIn, animateOut } from './animations.js'

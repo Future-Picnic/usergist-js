@@ -1,7 +1,7 @@
 // Default theme + merge helper. Returns a fully-resolved theme that the
 // bottom sheet & question components can consume without null-checks.
 
-import type { PromptTheme } from '@ritmus/sdk-core'
+import type { PromptTheme } from '@usergist/sdk-core'
 
 export interface ResolvedTheme {
   readonly colors: {

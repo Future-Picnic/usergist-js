@@ -8,8 +8,8 @@
  */
 
 export interface SilentPushPayload {
-  readonly ritmus_silent: '1'
-  readonly ritmus_ping_id: string
+  readonly usergist_silent: '1'
+  readonly usergist_ping_id: string
 }
 
 export type AndroidImportance = 0 | 1 | 2 | 3 | 4
@@ -95,5 +95,5 @@ export function isSilentPushPayload(
   raw: Record<string, unknown> | null | undefined,
 ): boolean {
   if (!raw) return false
-  return raw.ritmus_silent === '1' && typeof raw.ritmus_ping_id === 'string'
+  return raw.usergist_silent === '1' && typeof raw.usergist_ping_id === 'string'
 }

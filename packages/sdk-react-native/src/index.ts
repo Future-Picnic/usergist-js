@@ -1,8 +1,8 @@
-export { Ritmus } from './Ritmus.js'
-export type { RitmusStatic } from './Ritmus.js'
-export { RitmusProvider } from './Provider.js'
+export { UserGist } from './UserGist.js'
+export type { UserGistStatic } from './UserGist.js'
+export { UserGistProvider } from './Provider.js'
 export { Push, parseFcmData, parseIosPayload } from './Push.js'
-export type { PushPermissionStatus, RitmusPushMessage, PushHandlers } from './Push.js'
+export type { PushPermissionStatus, UserGistPushMessage, PushHandlers } from './Push.js'
 // Phase 7 — self-contained native push (no Firebase RN package required).
 export type {
   EnablePushOptions,
@@ -22,4 +22,4 @@ export type {
   ClientPrompt,
   ArmedTrigger,
   FrequencyCaps,
-} from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'

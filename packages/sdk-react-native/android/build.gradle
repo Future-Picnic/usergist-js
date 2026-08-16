@@ -1,7 +1,7 @@
-// Android build module for @ritmus/feedback-react-native.
+// Android build module for @usergist/feedback-react-native.
 //
 // What this module owns:
-//   - The native Kotlin React Native module (RitmusPushModule)
+//   - The native Kotlin React Native module (UserGistPushModule)
 //   - A FirebaseMessagingService subclass that auto-registers via the
 //     library's AndroidManifest (manifest-merger merges it into the host).
 //   - A transitive dep on com.google.firebase:firebase-messaging so the
@@ -12,7 +12,7 @@
 
 buildscript {
   ext.getExtOrDefault = { name ->
-    return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties["RitmusPush_" + name]
+    return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties["UserGistPush_" + name]
   }
 
   repositories {
@@ -38,7 +38,7 @@ if (isNewArchitectureEnabled()) {
 }
 
 android {
-  namespace "studio.ritmus.feedback"
+  namespace "studio.usergist.feedback"
   compileSdkVersion getExtOrDefault('compileSdkVersion')?.toInteger() ?: 34
   buildToolsVersion getExtOrDefault('buildToolsVersion') ?: '34.0.0'
 

@@ -1,5 +1,5 @@
 /**
- * @ritmus/sdk-core — shared types, contract, and evaluators for the Ritmus
+ * @usergist/sdk-core — shared types, contract, and evaluators for the userGist
  * mobile-engagement platform. Consumed by the API server, the dashboard, and
  * every native SDK (RN/iOS/Android/Flutter).
  *

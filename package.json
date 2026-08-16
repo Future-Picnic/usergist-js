@@ -1,8 +1,8 @@
 {
-  "name": "ritmus-feedback",
+  "name": "usergist-feedback",
   "version": "0.1.0",
   "private": true,
-  "description": "Ritmus mobile engagement tool — feedback pillar v1",
+  "description": "userGist mobile engagement tool — feedback pillar v1",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -10,14 +10,14 @@
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "dev:terminals": "./scripts/run-dev-terminals.sh",
-    "dev:api": "pnpm --filter @ritmus/api dev",
-    "dev:dashboard": "pnpm --filter @ritmus/dashboard dev",
-    "dev:landing": "pnpm --filter @ritmus/landing dev",
+    "dev:api": "pnpm --filter @usergist/api dev",
+    "dev:dashboard": "pnpm --filter @usergist/dashboard dev",
+    "dev:landing": "pnpm --filter @usergist/landing dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "db:migrate": "pnpm --filter @ritmus/api db:migrate",
-    "db:seed": "pnpm --filter @ritmus/api db:seed",
+    "db:migrate": "pnpm --filter @usergist/api db:migrate",
+    "db:seed": "pnpm --filter @usergist/api db:seed",
     "parity": "tsx tools/check-parity.ts"
   },
   "packageManager": "pnpm@9.0.0",

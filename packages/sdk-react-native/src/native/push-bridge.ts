@@ -1,26 +1,26 @@
-// Runtime bridge to the Ritmus native push module.
+// Runtime bridge to the UserGist native push module.
 //
 // Strategy:
 //   1. Try TurboModuleRegistry first (new architecture). If available, use it.
-//   2. Fallback to legacy `NativeModules.RitmusPush`.
+//   2. Fallback to legacy `NativeModules.UserGistPush`.
 //   3. If neither is present (e.g., autolinking didn't run, or the consumer
 //      is on Expo Go), expose a stub that resolves to `{ granted: false,
 //      status: 'denied' }` so JS-side code never crashes — host devs see a
 //      clear console warning explaining what to do.
 
 import { NativeEventEmitter, NativeModules, Platform } from 'react-native'
-import type { Spec, EnablePushOptions, EnablePushResult, PushPermissionStatus } from '../NativeRitmusPush.js'
-import TurboModule from '../NativeRitmusPush.js'
+import type { Spec, EnablePushOptions, EnablePushResult, PushPermissionStatus } from '../NativeUserGistPush.js'
+import TurboModule from '../NativeUserGistPush.js'
 import {
-  RITMUS_PUSH_EVENTS,
+  USERGIST_PUSH_EVENTS,
   type NotificationPayload,
-  type RitmusPushEventName,
+  type UserGistPushEventName,
   type TokenErrorPayload,
   type TokenReceivedPayload,
 } from './events.js'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const LegacyModule: Spec | undefined = (NativeModules as any).RitmusPush
+const LegacyModule: Spec | undefined = (NativeModules as any).UserGistPush
 
 const Module: Spec | null = TurboModule ?? LegacyModule ?? null
 
@@ -30,7 +30,7 @@ function warnMissing(): void {
   warned = true
   // eslint-disable-next-line no-console
   console.warn(
-    '[ritmus] Native push module not found. Make sure @ritmus/feedback-react-native is installed and rebuild the app (`pod install` for iOS, rebuild for Android). Push acquisition is disabled until then.',
+    '[usergist] Native push module not found. Make sure @usergist/feedback-react-native is installed and rebuild the app (`pod install` for iOS, rebuild for Android). Push acquisition is disabled until then.',
   )
 }
 
@@ -40,7 +40,7 @@ const STUB_RESULT: EnablePushResult = {
   platform: Platform.OS === 'ios' ? 'ios' : 'android',
 }
 
-export const RitmusPushNative = {
+export const UserGistPushNative = {
   isAvailable(): boolean {
     return Module != null
   },
@@ -99,7 +99,7 @@ export interface PushEventSubscription {
 }
 
 export function onPushEvent<T = unknown>(
-  name: RitmusPushEventName,
+  name: UserGistPushEventName,
   cb: (payload: T) => void,
 ): PushEventSubscription {
   const e = getEmitter()
@@ -108,15 +108,15 @@ export function onPushEvent<T = unknown>(
   return { remove: () => sub.remove() }
 }
 
-// Typed convenience wrappers — use these from Ritmus.ts so the payload
+// Typed convenience wrappers — use these from UserGist.ts so the payload
 // shapes are compile-checked at call sites.
 export const onTokenReceived = (cb: (p: TokenReceivedPayload) => void) =>
-  onPushEvent<TokenReceivedPayload>(RITMUS_PUSH_EVENTS.TOKEN_RECEIVED, cb)
+  onPushEvent<TokenReceivedPayload>(USERGIST_PUSH_EVENTS.TOKEN_RECEIVED, cb)
 export const onTokenError = (cb: (p: TokenErrorPayload) => void) =>
-  onPushEvent<TokenErrorPayload>(RITMUS_PUSH_EVENTS.TOKEN_ERROR, cb)
+  onPushEvent<TokenErrorPayload>(USERGIST_PUSH_EVENTS.TOKEN_ERROR, cb)
 export const onNotificationReceived = (cb: (p: NotificationPayload) => void) =>
-  onPushEvent<NotificationPayload>(RITMUS_PUSH_EVENTS.NOTIFICATION_RECEIVED, cb)
+  onPushEvent<NotificationPayload>(USERGIST_PUSH_EVENTS.NOTIFICATION_RECEIVED, cb)
 export const onNotificationOpened = (cb: (p: NotificationPayload) => void) =>
-  onPushEvent<NotificationPayload>(RITMUS_PUSH_EVENTS.NOTIFICATION_OPENED, cb)
+  onPushEvent<NotificationPayload>(USERGIST_PUSH_EVENTS.NOTIFICATION_OPENED, cb)
 
 export type { EnablePushOptions, EnablePushResult, PushPermissionStatus }

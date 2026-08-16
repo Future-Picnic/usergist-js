@@ -75,7 +75,7 @@ export interface StorageScope {
 }
 
 export function createStorageScope(writeKey: string): StorageScope {
-  const prefix = `@ritmus/${hashKey(writeKey)}/`
+  const prefix = `@usergist/${hashKey(writeKey)}/`
   const key = (suffix: string): string => `${prefix}${suffix}`
   return {
     key,

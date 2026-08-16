@@ -1,8 +1,8 @@
-// <RitmusProvider> — mounts host views that listen for internal showPrompt /
+// <UserGistProvider> — mounts host views that listen for internal showPrompt /
 // showSurvey events and render the appropriate modal.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Ritmus } from './Ritmus.js'
+import { UserGist } from './UserGist.js'
 import { PromptSheet } from './ui/PromptSheet.js'
 import { SurveyView } from './ui/SurveyView.js'
 import { InAppMessageView } from './ui/InAppMessageView.js'
@@ -15,13 +15,13 @@ import type {
   SurveyAnswerRecord,
   SurveyAttemptSource,
   SurveyCampaignWithFlow,
-} from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
 import {
   INAPP_AUTO_DISMISSED_EVENT_NAME,
   INAPP_CTA_CLICKED_EVENT_NAME,
   INAPP_DISMISSED_EVENT_NAME,
   INAPP_SHOWN_EVENT_NAME,
-} from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
 
 function safeInAppHandlers(): {
   onShow?: (messageId: string) => void
@@ -35,7 +35,7 @@ function safeInAppHandlers(): {
   }) => void
 } {
   try {
-    return Ritmus.__internal_inAppHandlers()
+    return UserGist.__internal_inAppHandlers()
   } catch {
     return {}
   }
@@ -46,7 +46,7 @@ function safeTrack(
   props?: Record<string, EventPropertyValue>,
 ): void {
   try {
-    Ritmus.track(event, props)
+    UserGist.track(event, props)
   } catch {
     // best-effort — never throw out of a UI side-effect
   }
@@ -64,7 +64,7 @@ interface SurveyState {
   readonly initialSnapshot: SurveyAnswerRecord
 }
 
-export function RitmusProvider({ children }: Props): React.ReactElement {
+export function UserGistProvider({ children }: Props): React.ReactElement {
   const [payload, setPayload] = useState<ShowPromptPayload | null>(null)
   const currentRef = useRef<ShowPromptPayload | null>(null)
 
@@ -80,7 +80,7 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     function attach(): void {
       try {
-        const bus = Ritmus.__internal_events()
+        const bus = UserGist.__internal_events()
         unsubShow = bus.on('showPrompt', (p) => {
           currentRef.current = p
           setPayload(p)
@@ -104,7 +104,7 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
           // auto-open — convenient for dev, sensible default for simple apps.
           const handlers = (() => {
             try {
-              return Ritmus.__internal_surveyHandlers()
+              return UserGist.__internal_surveyHandlers()
             } catch {
               return {}
             }
@@ -142,10 +142,10 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
         // it instead of round-tripping to the server. Falls back to
         // a fetch for offer-ledger / on-demand opens that arrive
         // through the polling path.
-        const cached = Ritmus.__internal_armedSurveyById(surveyId)
-        const survey = cached ?? (await Ritmus.__internal_fetchSurvey(surveyId))
+        const cached = UserGist.__internal_armedSurveyById(surveyId)
+        const survey = cached ?? (await UserGist.__internal_fetchSurvey(surveyId))
         if (!survey) return
-        const attempt = await Ritmus.__internal_createAttempt(surveyId, source)
+        const attempt = await UserGist.__internal_createAttempt(surveyId, source)
         if (!attempt) return
         setSurveyState({
           survey,
@@ -166,7 +166,7 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
     currentRef.current = null
     setPayload(null)
     if (p) {
-      void Ritmus.__internal_submitResponse(r, p.triggerEventName)
+      void UserGist.__internal_submitResponse(r, p.triggerEventName)
     }
   }
 
@@ -175,7 +175,7 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
     currentRef.current = null
     setPayload(null)
     if (p) {
-      void Ritmus.__internal_submitResponse(r, p.triggerEventName)
+      void UserGist.__internal_submitResponse(r, p.triggerEventName)
     }
   }
 
@@ -214,7 +214,7 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
 
   const themeOverride = (() => {
     try {
-      return Ritmus.__internal_theme()
+      return UserGist.__internal_theme()
     } catch {
       return null
     }
@@ -222,7 +222,7 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
 
   const surveyHandlers = (() => {
     try {
-      return Ritmus.__internal_surveyHandlers()
+      return UserGist.__internal_surveyHandlers()
     } catch {
       return {}
     }
@@ -245,13 +245,13 @@ export function RitmusProvider({ children }: Props): React.ReactElement {
         source={surveyState?.source ?? 'on_demand'}
         themeOverride={themeOverride}
         onSaveProgress={(attemptId, qid, snap) =>
-          Ritmus.__internal_saveProgress(attemptId, qid, snap)
+          UserGist.__internal_saveProgress(attemptId, qid, snap)
         }
         onSubmitAnswers={(attemptId, answers) =>
-          Ritmus.__internal_submitAnswers(attemptId, answers)
+          UserGist.__internal_submitAnswers(attemptId, answers)
         }
-        onCompleteAttempt={(attemptId) => Ritmus.__internal_completeAttempt(attemptId)}
-        onAbandonAttempt={(attemptId) => Ritmus.__internal_abandonAttempt(attemptId)}
+        onCompleteAttempt={(attemptId) => UserGist.__internal_completeAttempt(attemptId)}
+        onAbandonAttempt={(attemptId) => UserGist.__internal_abandonAttempt(attemptId)}
         onDismissRequest={() => setSurveyState(null)}
         onShow={(sid) => surveyHandlers.onShow?.(sid)}
         onComplete={(sid, aid) => {

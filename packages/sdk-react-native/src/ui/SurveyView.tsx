@@ -30,8 +30,8 @@ import type {
   SurveyEndScreen,
   SurveyQuestion,
   SurveyAttemptSource,
-} from '@ritmus/sdk-core'
-import { estimateProgress, nextQuestionId } from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
+import { estimateProgress, nextQuestionId } from '@usergist/sdk-core'
 import type { ResolvedTheme } from './theme.js'
 import { DEFAULT_THEME, mergeTheme } from './theme.js'
 import { RatingQuestion } from './questions/RatingQuestion.js'

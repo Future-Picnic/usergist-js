@@ -23,8 +23,8 @@ import type {
   SurveyCampaignWithFlow,
   SurveyEndScreen,
   SurveyQuestion,
-} from '@ritmus/sdk-core'
-import { estimateProgress, nextQuestionId } from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
+import { estimateProgress, nextQuestionId } from '@usergist/sdk-core'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from '../ui/theme.js'
 import { RatingQuestion } from '../ui/questions/RatingQuestion.js'
 import { NpsQuestion } from '../ui/questions/NpsQuestion.js'

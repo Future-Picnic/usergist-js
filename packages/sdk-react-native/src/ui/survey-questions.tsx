@@ -12,7 +12,7 @@ import type {
   SingleChoiceQuestion as SCQ,
   SingleDateQuestion as SDQ,
   SurveyAnswerValue,
-} from '@ritmus/sdk-core'
+} from '@usergist/sdk-core'
 import type { ResolvedTheme } from './theme.js'
 import { QuestionImageHeader } from './QuestionImageHeader.js'
 

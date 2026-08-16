@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 import UserNotifications
 
-/// Self-contained iOS push handler for `@ritmus/feedback-react-native`.
+/// Self-contained iOS push handler for `@usergist/feedback-react-native`.
 ///
 /// Owns:
 ///   1. UNUserNotificationCenter authorization + APNs registration.
@@ -13,15 +13,15 @@ import UserNotifications
 ///   4. Forwarding every signal (`tokenReceived`, `notificationReceived`,
 ///      `notificationOpened`, `tokenError`) to the JS bridge.
 ///
-/// `RitmusPushImpl` is a singleton. The Obj-C `RitmusPush` class binds an
+/// `UserGistPushImpl` is a singleton. The Obj-C `UserGistPush` class binds an
 /// `RCTEventEmitter` reference at module-init time so the Swift side can
 /// emit events without owning the RN bridge type.
-@objc(RitmusPushImpl)
-public final class RitmusPushImpl: NSObject {
+@objc(UserGistPushImpl)
+public final class UserGistPushImpl: NSObject {
 
   // MARK: - Singleton
 
-  @objc public static let shared = RitmusPushImpl()
+  @objc public static let shared = UserGistPushImpl()
 
   private weak var emitter: AnyObject?
   private var hasJsListeners: Bool = false
@@ -41,22 +41,22 @@ public final class RitmusPushImpl: NSObject {
   private override init() {
     super.init()
     // AppDelegate APNs swizzle is installed from Obj-C +load (see
-    // RitmusPushSwizzle.m) so it's in place BEFORE any push registration
+    // UserGistPushSwizzle.m) so it's in place BEFORE any push registration
     // cycle. UNUserNotificationCenter delegate swizzle stays here since
     // it only matters once notifications start arriving.
     Self.installUNDelegateSwizzleIfNeeded()
   }
 
-  /// Exposed to Obj-C so RitmusPushSwizzle.m's setDelegate: interceptor
+  /// Exposed to Obj-C so UserGistPushSwizzle.m's setDelegate: interceptor
   /// can fetch the shared UN delegate and reinstall it whenever some
   /// other SDK (FirebaseAnalytics, OneSignal, etc.) tries to take over.
-  @objc public static func ritmusUNDelegate() -> AnyObject {
-    return RitmusUNDelegateSwizzler.sharedDelegateAccessor
+  @objc public static func usergistUNDelegate() -> AnyObject {
+    return UserGistUNDelegateSwizzler.sharedDelegateAccessor
   }
 
   // MARK: - Bridge wiring
 
-  /// Called by `RitmusPush.mm -init`. Swift never imports React-Core, so we
+  /// Called by `UserGistPush.mm -init`. Swift never imports React-Core, so we
   /// take an opaque reference and reflect back through `@objc selector`s.
   @objc public func bindEmitter(_ emitter: AnyObject) {
     self.emitter = emitter
@@ -69,16 +69,16 @@ public final class RitmusPushImpl: NSObject {
     }
   }
 
-  // MARK: - Exported (called from RitmusPush.mm)
+  // MARK: - Exported (called from UserGistPush.mm)
 
   @objc public func enablePush(options: [String: Any],
                                 resolver: @escaping (Any?) -> Void,
                                 rejecter: @escaping (String, String, Error?) -> Void) {
-    NSLog("[RitmusPush] enablePush called")
+    NSLog("[UserGistPush] enablePush called")
     UNUserNotificationCenter.current().requestAuthorization(
       options: [.alert, .badge, .sound, .providesAppNotificationSettings]
     ) { [weak self] granted, error in
-      NSLog("[RitmusPush] requestAuthorization callback granted=\(granted) error=\(String(describing: error))")
+      NSLog("[UserGistPush] requestAuthorization callback granted=\(granted) error=\(String(describing: error))")
       if let error = error {
         rejecter("auth_error", error.localizedDescription, error)
         return
@@ -86,7 +86,7 @@ public final class RitmusPushImpl: NSObject {
       let status: String = granted ? "authorized" : "denied"
       DispatchQueue.main.async {
         if granted {
-          NSLog("[RitmusPush] calling UIApplication.registerForRemoteNotifications")
+          NSLog("[UserGistPush] calling UIApplication.registerForRemoteNotifications")
           UIApplication.shared.registerForRemoteNotifications()
         }
         // Token arrives asynchronously via the swizzled
@@ -159,20 +159,20 @@ public final class RitmusPushImpl: NSObject {
 
   @objc public func recordToken(deviceToken: Data) {
     let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
-    NSLog("[RitmusPush] APNs token received (\(hex.count) hex chars) — emitting tokenReceived")
+    NSLog("[UserGistPush] APNs token received (\(hex.count) hex chars) — emitting tokenReceived")
     lastApnsTokenHex = hex
-    emit(name: "RitmusPush:tokenReceived", body: ["token": hex, "platform": "ios"])
+    emit(name: "UserGistPush:tokenReceived", body: ["token": hex, "platform": "ios"])
   }
 
   @objc public func recordTokenError(error: Error) {
-    NSLog("[RitmusPush] APNs registration FAILED: \(error.localizedDescription)")
-    emit(name: "RitmusPush:tokenError",
+    NSLog("[UserGistPush] APNs registration FAILED: \(error.localizedDescription)")
+    emit(name: "UserGistPush:tokenError",
          body: ["error": error.localizedDescription])
   }
 
   func recordNotificationReceived(userInfo: [AnyHashable: Any]) {
     let normalized = normalizeUserInfo(userInfo)
-    emit(name: "RitmusPush:notificationReceived", body: normalized)
+    emit(name: "UserGistPush:notificationReceived", body: normalized)
   }
 
   func recordNotificationOpened(userInfo: [AnyHashable: Any], actionIdentifier: String?) {
@@ -184,18 +184,18 @@ public final class RitmusPushImpl: NSObject {
       // First open captured — surface via getInitialNotification.
       initialNotification = body
     }
-    emit(name: "RitmusPush:notificationOpened", body: body)
+    emit(name: "UserGistPush:notificationOpened", body: body)
   }
 
   // MARK: - Internal — emit + normalize
 
   private func emit(name: String, body: [String: Any]) {
     guard hasJsListeners else {
-      NSLog("[RitmusPush] emit BUFFER \(name) — JS not listening yet (pending=\(pendingEvents.count + 1))")
+      NSLog("[UserGistPush] emit BUFFER \(name) — JS not listening yet (pending=\(pendingEvents.count + 1))")
       pendingEvents.append((name, body))
       return
     }
-    NSLog("[RitmusPush] emit SEND \(name)")
+    NSLog("[UserGistPush] emit SEND \(name)")
     sendToEmitter(name: name, body: body)
   }
 
@@ -237,20 +237,20 @@ public final class RitmusPushImpl: NSObject {
     }
     out["data"] = data
     // delivery_id can land in three places depending on payload shape:
-    //   1. flat   data["ritmus_delivery_id"]   — FCM data-only path
+    //   1. flat   data["usergist_delivery_id"]   — FCM data-only path
     //   2. flat   data["delivery_id"]          — legacy / generic path
-    //   3. nested data["ritmus"]["deliveryId"] — current APNs payload
+    //   3. nested data["usergist"]["deliveryId"] — current APNs payload
     // Without fallback (3), iOS opens land with deliveryId=nil and the
     // server-side patcher early-returns → opened_at never updates.
-    let nestedRitmus = data["ritmus"] as? [String: Any]
+    let nestedUserGist = data["usergist"] as? [String: Any]
     if let deliveryId =
       (data["delivery_id"] as? String)
-      ?? (data["ritmus_delivery_id"] as? String)
-      ?? (nestedRitmus?["deliveryId"] as? String)
+      ?? (data["usergist_delivery_id"] as? String)
+      ?? (nestedUserGist?["deliveryId"] as? String)
     {
       out["deliveryId"] = deliveryId
     }
-    if let actionId = nestedRitmus?["actionIdentifier"] as? String {
+    if let actionId = nestedUserGist?["actionIdentifier"] as? String {
       // Carry a server-set action id through if present (none today, future-proof).
       out["actionIdentifier"] = actionId
     }
@@ -267,7 +267,7 @@ public final class RitmusPushImpl: NSObject {
     // Install synchronously — at +load time we're on the main thread and
     // Firebase's setDelegate call runs synchronously on main. Deferring
     // via DispatchQueue.main.async would let Firebase's call land first.
-    RitmusUNDelegateSwizzler.install()
+    UserGistUNDelegateSwizzler.install()
     // Re-install whenever the app foregrounds. Belt-and-braces against
     // any SDK that re-takes the delegate while the app is backgrounded.
     NotificationCenter.default.addObserver(
@@ -275,24 +275,24 @@ public final class RitmusPushImpl: NSObject {
       object: nil,
       queue: .main,
     ) { _ in
-      RitmusUNDelegateSwizzler.reinstallIfHijacked()
+      UserGistUNDelegateSwizzler.reinstallIfHijacked()
     }
   }
 }
 
 // MARK: - AppDelegate swizzler (APNs token capture)
 
-// AppDelegate APNs swizzle has moved to RitmusPushSwizzle.m (pure Obj-C,
+// AppDelegate APNs swizzle has moved to UserGistPushSwizzle.m (pure Obj-C,
 // installed via +load + UIApplicationDidFinishLaunchingNotification so it
 // lands before any iOS push registration cycle). The Obj-C bridge calls
-// `[RitmusPushImpl.shared recordTokenWithDeviceToken:]` /
+// `[UserGistPushImpl.shared recordTokenWithDeviceToken:]` /
 // `recordTokenErrorWithError:` from the swizzled IMP.
 
 // MARK: - UNUserNotificationCenterDelegate swizzler (foreground + open)
 
-@objc private final class RitmusUNDelegateSwizzler: NSObject, UNUserNotificationCenterDelegate {
+@objc private final class UserGistUNDelegateSwizzler: NSObject, UNUserNotificationCenterDelegate {
 
-  fileprivate static let sharedDelegate = RitmusUNDelegateSwizzler()
+  fileprivate static let sharedDelegate = UserGistUNDelegateSwizzler()
   /// Public access to the shared instance for the Obj-C swizzle bridge.
   @objc fileprivate static var sharedDelegateAccessor: AnyObject { return sharedDelegate }
   private weak var existingDelegate: UNUserNotificationCenterDelegate?
@@ -303,7 +303,7 @@ public final class RitmusPushImpl: NSObject {
       sharedDelegate.existingDelegate = existing
     }
     center.delegate = sharedDelegate
-    NSLog("[RitmusPush] UN delegate installed (chained=\(sharedDelegate.existingDelegate != nil))")
+    NSLog("[UserGistPush] UN delegate installed (chained=\(sharedDelegate.existingDelegate != nil))")
   }
 
   /// Re-install if some other SDK has stolen the delegate since we last set it.
@@ -311,7 +311,7 @@ public final class RitmusPushImpl: NSObject {
   fileprivate static func reinstallIfHijacked() {
     let center = UNUserNotificationCenter.current()
     guard center.delegate !== sharedDelegate else { return }
-    NSLog("[RitmusPush] delegate hijacked by \(String(describing: type(of: center.delegate))) — reinstalling")
+    NSLog("[UserGistPush] delegate hijacked by \(String(describing: type(of: center.delegate))) — reinstalling")
     if let existing = center.delegate, existing !== sharedDelegate {
       sharedDelegate.existingDelegate = existing
     }
@@ -323,7 +323,7 @@ public final class RitmusPushImpl: NSObject {
   /// OneSignal / etc. that install AFTER our swizzle ran), fall back to
   /// whatever was on the center when our swizzle first installed.
   private func chainTarget() -> UNUserNotificationCenterDelegate? {
-    if let foreign = _RitmusGetLastForeignDelegate() as? UNUserNotificationCenterDelegate,
+    if let foreign = _UserGistGetLastForeignDelegate() as? UNUserNotificationCenterDelegate,
        foreign !== self {
       return foreign
     }
@@ -334,7 +334,7 @@ public final class RitmusPushImpl: NSObject {
   func userNotificationCenter(_ center: UNUserNotificationCenter,
                               willPresent notification: UNNotification,
                               withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-    RitmusPushImpl.shared.recordNotificationReceived(userInfo: notification.request.content.userInfo)
+    UserGistPushImpl.shared.recordNotificationReceived(userInfo: notification.request.content.userInfo)
     if let existing = chainTarget(),
        existing.responds(to: #selector(UNUserNotificationCenterDelegate.userNotificationCenter(_:willPresent:withCompletionHandler:))) {
       existing.userNotificationCenter?(center, willPresent: notification, withCompletionHandler: completionHandler)
@@ -351,7 +351,7 @@ public final class RitmusPushImpl: NSObject {
   func userNotificationCenter(_ center: UNUserNotificationCenter,
                               didReceive response: UNNotificationResponse,
                               withCompletionHandler completionHandler: @escaping () -> Void) {
-    RitmusPushImpl.shared.recordNotificationOpened(
+    UserGistPushImpl.shared.recordNotificationOpened(
       userInfo: response.notification.request.content.userInfo,
       actionIdentifier: response.actionIdentifier
     )

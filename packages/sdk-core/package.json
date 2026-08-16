@@ -1,7 +1,7 @@
 {
-  "name": "@ritmus/sdk-core",
+  "name": "@usergist/sdk-core",
   "version": "0.1.0",
-  "description": "Shared types and utilities across the Ritmus feedback platform",
+  "description": "Shared types and utilities across the userGist feedback platform",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

@@ -1,4 +1,4 @@
-package studio.ritmus.feedback
+package studio.usergist.feedback
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -27,21 +27,21 @@ import com.google.firebase.messaging.RemoteMessage
  * If the host app already declares its own FirebaseMessagingService for
  * another push provider, manifest-merger will keep both entries; the OS
  * delivers the message to the highest-priority one (typically: most
- * recently installed). Apps adopting Ritmus as their sole push provider
+ * recently installed). Apps adopting UserGist as their sole push provider
  * should remove their existing service declaration in their own manifest.
  */
-class RitmusFirebaseMessagingService : FirebaseMessagingService() {
+class UserGistFirebaseMessagingService : FirebaseMessagingService() {
 
   override fun onNewToken(token: String) {
     super.onNewToken(token)
-    RitmusPushEventBus.emitToken(token)
+    UserGistPushEventBus.emitToken(token)
   }
 
   override fun onMessageReceived(remoteMessage: RemoteMessage) {
     super.onMessageReceived(remoteMessage)
 
     val payload = normalize(remoteMessage)
-    RitmusPushEventBus.emitNotificationReceived(payload)
+    UserGistPushEventBus.emitNotificationReceived(payload)
 
     // Surface a system notification when the user-visible content is set.
     // Background / killed-state delivery on Android requires explicit
@@ -60,9 +60,9 @@ class RitmusFirebaseMessagingService : FirebaseMessagingService() {
     val channelId = ensureChannel(this)
     val launchIntent = packageManager?.getLaunchIntentForPackage(packageName)?.apply {
       flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-      // Forward delivery_id + ritmus_delivery_id so when the user taps and
+      // Forward delivery_id + usergist_delivery_id so when the user taps and
       // the app launches we can fire `$push_opened` with the right id.
-      data.forEach { (k, v) -> putExtra("ritmus_$k", v) }
+      data.forEach { (k, v) -> putExtra("usergist_$k", v) }
     }
     val pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT or
       (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
@@ -107,12 +107,12 @@ class RitmusFirebaseMessagingService : FirebaseMessagingService() {
       data.putString(k, v)
     }
     out.putMap("data", data)
-    val deliveryId = msg.data["delivery_id"] ?: msg.data["ritmus_delivery_id"]
+    val deliveryId = msg.data["delivery_id"] ?: msg.data["usergist_delivery_id"]
     if (deliveryId != null) out.putString("deliveryId", deliveryId)
     return out
   }
 
   companion object {
-    const val DEFAULT_CHANNEL_ID = "ritmus_default"
+    const val DEFAULT_CHANNEL_ID = "usergist_default"
   }
 }

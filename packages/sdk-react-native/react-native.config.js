@@ -8,8 +8,8 @@ module.exports = {
       },
       android: {
         sourceDir: 'android',
-        packageImportPath: 'import studio.ritmus.feedback.RitmusPushPackage;',
-        packageInstance: 'new RitmusPushPackage()',
+        packageImportPath: 'import studio.usergist.feedback.UserGistPushPackage;',
+        packageInstance: 'new UserGistPushPackage()',
       },
     },
   },

@@ -7,8 +7,8 @@ import type {
   Request as RequestDto,
   RequestStatus,
   RequestSummary,
-} from '@ritmus/sdk-core'
-import { Ritmus } from '../../Ritmus.js'
+} from '@usergist/sdk-core'
+import { UserGist } from '../../UserGist.js'
 
 export const STATUS_COLOR: Record<RequestStatus, string> = {
   under_review: '#9CA3AF',
@@ -57,7 +57,7 @@ export function useBranding(): Branding {
 
   useEffect(() => {
     if (cachedBranding) return
-    void Ritmus.getRequestBranding().then((b) => {
+    void UserGist.getRequestBranding().then((b) => {
       if (!b) return
       const next: Branding = {
         entryLabel: b.entryLabel || DEFAULT_BRANDING.entryLabel,
