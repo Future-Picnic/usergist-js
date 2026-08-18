@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native'
-import type { Request as RequestDetailDto } from '@usergist/sdk-core'
+import type { Request as RequestDetailDto } from '@usergist/sdk-core/mobile'
 import { UserGist } from '../../UserGist.js'
 import { applyOptimisticFollow, applyOptimisticVote, type Branding } from './shared.js'
 import { StatusPill } from './StatusPill.js'
@@ -70,7 +70,12 @@ export function DetailView({ branding, requestId, onBack }: DetailViewProps) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} hitSlop={12} style={styles.backBtn}>
+        <Pressable
+          accessibilityLabel="Back to requests"
+          testID="request-detail-back"
+          onPress={onBack}
+          hitSlop={12}
+          style={styles.backBtn}>
           <Text style={styles.backText}>‹</Text>
         </Pressable>
         <View style={styles.headerCenter}>
@@ -85,19 +90,33 @@ export function DetailView({ branding, requestId, onBack }: DetailViewProps) {
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={styles.body}>
+          <ScrollView
+            automaticallyAdjustKeyboardInsets
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.body}
+          >
             <StatusPill status={data.status} />
             <Text style={styles.title}>{data.title}</Text>
 
             <View style={styles.statsRow}>
-              <View style={styles.stat}>
+              <View
+                accessible
+                accessibilityLabel={`${data.upvoteCount} upvotes`}
+                testID="request-detail-upvote-count"
+                style={styles.stat}
+              >
                 <Text style={[styles.statValue, { color: accent }]}>
                   {data.upvoteCount}
                 </Text>
                 <Text style={styles.statLabel}>upvotes</Text>
               </View>
               <View style={styles.statDivider} />
-              <View style={styles.stat}>
+              <View
+                accessible
+                accessibilityLabel={`${data.followerCount} followers`}
+                testID="request-detail-follower-count"
+                style={styles.stat}
+              >
                 <Text style={styles.statValue}>{data.followerCount}</Text>
                 <Text style={styles.statLabel}>followers</Text>
               </View>
@@ -130,6 +149,8 @@ export function DetailView({ branding, requestId, onBack }: DetailViewProps) {
 
           <View style={styles.actionBar}>
             <Pressable
+              accessibilityLabel={data.viewerHasUpvoted ? 'Remove request vote' : 'Upvote request'}
+              testID="request-detail-vote"
               style={[
                 styles.actionButton,
                 data.viewerHasUpvoted
@@ -150,6 +171,8 @@ export function DetailView({ branding, requestId, onBack }: DetailViewProps) {
               </Text>
             </Pressable>
             <Pressable
+              accessibilityLabel={data.viewerIsFollowing ? 'Unfollow request' : 'Follow request'}
+              testID="request-detail-follow"
               style={[
                 styles.actionButton,
                 {

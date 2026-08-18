@@ -2,6 +2,7 @@
 // showSurvey events and render the appropriate modal.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { Linking } from 'react-native'
 import { UserGist } from './UserGist.js'
 import { PromptSheet } from './ui/PromptSheet.js'
 import { SurveyView } from './ui/SurveyView.js'
@@ -15,13 +16,13 @@ import type {
   SurveyAnswerRecord,
   SurveyAttemptSource,
   SurveyCampaignWithFlow,
-} from '@usergist/sdk-core'
+} from '@usergist/sdk-core/mobile'
 import {
   INAPP_AUTO_DISMISSED_EVENT_NAME,
   INAPP_CTA_CLICKED_EVENT_NAME,
   INAPP_DISMISSED_EVENT_NAME,
   INAPP_SHOWN_EVENT_NAME,
-} from '@usergist/sdk-core'
+} from '@usergist/sdk-core/mobile'
 
 function safeInAppHandlers(): {
   onShow?: (messageId: string) => void
@@ -36,6 +37,18 @@ function safeInAppHandlers(): {
 } {
   try {
     return UserGist.__internal_inAppHandlers()
+  } catch {
+    return {}
+  }
+}
+
+function safeSurveyHandlers(): {
+  onShow?: (surveyId: string) => void
+  onComplete?: (surveyId: string, attemptId: string) => void
+  onAbandon?: (surveyId: string, attemptId: string) => void
+} {
+  try {
+    return UserGist.__internal_surveyHandlers()
   } catch {
     return {}
   }
@@ -90,7 +103,11 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
           setPayload(null)
         })
         unsubShowSurvey = bus.on('showSurvey', (payload) => {
-          void openSurvey(payload.surveyId, payload.source as SurveyAttemptSource)
+          void openSurvey(
+            payload.surveyId,
+            payload.source as SurveyAttemptSource,
+            payload.language,
+          )
         })
         unsubShowInApp = bus.on('showInAppMessage', (p) => {
           setInAppMessage(p.message)
@@ -135,17 +152,21 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
   }, [])
 
   const openSurvey = useCallback(
-    async (surveyId: string, source: SurveyAttemptSource): Promise<void> => {
+    async (
+      surveyId: string,
+      source: SurveyAttemptSource,
+      language?: string,
+    ): Promise<void> => {
       try {
         // Local-fire fast-path: when the survey-matcher just fired,
         // the full survey content is already in the SDK's cache. Use
         // it instead of round-tripping to the server. Falls back to
         // a fetch for offer-ledger / on-demand opens that arrive
         // through the polling path.
-        const cached = UserGist.__internal_armedSurveyById(surveyId)
-        const survey = cached ?? (await UserGist.__internal_fetchSurvey(surveyId))
+        const cached = language ? null : UserGist.__internal_armedSurveyById(surveyId)
+        const survey = cached ?? (await UserGist.__internal_fetchSurvey(surveyId, language))
         if (!survey) return
-        const attempt = await UserGist.__internal_createAttempt(surveyId, source)
+        const attempt = await UserGist.__internal_createAttempt(surveyId, source, language)
         if (!attempt) return
         setSurveyState({
           survey,
@@ -161,21 +182,21 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     [],
   )
 
-  function handleSubmit(r: ResponseEmission): void {
+  async function handleSubmit(r: ResponseEmission): Promise<void> {
     const p = currentRef.current
-    currentRef.current = null
-    setPayload(null)
     if (p) {
-      void UserGist.__internal_submitResponse(r, p.triggerEventName)
+      await UserGist.__internal_submitResponse(r, p.triggerEventName)
+      currentRef.current = null
+      setPayload(null)
     }
   }
 
-  function handleDismiss(r: ResponseEmission): void {
+  async function handleDismiss(r: ResponseEmission): Promise<void> {
     const p = currentRef.current
-    currentRef.current = null
-    setPayload(null)
     if (p) {
-      void UserGist.__internal_submitResponse(r, p.triggerEventName)
+      await UserGist.__internal_submitResponse(r, p.triggerEventName)
+      currentRef.current = null
+      setPayload(null)
     }
   }
 
@@ -208,6 +229,15 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       label: cta.label,
       index,
     })
+    if (cta.action === 'custom_event' && cta.target) {
+      safeTrack(cta.target, {
+        message_id: m.messageId,
+        cta_index: index,
+        cta_label: cta.label,
+      })
+    } else if ((cta.action === 'open_url' || cta.action === 'deep_link') && cta.target) {
+      void Linking.openURL(cta.target).catch(() => undefined)
+    }
     // CTA tap implicitly closes the message.
     setInAppMessage(null)
   }
@@ -220,13 +250,16 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     }
   })()
 
-  const surveyHandlers = (() => {
-    try {
-      return UserGist.__internal_surveyHandlers()
-    } catch {
-      return {}
-    }
-  })()
+  const handleSurveyShow = useCallback((surveyId: string): void => {
+    safeSurveyHandlers().onShow?.(surveyId)
+  }, [])
+  const handleSurveyComplete = useCallback((surveyId: string, attemptId: string): void => {
+    safeSurveyHandlers().onComplete?.(surveyId, attemptId)
+  }, [])
+  const handleSurveyAbandon = useCallback((surveyId: string, attemptId: string): void => {
+    safeSurveyHandlers().onAbandon?.(surveyId, attemptId)
+    setSurveyState(null)
+  }, [])
 
   return (
     <>
@@ -247,20 +280,14 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
         onSaveProgress={(attemptId, qid, snap) =>
           UserGist.__internal_saveProgress(attemptId, qid, snap)
         }
-        onSubmitAnswers={(attemptId, answers) =>
-          UserGist.__internal_submitAnswers(attemptId, answers)
+        onCompleteAttempt={(attemptId, answers) =>
+          UserGist.__internal_completeAttempt(attemptId, answers)
         }
-        onCompleteAttempt={(attemptId) => UserGist.__internal_completeAttempt(attemptId)}
         onAbandonAttempt={(attemptId) => UserGist.__internal_abandonAttempt(attemptId)}
         onDismissRequest={() => setSurveyState(null)}
-        onShow={(sid) => surveyHandlers.onShow?.(sid)}
-        onComplete={(sid, aid) => {
-          surveyHandlers.onComplete?.(sid, aid)
-        }}
-        onAbandon={(sid, aid) => {
-          surveyHandlers.onAbandon?.(sid, aid)
-          setSurveyState(null)
-        }}
+        onShow={handleSurveyShow}
+        onComplete={handleSurveyComplete}
+        onAbandon={handleSurveyAbandon}
       />
       <InAppMessageView
         message={inAppMessage}

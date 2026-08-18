@@ -98,6 +98,7 @@ export function SubmitView({ branding, onCancel, onPosted }: SubmitViewProps) {
             <Text style={styles.counter}>{title.length}/120</Text>
           </View>
           <TextInput
+            accessibilityLabel="Suggestion title"
             value={title}
             onChangeText={setTitle}
             maxLength={120}
@@ -117,6 +118,7 @@ export function SubmitView({ branding, onCancel, onPosted }: SubmitViewProps) {
             <Text style={styles.counter}>{description.length}/1500</Text>
           </View>
           <TextInput
+            accessibilityLabel="Suggestion description"
             value={description}
             onChangeText={setDescription}
             maxLength={1500}

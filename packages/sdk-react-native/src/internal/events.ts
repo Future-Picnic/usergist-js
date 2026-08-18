@@ -1,7 +1,7 @@
 // Typed event emitter for public callbacks (onPromptShown/onResponse) and
 // internal UI signals (show/dismiss prompts from the matcher to Provider).
 
-import type { ArmedInAppMessage } from '@usergist/sdk-core'
+import type { ArmedInAppMessage } from '@usergist/sdk-core/mobile'
 import type { ShowPromptPayload, ResponseEmission } from './types.js'
 
 export interface ShowInAppMessagePayload {
@@ -22,7 +22,11 @@ export interface SdkEvents {
   readonly response: ResponseEmission
   readonly showPrompt: ShowPromptPayload
   readonly dismissPrompt: { readonly promptId: string }
-  readonly showSurvey: { readonly surveyId: string; readonly source: string }
+  readonly showSurvey: {
+    readonly surveyId: string
+    readonly source: string
+    readonly language?: string
+  }
   readonly dismissSurvey: { readonly surveyId: string }
   readonly surveyInvite: {
     readonly surveyId: string
@@ -64,7 +68,8 @@ const BUFFERED_EVENTS: ReadonlyArray<EventName> = [
 
 export function createEventBus(): EventBus {
   const listeners = new Map<EventName, Set<AnyListener>>()
-  const pending = new Map<EventName, unknown>()
+  const pending = new Map<EventName, ReadonlyArray<unknown>>()
+  const MAX_BUFFERED_PER_EVENT = 100
 
   function setFor(name: EventName): Set<AnyListener> {
     let s = listeners.get(name)
@@ -83,12 +88,14 @@ export function createEventBus(): EventBus {
       // Replay a buffered event to the new subscriber and clear the
       // buffer — first-listener-wins semantics, no double-delivery.
       const buffered = pending.get(name)
-      if (buffered !== undefined && BUFFERED_EVENTS.includes(name)) {
+      if (buffered && BUFFERED_EVENTS.includes(name)) {
         pending.delete(name)
-        try {
-          wrapped(buffered)
-        } catch {
-          // listener errors must never cross the SDK boundary
+        for (const item of buffered) {
+          try {
+            wrapped(item)
+          } catch {
+            // listener errors must never cross the SDK boundary
+          }
         }
       }
       return () => {
@@ -98,7 +105,10 @@ export function createEventBus(): EventBus {
     emit<K extends EventName>(name: K, payload: SdkEvents[K]): void {
       const s = listeners.get(name)
       if (!s || s.size === 0) {
-        if (BUFFERED_EVENTS.includes(name)) pending.set(name, payload)
+        if (BUFFERED_EVENTS.includes(name)) {
+          const buffered = pending.get(name) ?? []
+          pending.set(name, [...buffered, payload].slice(-MAX_BUFFERED_PER_EVENT))
+        }
         return
       }
       for (const cb of s) {

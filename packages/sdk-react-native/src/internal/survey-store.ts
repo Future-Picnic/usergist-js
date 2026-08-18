@@ -4,7 +4,7 @@
 
 import { createStorageScope, type StorageScope } from './storage.js'
 import { reportError } from './debug.js'
-import type { SurveyAnswerRecord } from '@usergist/sdk-core'
+import type { SurveyAnswerRecord } from '@usergist/sdk-core/mobile'
 
 const PENDING_KEY = 'surveys:pending'
 
@@ -21,7 +21,13 @@ export interface SurveyStore {
   readonly list: () => Promise<ReadonlyArray<PendingAttempt>>
   readonly upsert: (attempt: PendingAttempt) => Promise<void>
   readonly remove: (attemptId: string) => Promise<void>
+  readonly updateProgress: (
+    attemptId: string,
+    currentQuestionId: string | null,
+    snapshot: SurveyAnswerRecord,
+  ) => Promise<void>
   readonly findForSurvey: (surveyId: string) => Promise<PendingAttempt | null>
+  readonly clear: () => Promise<void>
 }
 
 export function createSurveyStore(writeKey: string): SurveyStore {
@@ -50,9 +56,22 @@ export function createSurveyStore(writeKey: string): SurveyStore {
       const next = existing.filter((a) => a.attemptId !== attemptId)
       await scope.setJson(PENDING_KEY, next)
     },
+    async updateProgress(attemptId, currentQuestionId, snapshot): Promise<void> {
+      const existing = await list()
+      const target = existing.find((attempt) => attempt.attemptId === attemptId)
+      if (!target) return
+      await scope.setJson(PENDING_KEY, existing.map((attempt) =>
+        attempt.attemptId === attemptId
+          ? { ...attempt, currentQuestionId, snapshot }
+          : attempt,
+      ))
+    },
     async findForSurvey(surveyId: string): Promise<PendingAttempt | null> {
       const all = await list()
       return all.find((a) => a.surveyId === surveyId) ?? null
+    },
+    async clear(): Promise<void> {
+      await scope.remove(PENDING_KEY)
     },
   }
 }

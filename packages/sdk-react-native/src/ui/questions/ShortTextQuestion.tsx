@@ -1,6 +1,6 @@
 import React from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
-import type { ShortTextQuestion as STQ } from '@usergist/sdk-core'
+import type { ShortTextQuestion as STQ } from '@usergist/sdk-core/mobile'
 import type { ResolvedTheme } from '../theme.js'
 import { QuestionImageHeader } from '../QuestionImageHeader.js'
 
@@ -26,6 +26,8 @@ export function ShortTextQuestion({ question, value, onChange, theme }: Props): 
         </Text>
       ) : null}
       <TextInput
+        accessibilityLabel="Feedback text answer"
+        testID={`feedback-question-${question.id}-input`}
         value={value}
         onChangeText={onChange}
         placeholder={question.placeholder ?? ''}

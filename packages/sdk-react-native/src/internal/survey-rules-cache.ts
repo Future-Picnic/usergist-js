@@ -3,7 +3,7 @@
 // - Persisted to AsyncStorage.
 // - The survey-matcher reads from here synchronously (no I/O on track()).
 
-import type { ArmedSurvey } from '@usergist/sdk-core'
+import type { ArmedSurvey } from '@usergist/sdk-core/mobile'
 import { STORAGE_KEYS, type StorageScope } from './storage.js'
 import { reportError, debugLog } from './debug.js'
 import type { Transport } from './transport.js'

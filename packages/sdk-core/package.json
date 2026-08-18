@@ -12,10 +12,15 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./mobile": {
+      "types": "./dist/mobile.d.ts",
+      "import": "./dist/mobile.js",
+      "require": "./dist/mobile.cjs"
+    },
     "./package.json": "./package.json"
   },
   "sideEffects": false,
-  "files": ["dist", "README.md"],
+  "files": ["dist", "mobile.js", "README.md"],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

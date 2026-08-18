@@ -23,8 +23,8 @@ import type {
   SurveyCampaignWithFlow,
   SurveyEndScreen,
   SurveyQuestion,
-} from '@usergist/sdk-core'
-import { estimateProgress, nextQuestionId } from '@usergist/sdk-core'
+} from '@usergist/sdk-core/mobile'
+import { estimateProgress, nextQuestionId } from '@usergist/sdk-core/mobile'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from '../ui/theme.js'
 import { RatingQuestion } from '../ui/questions/RatingQuestion.js'
 import { NpsQuestion } from '../ui/questions/NpsQuestion.js'

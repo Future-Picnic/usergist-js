@@ -14,6 +14,7 @@ import { BoardView } from './BoardView.js'
 import { DetailView } from './DetailView.js'
 import { SubmitView } from './SubmitView.js'
 import { useBranding } from './shared.js'
+import { useModalSlot } from '../../internal/modal-coordinator.js'
 
 type ViewState =
   | { readonly kind: 'closed' }
@@ -52,11 +53,12 @@ export function RequestsHost(): React.ReactElement | null {
   }, [])
 
   const visible = view.kind !== 'closed'
+  const modalGranted = useModalSlot('requests', visible)
   const close = () => setView({ kind: 'closed' })
 
   return (
     <Modal
-      visible={visible}
+      visible={visible && modalGranted}
       animationType="slide"
       presentationStyle="fullScreen"
       onRequestClose={close}

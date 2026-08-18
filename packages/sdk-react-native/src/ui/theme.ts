@@ -1,7 +1,7 @@
 // Default theme + merge helper. Returns a fully-resolved theme that the
 // bottom sheet & question components can consume without null-checks.
 
-import type { PromptTheme } from '@usergist/sdk-core'
+import type { PromptTheme } from '@usergist/sdk-core/mobile'
 
 export interface ResolvedTheme {
   readonly colors: {

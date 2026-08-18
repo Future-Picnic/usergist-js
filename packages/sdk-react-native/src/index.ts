@@ -9,6 +9,8 @@ export type {
   EnablePushResult,
 } from './native/push-bridge.js'
 export type { NotificationPayload } from './native/events.js'
+export type { SdkDiagnostic } from './internal/debug.js'
+export type { UserGistStorageAdapter } from './internal/storage.js'
 export type {
   SdkConfig,
   Consent,
@@ -22,4 +24,4 @@ export type {
   ClientPrompt,
   ArmedTrigger,
   FrequencyCaps,
-} from '@usergist/sdk-core'
+} from '@usergist/sdk-core/mobile'

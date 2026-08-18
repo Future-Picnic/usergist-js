@@ -10,8 +10,8 @@
 // Server reconciles asynchronously via ingest — if the client fires the wrong
 // prompt, the server flags it but we don't roll back.
 
-import type { ArmedTrigger } from '@usergist/sdk-core'
-import { evaluateSerializedSegmentRules } from '@usergist/sdk-core'
+import type { ArmedTrigger } from '@usergist/sdk-core/mobile'
+import { evaluateSerializedSegmentRules } from '@usergist/sdk-core/mobile'
 import type { RulesCache } from './rules-cache.js'
 import type { FrequencyCapManager } from './frequency-cap.js'
 import type { UserStateStore } from './user-state.js'
@@ -20,7 +20,8 @@ import type { EventBus } from './events.js'
 import { debugLog, logTrace } from './debug.js'
 
 export interface TriggerMatcher {
-  readonly evaluate: (eventName: string) => void
+  /** Returns the locally rendered prompt id, or null when the server decides. */
+  readonly evaluate: (eventName: string) => string | null
 }
 
 export function createTriggerMatcher(params: {
@@ -33,6 +34,16 @@ export function createTriggerMatcher(params: {
   const { rulesCache, frequencyCaps, userState, consent, events } = params
 
   function tryFire(trigger: ArmedTrigger, eventName: string): boolean {
+    if (trigger.clientSideEligible === false) {
+      logTrace({
+        eventName,
+        promptId: trigger.promptId,
+        outcome: 'blocked-no-trigger',
+        reason: 'server-authoritative',
+        at: new Date().toISOString(),
+      })
+      return false
+    }
     // Consent
     if (!consent.allowsFeedback()) {
       logTrace({
@@ -106,12 +117,13 @@ export function createTriggerMatcher(params: {
           outcome: 'blocked-no-trigger',
           at: new Date().toISOString(),
         })
-        return
+        return null
       }
       // Fire the first matching trigger. Spec says one prompt at a time.
       for (const t of candidates) {
-        if (tryFire(t, eventName)) return
+        if (tryFire(t, eventName)) return t.promptId
       }
+      return null
     },
   }
 }

@@ -447,6 +447,8 @@ export interface ArmedSurvey {
   readonly campaignId: string
   readonly eventName: string
   readonly segmentRules?: SerializedSegmentRules | null
+  /** True only when the SDK can make the same targeting decision locally. */
+  readonly clientSideEligible?: boolean
   readonly cooldownSeconds: number | null
   readonly frequencyCap: PushFrequencyCap
   readonly survey: SurveyCampaignWithFlow

@@ -9,26 +9,35 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./preview": {
       "types": "./dist/preview/index.d.ts",
-      "import": "./dist/preview/index.js"
-    }
+      "import": "./dist/preview/index.js",
+      "default": "./dist/preview/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "src",
+    "!dist/Ritmus*",
+    "!dist/NativeRitmusPush*",
     "ios",
     "android",
+    "!android/build",
     "UserGistFeedback.podspec",
+    "UserGistFeedbackExtension.podspec",
     "react-native.config.js",
     "README.md"
   ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepack": "pnpm run build",
+    "pack:check": "npm publish --dry-run --ignore-scripts"
   },
   "peerDependencies": {
     "@react-native-async-storage/async-storage": ">=1.19",
@@ -41,9 +50,10 @@
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
-    "react": "^18.3.1",
+    "react": "18.2.0",
     "react-native": "0.74.0",
     "react-native-safe-area-context": "^4",
+    "vitest": "^2.1.0",
     "typescript": "^5.5.4"
   },
   "codegenConfig": {

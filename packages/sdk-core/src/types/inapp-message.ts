@@ -127,6 +127,8 @@ export interface InAppMessageAnalytics {
 export interface ArmedInAppMessage {
   readonly messageId: string
   readonly eventName: string
+  /** True only when the SDK can make the same targeting decision locally. */
+  readonly clientSideEligible?: boolean
   readonly format: InAppMessageFormat
   readonly title: string
   readonly body: string | null

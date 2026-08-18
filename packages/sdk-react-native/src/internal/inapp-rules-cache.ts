@@ -1,7 +1,7 @@
 // Armed in-app messages cache. Pulled at boot + on foreground +
 // every triggerSyncIntervalMs. Mirrors `rules-cache.ts` (feedback).
 
-import type { ArmedInAppMessage } from '@usergist/sdk-core'
+import type { ArmedInAppMessage } from '@usergist/sdk-core/mobile'
 import { STORAGE_KEYS, type StorageScope } from './storage.js'
 import { reportError, debugLog } from './debug.js'
 import type { Transport } from './transport.js'

@@ -9,6 +9,11 @@ export interface Workspace {
   readonly updatedAt: string
 }
 
+/** Workspace as returned from the authenticated `/v1/me` projection. */
+export interface WorkspaceWithRole extends Workspace {
+  readonly role: WorkspaceRole
+}
+
 export interface WorkspaceMember {
   readonly workspaceId: string
   readonly userId: string

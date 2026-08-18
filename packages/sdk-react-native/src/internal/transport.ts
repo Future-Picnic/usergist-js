@@ -19,6 +19,7 @@ import type {
   SdkConsentPayload,
   SdkIdentifyPayload,
   SdkIngestResponse,
+  SdkSessionResponse,
   SubmitResponsePayload,
   SubmitSurveyAnswersRequest,
   SurveyCampaignWithFlow,
@@ -30,7 +31,7 @@ import type {
   RequestFollow as RequestFollowDto,
   RequestComment as RequestCommentDto,
   GetRequestsResult as RequestsListResponse,
-} from '@usergist/sdk-core'
+} from '@usergist/sdk-core/mobile'
 import { reportError, debugLog } from './debug.js'
 
 const MAX_ATTEMPTS = 5
@@ -38,6 +39,12 @@ const BASE_DELAY_MS = 1000
 const MAX_DELAY_MS = 16_000
 const CIRCUIT_OPEN_MS = 30_000
 const CIRCUIT_FAILURE_THRESHOLD = 5
+// React Native's fetch has no default timeout. Without this a black-holed
+// socket (captive portal, dead cell) leaves the request pending indefinitely,
+// hanging flush and enablePush(). A per-request timeout aborts and — because
+// the parent controller is NOT the one that fired — is treated as a retryable
+// failure that also feeds the circuit breaker.
+const REQUEST_TIMEOUT_MS = 15_000
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -45,7 +52,10 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       reject(new DOMExceptionLike('Aborted', 'AbortError'))
       return
     }
-    const t = setTimeout(() => resolve(), ms)
+    const t = setTimeout(() => {
+      signal?.removeEventListener?.('abort', onAbort)
+      resolve()
+    }, ms)
     const onAbort = (): void => {
       clearTimeout(t)
       reject(new DOMExceptionLike('Aborted', 'AbortError'))
@@ -66,6 +76,16 @@ function backoff(attempt: number): number {
   const base = Math.min(BASE_DELAY_MS * 2 ** attempt, MAX_DELAY_MS)
   const jitter = base * 0.2 * (Math.random() * 2 - 1)
   return Math.max(0, base + jitter)
+}
+
+function retryAfterMs(value: string | null): number | null {
+  if (!value) return null
+  const seconds = Number(value)
+  const raw = Number.isFinite(seconds)
+    ? seconds * 1_000
+    : Date.parse(value) - Date.now()
+  if (!Number.isFinite(raw)) return null
+  return Math.max(0, Math.min(raw, 60_000))
 }
 
 export interface TransportConfig {
@@ -122,6 +142,22 @@ export interface PushChannelSubscriptionPayload {
 }
 
 export interface Transport {
+  readonly setSubjectToken: (token: string | null) => void
+  readonly session: (p: {
+    readonly anonymousId: string
+    readonly currentToken?: string
+  }) => Promise<SdkSessionResponse>
+  readonly revokeSession: () => Promise<{ ok: true }>
+  readonly instructions: (after: number) => Promise<{
+    readonly instructions: ReadonlyArray<{
+      readonly id: number
+      readonly type: string
+      readonly payload: Readonly<Record<string, unknown>>
+      readonly emittedAt: string
+      readonly expiresAt: string
+    }>
+  }>
+  readonly acknowledgeInstructions: (ids: ReadonlyArray<number>) => Promise<{ acknowledged: number }>
   readonly ingest: (batch: IngestBatch) => Promise<SdkIngestResponse>
   readonly armedTriggers: (p: {
     readonly anonymousId: string
@@ -205,6 +241,7 @@ export interface Transport {
     readonly externalId: string | null
   }) => Promise<RequestDto>
   readonly requestSubmit: (p: {
+    readonly idempotencyKey: string
     readonly anonymousId: string
     readonly externalId: string | null
     readonly title: string
@@ -228,6 +265,7 @@ export interface Transport {
     readonly externalId: string | null
   }) => Promise<{ items: ReadonlyArray<RequestCommentDto> }>
   readonly requestCommentPost: (p: {
+    readonly idempotencyKey: string
     readonly requestId: string
     readonly anonymousId: string
     readonly externalId: string | null
@@ -252,12 +290,21 @@ interface RequestOpts {
   readonly path: string
   readonly body?: unknown
   readonly idempotent: boolean
+  readonly requiresSubject?: boolean
+}
+
+export class PermanentHttpError extends Error {
+  constructor(public readonly status: number) {
+    super(`http-${status}`)
+    this.name = 'PermanentHttpError'
+  }
 }
 
 export function createTransport(cfg: TransportConfig): Transport {
   let abortController = new AbortController()
   let consecutiveFailures = 0
   let circuitOpenUntil = 0
+  let subjectToken: string | null = null
 
   function resetCircuit(): void {
     consecutiveFailures = 0
@@ -279,6 +326,9 @@ export function createTransport(cfg: TransportConfig): Transport {
   }
 
   async function request<T>(opts: RequestOpts): Promise<T> {
+    if (opts.requiresSubject !== false && !subjectToken) {
+      throw new Error('subject-session-unavailable')
+    }
     if (isCircuitOpen()) {
       throw new Error('circuit-open')
     }
@@ -288,16 +338,31 @@ export function createTransport(cfg: TransportConfig): Transport {
     while (true) {
       try {
         debugLog('http →', { method: opts.method, path: opts.path, attempt })
-        const res = await fetch(url, {
-          method: opts.method,
-          headers: {
-            Authorization: `Bearer ${cfg.writeKey}`,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: opts.body == null ? undefined : JSON.stringify(opts.body),
-          signal: abortController.signal,
-        })
+        // Compose a per-request timeout with the shared cancel controller so a
+        // hung socket can't block forever. Cleaned up in `finally` regardless
+        // of outcome so we don't leak timers or listeners.
+        const timeoutCtrl = new AbortController()
+        const onParentAbort = (): void => timeoutCtrl.abort()
+        abortController.signal.addEventListener('abort', onParentAbort)
+        const timeoutId = setTimeout(() => timeoutCtrl.abort(), REQUEST_TIMEOUT_MS)
+        let res: Response
+        try {
+          res = await fetch(url, {
+            method: opts.method,
+            headers: {
+              Authorization: `Bearer ${cfg.writeKey}`,
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              'X-UserGist-SDK-Version': 'rn-0.1.0',
+              ...(subjectToken ? { 'X-UserGist-Subject-Token': subjectToken } : {}),
+            },
+            body: opts.body == null ? undefined : JSON.stringify(opts.body),
+            signal: timeoutCtrl.signal,
+          })
+        } finally {
+          clearTimeout(timeoutId)
+          abortController.signal.removeEventListener('abort', onParentAbort)
+        }
         debugLog('http ←', {
           method: opts.method,
           path: opts.path,
@@ -324,16 +389,23 @@ export function createTransport(cfg: TransportConfig): Transport {
         // Non-2xx
         if (res.status >= 400 && res.status < 500 && res.status !== 429) {
           // client error — don't retry
-          throw new Error(`http-${res.status}`)
+          throw new PermanentHttpError(res.status)
         }
         recordFailure(res.status)
         if (!opts.idempotent) throw new Error(`http-${res.status}`)
         if (attempt >= MAX_ATTEMPTS - 1) throw new Error(`http-${res.status}`)
-        await sleep(backoff(attempt), abortController.signal)
+        await sleep(retryAfterMs(res.headers.get('Retry-After')) ?? backoff(attempt), abortController.signal)
         attempt += 1
       } catch (e) {
+        if (e instanceof PermanentHttpError) throw e
         const name = (e as { name?: string })?.name
-        if (name === 'AbortError') throw e
+        if (name === 'AbortError') {
+          // A real cancel (cancelAll / reset) aborts the parent controller —
+          // propagate it. Otherwise this abort was our per-request timeout, so
+          // record a failure and fall through to the retry logic below.
+          if (abortController.signal.aborted) throw e
+          recordFailure(0)
+        }
         if (!opts.idempotent) throw e
         if (attempt >= MAX_ATTEMPTS - 1) throw e
         await sleep(backoff(attempt), abortController.signal)
@@ -343,6 +415,40 @@ export function createTransport(cfg: TransportConfig): Transport {
   }
 
   return {
+    setSubjectToken(token): void {
+      subjectToken = token
+    },
+    session: async ({ anonymousId, currentToken }) => {
+      const previous = subjectToken
+      subjectToken = currentToken ?? null
+      try {
+        return await request<SdkSessionResponse>({
+          method: 'POST',
+          path: '/v1/sdk/session',
+          body: { anonymousId },
+          idempotent: false,
+          requiresSubject: false,
+        })
+      } finally {
+        subjectToken = previous
+      }
+    },
+    revokeSession: () => request<{ ok: true }>({
+      method: 'POST',
+      path: '/v1/sdk/session/revoke',
+      idempotent: true,
+    }),
+    instructions: (after) => request({
+      method: 'GET',
+      path: `/v1/sdk/instructions?after=${encodeURIComponent(String(after))}&limit=100`,
+      idempotent: true,
+    }),
+    acknowledgeInstructions: (ids) => request({
+      method: 'POST',
+      path: '/v1/sdk/instructions/ack',
+      body: { ids },
+      idempotent: true,
+    }),
     ingest: (batch) =>
       request<SdkIngestResponse>({
         method: 'POST',
@@ -573,12 +679,12 @@ export function createTransport(cfg: TransportConfig): Transport {
         idempotent: true,
       })
     },
-    requestSubmit: ({ anonymousId, externalId, title, description }) =>
+    requestSubmit: ({ idempotencyKey, anonymousId, externalId, title, description }) =>
       request<RequestDto>({
         method: 'POST',
         path: '/v1/sdk/requests',
-        body: { anonymousId, externalId, title, description },
-        idempotent: false,
+        body: { idempotencyKey, anonymousId, externalId, title, description },
+        idempotent: true,
       }),
     requestVote: ({ requestId, anonymousId, externalId, vote }) =>
       request<RequestVoteDto>({
@@ -603,12 +709,12 @@ export function createTransport(cfg: TransportConfig): Transport {
         idempotent: true,
       })
     },
-    requestCommentPost: ({ requestId, anonymousId, externalId, body }) =>
+    requestCommentPost: ({ requestId, idempotencyKey, anonymousId, externalId, body }) =>
       request<RequestCommentDto>({
         method: 'POST',
         path: `/v1/sdk/requests/${requestId}/comments`,
-        body: { anonymousId, externalId, body },
-        idempotent: false,
+        body: { idempotencyKey, anonymousId, externalId, body },
+        idempotent: true,
       }),
     requestCommentEdit: ({ requestId, commentId, anonymousId, body }) =>
       request<RequestCommentDto>({

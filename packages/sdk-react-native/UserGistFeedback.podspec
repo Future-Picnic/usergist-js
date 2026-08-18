@@ -28,13 +28,4 @@ Pod::Spec.new do |s|
     core.dependency 'React-Core'
   end
 
-  # ---------- Extension subspec (for the iOS NotificationServiceExtension) ----------
-  # IMPORTANT: NSEs run in their own out-of-process extension and must NOT
-  # depend on React-Core (it would pull ~50MB of RN runtime into a 30s
-  # extension and likely fail to build under static linkage anyway).
-  # Only the standalone Swift NSE base class lives here.
-  s.subspec 'Extension' do |ext|
-    ext.source_files = 'ios/Extension/*.swift'
-    ext.frameworks   = 'UserNotifications'
-  end
 end

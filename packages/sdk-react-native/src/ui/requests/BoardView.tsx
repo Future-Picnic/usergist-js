@@ -17,7 +17,7 @@ import {
   Text,
   View,
 } from 'react-native'
-import type { RequestStatus, RequestSummary } from '@usergist/sdk-core'
+import type { RequestStatus, RequestSummary } from '@usergist/sdk-core/mobile'
 import { UserGist } from '../../UserGist.js'
 import {
   STATUS_COLOR,
@@ -101,7 +101,12 @@ export function BoardView({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
+        <Pressable
+          accessibilityLabel="Close requests board"
+          testID="requests-board-close"
+          onPress={onClose}
+          hitSlop={12}
+          style={styles.closeBtn}>
           <Text style={styles.closeText}>✕</Text>
         </Pressable>
         <View style={styles.headerCenter}>
@@ -111,6 +116,8 @@ export function BoardView({
           </Text>
         </View>
         <Pressable
+          accessibilityLabel="Create new request"
+          testID="requests-board-create"
           onPress={onOpenSubmit}
           hitSlop={12}
           style={[styles.newBtn, { backgroundColor: accent }]}
@@ -287,6 +294,7 @@ function RequestCard({
   return (
     <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
       <Pressable
+        accessibilityLabel={`Open request ${item.title}`}
         onPress={handleOpen}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
@@ -294,6 +302,7 @@ function RequestCard({
       >
         <View style={styles.cardLeft}>
           <Pressable
+            accessibilityLabel={`${item.viewerHasUpvoted ? 'Remove vote from' : 'Upvote'} ${item.title}`}
             style={[
               styles.upvote,
               item.viewerHasUpvoted

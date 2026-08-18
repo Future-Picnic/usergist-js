@@ -1,6 +1,6 @@
 // React Native autolinking entry. RN 0.60+ reads this to discover the
 // native iOS Pod and Android Gradle module without consumer-side edits.
-module.exports = {
+export default {
   dependency: {
     platforms: {
       ios: {

@@ -1,15 +1,17 @@
 // Client-side matcher for in-app messages. Same `evaluate(eventName)`
-// shape as the feedback + survey matchers; ships without the segment
-// / frequency client-side gates (server is authoritative for v1).
+// shape as the feedback + survey matchers. The API marks only campaigns whose
+// targeting and frequency rules are safe to decide locally; all others stay
+// on the durable server-instruction path.
 
-import type { ArmedInAppMessage } from '@usergist/sdk-core'
+import type { ArmedInAppMessage } from '@usergist/sdk-core/mobile'
 import type { InAppRulesCache } from './inapp-rules-cache.js'
 import type { ConsentManager } from './consent.js'
 import type { EventBus } from './events.js'
 import { debugLog, logTrace } from './debug.js'
 
 export interface InAppMatcher {
-  readonly evaluate: (eventName: string) => void
+  /** Returns the locally rendered message id, or null when the server decides. */
+  readonly evaluate: (eventName: string) => string | null
 }
 
 export function createInAppMatcher(params: {
@@ -20,6 +22,16 @@ export function createInAppMatcher(params: {
   const { rulesCache, consent, events } = params
 
   function tryFire(message: ArmedInAppMessage, eventName: string): boolean {
+    if (message.clientSideEligible === false) {
+      logTrace({
+        eventName,
+        outcome: 'blocked-no-trigger',
+        reason: 'server-authoritative',
+        at: new Date().toISOString(),
+        promptId: message.messageId,
+      })
+      return false
+    }
     if (!consent.allowsFeedback()) {
       logTrace({
         eventName,
@@ -46,7 +58,7 @@ export function createInAppMatcher(params: {
   }
 
   return {
-    evaluate: (eventName: string): void => {
+    evaluate: (eventName: string): string | null => {
       const armed = rulesCache.getForEvent(eventName)
       if (armed.length === 0) {
         const total = rulesCache.all().length
@@ -57,11 +69,12 @@ export function createInAppMatcher(params: {
           reason: `inapp-empty (totalArmed=${total})`,
           at: new Date().toISOString(),
         })
-        return
+        return null
       }
       for (const msg of armed) {
-        if (tryFire(msg, eventName)) return
+        if (tryFire(msg, eventName)) return msg.messageId
       }
+      return null
     },
   }
 }

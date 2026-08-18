@@ -28,6 +28,7 @@ import type {
   RotateWriteKeyResponse,
   User,
   Workspace,
+  WorkspaceWithRole,
   WorkspaceMember,
   WorkspaceRole,
   WriteKey,
@@ -176,7 +177,9 @@ export interface CreateSegmentRequest {
 }
 
 export interface AppUserSummary {
+  readonly subjectId: string
   readonly anonymousId: string
+  readonly anonymousIds: ReadonlyArray<string>
   readonly externalId?: string | null
   readonly firstSeenAt: string
   readonly lastSeenAt: string
@@ -189,7 +192,9 @@ export interface AppUserSummary {
 }
 
 export interface AppUserDetail {
+  readonly subjectId: string
   readonly anonymousId: string
+  readonly anonymousIds: ReadonlyArray<string>
   readonly externalId?: string | null
   readonly firstSeenAt: string
   readonly lastSeenAt: string
@@ -208,16 +213,27 @@ export interface AppUserEvent {
   readonly appVersion?: string | null
 }
 
+export interface PaginatedAppUsers {
+  readonly items: ReadonlyArray<AppUserSummary>
+  readonly total: number
+  readonly nextCursor: string | null
+}
+
+export interface PaginatedAppUserEvents {
+  readonly items: ReadonlyArray<AppUserEvent>
+  readonly nextCursor: string | null
+}
+
 export interface ListUsersQuery {
   readonly q?: string
-  readonly page?: number
+  readonly cursor?: string
   readonly limit?: number
 }
 
 export interface ListUserEventsQuery {
   readonly from?: string
   readonly to?: string
-  readonly page?: number
+  readonly cursor?: string
   readonly limit?: number
 }
 
@@ -337,6 +353,14 @@ export interface SdkConsentPayload {
   readonly anonymousId: string
   readonly externalId?: string | null
   readonly purposes: Consent
+  readonly version: number
+  readonly effectiveAt: string
+}
+
+export interface SdkSessionResponse {
+  readonly subjectToken: string
+  readonly subjectId: string
+  readonly expiresAt: string
 }
 
 export interface SdkIdentifyPayload {
@@ -365,7 +389,7 @@ export interface GdprExportRequest {
 export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
 
 export const endpoints = {
-  'GET /v1/me': {} as Endpoint<void, { user: User; workspaces: ReadonlyArray<Workspace> }>,
+  'GET /v1/me': {} as Endpoint<void, { user: User; workspaces: ReadonlyArray<WorkspaceWithRole> }>,
 
   'GET /v1/workspaces': {} as Endpoint<void, ReadonlyArray<Workspace>>,
   'POST /v1/workspaces': {} as Endpoint<CreateWorkspaceRequest, Workspace>,
@@ -395,9 +419,9 @@ export const endpoints = {
   'DELETE /v1/apps/:appId/segments/:segId': {} as Endpoint<void, { ok: true }>,
   'POST /v1/apps/:appId/segments/:segId/preview': {} as Endpoint<void, SegmentPreview>,
   'POST /v1/apps/:appId/segments/:segId/rebuild': {} as Endpoint<void, { scheduled: true }>,
-  'GET /v1/apps/:appId/users': {} as Endpoint<ListUsersQuery, ReadonlyArray<AppUserSummary>>,
+  'GET /v1/apps/:appId/users': {} as Endpoint<ListUsersQuery, PaginatedAppUsers>,
   'GET /v1/apps/:appId/users/:anonymousId': {} as Endpoint<void, AppUserDetail>,
-  'GET /v1/apps/:appId/users/:anonymousId/events': {} as Endpoint<ListUserEventsQuery, ReadonlyArray<AppUserEvent>>,
+  'GET /v1/apps/:appId/users/:anonymousId/events': {} as Endpoint<ListUserEventsQuery, PaginatedAppUserEvents>,
   'GET /v1/apps/:appId/users/:anonymousId/push': {} as Endpoint<
     void,
     {

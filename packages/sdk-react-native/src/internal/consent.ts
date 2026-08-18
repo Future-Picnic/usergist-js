@@ -3,7 +3,7 @@
 // flushing. This lets us capture events before the user decides, and then
 // either flush (if granted later) or drop (if reset is called).
 
-import type { Consent } from '@usergist/sdk-core'
+import type { Consent } from '@usergist/sdk-core/mobile'
 import { STORAGE_KEYS, type StorageScope } from './storage.js'
 import { reportError } from './debug.js'
 import type { ConsentState } from './types.js'
@@ -14,6 +14,7 @@ const DEFAULT: ConsentState = {
   push: false,
   survey: false,
   updatedAt: null,
+  version: 0,
 }
 
 export interface ConsentManager {
@@ -22,6 +23,7 @@ export interface ConsentManager {
   readonly set: (purposes: Consent) => Promise<ConsentState>
   readonly clear: () => Promise<ConsentState>
   readonly allowsTransport: () => boolean
+  readonly allowsAnalytics: () => boolean
   readonly allowsFeedback: () => boolean
   readonly allowsPush: () => boolean
   readonly allowsSurvey: () => boolean
@@ -61,6 +63,7 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
             push: Boolean(stored.push),
             survey: Boolean((stored as { survey?: boolean }).survey),
             updatedAt: stored.updatedAt ?? null,
+            version: Number.isSafeInteger(stored.version) ? stored.version : 0,
           }
         }
       } catch (e) {
@@ -83,6 +86,7 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
         push: purposes.push ?? state.push,
         survey: purposes.survey ?? state.survey,
         updatedAt: new Date().toISOString(),
+        version: state.version + 1,
       }
       state = next
       await persist(next)
@@ -90,7 +94,7 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
       return next
     },
     async clear(): Promise<ConsentState> {
-      state = DEFAULT
+      state = { ...DEFAULT, version: state.version + 1, updatedAt: new Date().toISOString() }
       hydrated = true
       await persist(state)
       emit()
@@ -98,6 +102,7 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
     },
     allowsTransport: (): boolean =>
       state.analytics || state.feedback || state.push || state.survey,
+    allowsAnalytics: (): boolean => state.analytics,
     allowsFeedback: (): boolean => state.feedback,
     allowsPush: (): boolean => state.push,
     allowsSurvey: (): boolean => state.survey,

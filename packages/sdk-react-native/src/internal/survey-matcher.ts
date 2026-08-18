@@ -14,8 +14,8 @@
 // Server reconciles asynchronously (the offer-ledger insert from the
 // trigger-engine still runs for analytics correctness).
 
-import type { ArmedSurvey, FrequencyCaps } from '@usergist/sdk-core'
-import { evaluateSerializedSegmentRules } from '@usergist/sdk-core'
+import type { ArmedSurvey, FrequencyCaps } from '@usergist/sdk-core/mobile'
+import { evaluateSerializedSegmentRules } from '@usergist/sdk-core/mobile'
 import type { SurveyRulesCache } from './survey-rules-cache.js'
 import type { FrequencyCapManager } from './frequency-cap.js'
 import type { UserStateStore } from './user-state.js'
@@ -24,7 +24,8 @@ import type { EventBus } from './events.js'
 import { logTrace } from './debug.js'
 
 export interface SurveyMatcher {
-  readonly evaluate: (eventName: string) => void
+  /** Returns the locally rendered survey id, or null when the server decides. */
+  readonly evaluate: (eventName: string) => string | null
 }
 
 // Translate the survey-side PushFrequencyCap shape into the prompt-
@@ -64,6 +65,16 @@ export function createSurveyMatcher(params: {
   const { rulesCache, frequencyCaps, userState, consent, events } = params
 
   function tryFire(armed: ArmedSurvey, eventName: string): boolean {
+    if (armed.clientSideEligible === false) {
+      logTrace({
+        eventName,
+        promptId: armed.campaignId,
+        outcome: 'blocked-no-trigger',
+        reason: 'server-authoritative',
+        at: new Date().toISOString(),
+      })
+      return false
+    }
     if (!consent.allowsSurvey()) {
       logTrace({
         eventName,
@@ -130,12 +141,13 @@ export function createSurveyMatcher(params: {
   return {
     evaluate(eventName) {
       const candidates = rulesCache.getForEvent(eventName)
-      if (candidates.length === 0) return
+      if (candidates.length === 0) return null
       // Fire the first matching survey (one survey at a time, like
       // feedback's one-prompt-at-a-time rule).
       for (const armed of candidates) {
-        if (tryFire(armed, eventName)) return
+        if (tryFire(armed, eventName)) return armed.campaignId
       }
+      return null
     },
   }
 }

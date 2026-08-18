@@ -20,8 +20,8 @@ import {
   Text,
   View,
 } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { Question } from '@usergist/sdk-core'
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
+import type { Question } from '@usergist/sdk-core/mobile'
 import type { ShowPromptPayload, ResponseEmission } from '../internal/types.js'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './theme.js'
 import { animateIn, animateOut } from './animations.js'
@@ -29,8 +29,15 @@ import { RatingQuestion } from './questions/RatingQuestion.js'
 import { NpsQuestion } from './questions/NpsQuestion.js'
 import { MultipleChoiceQuestion } from './questions/MultipleChoiceQuestion.js'
 import { ShortTextQuestion } from './questions/ShortTextQuestion.js'
+import { useModalSlot } from '../internal/modal-coordinator.js'
+import {
+  promptResponseAnswers,
+  withPromptAnswer,
+  type PromptAnswerRecord,
+  type PromptAnswerValue,
+} from '../internal/prompt-answers.js'
 
-type AnswerRecord = Record<string, number | string | ReadonlyArray<string> | null>
+type AnswerRecord = PromptAnswerRecord
 
 // Tap-to-select questions auto-advance — there's nothing more for
 // the user to do, the Next button would just be friction.
@@ -73,9 +80,22 @@ export function PromptSheet({
   const [visible, setVisible] = useState<boolean>(false)
   const [index, setIndex] = useState<number>(0)
   const [answers, setAnswers] = useState<AnswerRecord>({})
+  const answersRef = useRef<AnswerRecord>({})
+  const closingRef = useRef(false)
+  const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const modalGranted = useModalSlot('prompt', Boolean(payload))
   const translate = useRef(new Animated.Value(0)).current
   const height = Dimensions.get('window').height
-  const insets = useSafeAreaInsets()
+  // Read insets from context directly rather than useSafeAreaInsets(), which
+  // THROWS when no <SafeAreaProvider> is mounted above us. The SDK Provider
+  // renders this component unconditionally, so a host app that hasn't wrapped
+  // its tree in a SafeAreaProvider would otherwise crash on mount.
+  const insets = React.useContext(SafeAreaInsetsContext) ?? {
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+  }
 
   const theme: ResolvedTheme = useMemo(() => {
     if (themeOverride) return mergeTheme(themeOverride, payload?.theme)
@@ -84,12 +104,20 @@ export function PromptSheet({
 
   useEffect(() => {
     if (payload) {
+      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current)
+      advanceTimerRef.current = null
+      answersRef.current = {}
+      closingRef.current = false
       setAnswers({})
       setIndex(0)
       setVisible(true)
       requestAnimationFrame(() => animateIn(translate))
     }
   }, [payload, translate])
+
+  useEffect(() => () => {
+    if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current)
+  }, [])
 
   // Slide each new question in from the right + fade up. Same
   // pattern surveys use, so feedback and survey feel identical.
@@ -121,15 +149,16 @@ export function PromptSheet({
   const isLast = index >= questions.length - 1
 
   function close(kind: 'submit' | 'dismiss'): void {
+    if (closingRef.current) return
+    closingRef.current = true
+    if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current)
+    advanceTimerRef.current = null
     animateOut(translate, () => {
       setVisible(false)
       const latencyMs = Date.now() - (payload?.shownAt ?? Date.now())
       const result: ResponseEmission = {
         promptId: payload!.promptId,
-        answers: Object.keys(answers).map((qid) => ({
-          questionId: qid,
-          value: answers[qid] ?? null,
-        })),
+        answers: promptResponseAnswers(answersRef.current),
         dismissed: kind === 'dismiss',
         latencyMs,
       }
@@ -138,14 +167,20 @@ export function PromptSheet({
     })
   }
 
-  function setAnswer(qid: string, v: number | string | ReadonlyArray<string> | null): void {
-    setAnswers((prev) => ({ ...prev, [qid]: v }))
+  function setAnswer(qid: string, v: PromptAnswerValue): void {
+    const nextAnswers = withPromptAnswer(answersRef.current, qid, v)
+    answersRef.current = nextAnswers
+    setAnswers(nextAnswers)
     // Auto-advance for tap-to-select question types — same UX rule
     // as the survey shell. multi_choice + text inputs keep the
     // explicit Next button so the user can pick multiple options
     // or finish typing.
     if (current?.id === qid && shouldAutoAdvance(current)) {
-      setTimeout(() => next(), 220)
+      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current)
+      advanceTimerRef.current = setTimeout(() => {
+        advanceTimerRef.current = null
+        next()
+      }, 220)
     }
   }
 
@@ -154,7 +189,7 @@ export function PromptSheet({
     else setIndex((i) => i + 1)
   }
 
-  function renderQuestion(q: Question): React.ReactElement {
+  function renderQuestion(q: Question): React.ReactElement | null {
     switch (q.type) {
       case 'rating': {
         const v = answers[q.id]
@@ -205,6 +240,11 @@ export function PromptSheet({
           />
         )
       }
+      // Unknown/newer question type (e.g. served by a newer dashboard to an
+      // older SDK). Render nothing instead of returning undefined, which would
+      // throw a React render error and unmount the host app tree.
+      default:
+        return null
     }
   }
 
@@ -218,7 +258,7 @@ export function PromptSheet({
   })
 
   return (
-    <Modal transparent visible={visible} onRequestClose={() => close('dismiss')} animationType="none">
+    <Modal transparent visible={visible && modalGranted} onRequestClose={() => close('dismiss')} animationType="none">
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.container}
@@ -242,6 +282,7 @@ export function PromptSheet({
             <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
             <Pressable
               onPress={() => close('dismiss')}
+              testID="feedback-close"
               accessibilityRole="button"
               accessibilityLabel="Close"
               hitSlop={12}
@@ -273,6 +314,7 @@ export function PromptSheet({
               {isTextInput(current.type) ? (
                 <Pressable
                   onPress={next}
+                  testID="feedback-next"
                   disabled={!answerHasValue(answers[current.id])}
                   accessibilityRole="button"
                   accessibilityLabel="Next"
@@ -303,6 +345,7 @@ export function PromptSheet({
           {current && !shouldAutoAdvance(current) && !isTextInput(current.type) ? (
             <Pressable
               onPress={next}
+              testID="feedback-next"
               accessibilityRole="button"
               accessibilityLabel="Next"
               style={[styles.next, { backgroundColor: theme.colors.primary }]}

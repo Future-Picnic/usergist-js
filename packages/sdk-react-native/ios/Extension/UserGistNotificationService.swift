@@ -17,7 +17,7 @@ import UserNotifications
 ///
 ///        ```swift
 ///        import UserNotifications
-///        import UserGistFeedback
+///        import UserGistFeedbackExtension
 ///
 ///        class NotificationService: UserGistNotificationService { }
 ///        ```
@@ -48,6 +48,8 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
 
   private var contentHandler: ((UNNotificationContent) -> Void)?
   private var bestAttempt: UNMutableNotificationContent?
+  private let completionLock = NSLock()
+  private var didFinish = false
 
   open override func didReceive(_ request: UNNotificationRequest,
                                   withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
@@ -59,15 +61,15 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
     // ---------- Silent reachability ping ----------
     if (userInfo["usergist_silent"] as? String) == "1" {
       let pingId = (userInfo["usergist_ping_id"] as? String) ?? ""
-      UserGistBeaconClient.silentAck(pingId: pingId) {
+      UserGistBeaconClient.silentAck(pingId: pingId) { [weak self] in
         // Empty content — no banner, no sound, no badge.
-        contentHandler(UNNotificationContent())
+        self?.finish(UNNotificationContent())
       }
       return
     }
 
     guard let bestAttempt = self.bestAttempt else {
-      contentHandler(request.content)
+      finish(request.content)
       return
     }
 
@@ -85,7 +87,7 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
     let imageUrlString = extractImageUrl(from: userInfo)
 
     guard let raw = imageUrlString, let imageUrl = URL(string: raw) else {
-      contentHandler(bestAttempt)
+      finish(bestAttempt)
       return
     }
 
@@ -93,15 +95,28 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
       if let attachment = attachment {
         bestAttempt.attachments = [attachment]
       }
-      contentHandler(bestAttempt)
+      self.finish(bestAttempt)
     }
   }
 
   open override func serviceExtensionTimeWillExpire() {
     // Best effort: deliver whatever we have if Apple cuts us off (~30s).
-    if let bestAttempt = self.bestAttempt, let contentHandler = self.contentHandler {
-      contentHandler(bestAttempt)
+    if let bestAttempt = self.bestAttempt {
+      finish(bestAttempt)
     }
+  }
+
+  private func finish(_ content: UNNotificationContent) {
+    completionLock.lock()
+    guard !didFinish else {
+      completionLock.unlock()
+      return
+    }
+    didFinish = true
+    let handler = contentHandler
+    contentHandler = nil
+    completionLock.unlock()
+    handler?(content)
   }
 
   // MARK: - Helpers
@@ -193,12 +208,24 @@ enum UserGistBeaconClient {
       "receivedAt": ISO8601DateFormatter().string(from: Date()),
     ]
     req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-    let task = URLSession.shared.dataTask(with: req) { _, _, _ in
+    let lock = NSLock()
+    var completed = false
+    let finish = {
+      lock.lock()
+      guard !completed else {
+        lock.unlock()
+        return
+      }
+      completed = true
+      lock.unlock()
       completion()
+    }
+    let task = URLSession.shared.dataTask(with: req) { _, _, _ in
+      finish()
     }
     task.resume()
     // Safety net so we still call contentHandler if the request hangs.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { completion() }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { finish() }
   }
 }
 

@@ -7,9 +7,10 @@ import {
   Text,
   View,
 } from 'react-native'
-import type { ArmedInAppMessage, InAppCta } from '@usergist/sdk-core'
+import type { ArmedInAppMessage, InAppCta } from '@usergist/sdk-core/mobile'
 import { DEFAULT_THEME, mergeTheme, type ResolvedTheme } from './theme.js'
-import type { PromptTheme } from '@usergist/sdk-core'
+import type { PromptTheme } from '@usergist/sdk-core/mobile'
+import { useModalSlot } from '../internal/modal-coordinator.js'
 
 interface Props {
   readonly message: ArmedInAppMessage | null
@@ -28,6 +29,7 @@ export function InAppMessageView({
   onCtaPress,
   onDismiss,
 }: Props): React.ReactElement | null {
+  const modalGranted = useModalSlot('inapp', Boolean(message))
   const theme: ResolvedTheme = React.useMemo(() => {
     const override: PromptTheme | undefined =
       message?.backgroundColor || message?.accentColor
@@ -45,24 +47,23 @@ export function InAppMessageView({
   // Auto-dismiss for slide-up. Always run the effect (hooks rule); the
   // cleanup is a no-op when there's nothing to schedule.
   useEffect(() => {
-    if (!message) return
+    if (!message || !modalGranted) return
     if (message.format !== 'slideup') return
     const seconds = message.autoDismissSeconds
     if (!seconds || seconds <= 0) return
     const t = setTimeout(() => onDismiss(), seconds * 1000)
     return () => clearTimeout(t)
-  }, [message, onDismiss])
+  }, [message, modalGranted, onDismiss])
 
   if (!message) return null
 
-  const visible = true
   const isFull = message.format === 'modal_full'
   const isSlide = message.format === 'slideup'
 
   return (
     <Modal
       transparent={!isFull}
-      visible={visible}
+      visible={modalGranted}
       animationType={isSlide ? 'slide' : 'fade'}
       onRequestClose={onDismiss}
     >

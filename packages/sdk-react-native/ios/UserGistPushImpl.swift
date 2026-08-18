@@ -24,6 +24,7 @@ public final class UserGistPushImpl: NSObject {
   @objc public static let shared = UserGistPushImpl()
 
   private weak var emitter: AnyObject?
+  private let stateLock = NSLock()
   private var hasJsListeners: Bool = false
 
   /// Buffer of events that arrived before JS was ready to listen. Drained
@@ -40,11 +41,6 @@ public final class UserGistPushImpl: NSObject {
 
   private override init() {
     super.init()
-    // AppDelegate APNs swizzle is installed from Obj-C +load (see
-    // UserGistPushSwizzle.m) so it's in place BEFORE any push registration
-    // cycle. UNUserNotificationCenter delegate swizzle stays here since
-    // it only matters once notifications start arriving.
-    Self.installUNDelegateSwizzleIfNeeded()
   }
 
   /// Exposed to Obj-C so UserGistPushSwizzle.m's setDelegate: interceptor
@@ -59,11 +55,15 @@ public final class UserGistPushImpl: NSObject {
   /// Called by `UserGistPush.mm -init`. Swift never imports React-Core, so we
   /// take an opaque reference and reflect back through `@objc selector`s.
   @objc public func bindEmitter(_ emitter: AnyObject) {
+    stateLock.lock()
     self.emitter = emitter
+    stateLock.unlock()
   }
 
   @objc public func setHasJsListeners(_ value: Bool) {
+    stateLock.lock()
     self.hasJsListeners = value
+    stateLock.unlock()
     if value {
       drainPendingEvents()
     }
@@ -75,6 +75,17 @@ public final class UserGistPushImpl: NSObject {
                                 resolver: @escaping (Any?) -> Void,
                                 rejecter: @escaping (String, String, Error?) -> Void) {
     NSLog("[UserGistPush] enablePush called")
+    let installDelegateProxy = options["installDelegateProxy"] as? Bool ?? true
+    if installDelegateProxy {
+      Self.installUNDelegateSwizzleIfNeeded()
+      if let swizzler: AnyClass = NSClassFromString("UserGistPushSwizzle") {
+        let selector = NSSelectorFromString("installIfNeeded")
+        let target = swizzler as AnyObject
+        if target.responds(to: selector) {
+          _ = target.perform(selector)
+        }
+      }
+    }
     UNUserNotificationCenter.current().requestAuthorization(
       options: [.alert, .badge, .sound, .providesAppNotificationSettings]
     ) { [weak self] granted, error in
@@ -97,7 +108,7 @@ public final class UserGistPushImpl: NSObject {
         resolver([
           "granted": granted,
           "status": status,
-          "token": self?.lastApnsTokenHex as Any,
+          "token": self?.readLastApnsToken() as Any,
           "platform": "ios"
         ])
       }
@@ -108,7 +119,9 @@ public final class UserGistPushImpl: NSObject {
                                  rejecter: @escaping (String, String, Error?) -> Void) {
     DispatchQueue.main.async {
       UIApplication.shared.unregisterForRemoteNotifications()
+      self.stateLock.lock()
       self.lastApnsTokenHex = nil
+      self.stateLock.unlock()
       resolver(nil)
     }
   }
@@ -152,7 +165,11 @@ public final class UserGistPushImpl: NSObject {
 
   @objc public func getInitialNotification(resolver: @escaping (Any?) -> Void,
                                             rejecter: @escaping (String, String, Error?) -> Void) {
-    resolver(initialNotification as Any?)
+    stateLock.lock()
+    let notification = initialNotification
+    initialNotification = nil
+    stateLock.unlock()
+    resolver(notification as Any?)
   }
 
   // MARK: - Internal — emission helpers (called from swizzles)
@@ -160,7 +177,9 @@ public final class UserGistPushImpl: NSObject {
   @objc public func recordToken(deviceToken: Data) {
     let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
     NSLog("[UserGistPush] APNs token received (\(hex.count) hex chars) — emitting tokenReceived")
+    stateLock.lock()
     lastApnsTokenHex = hex
+    stateLock.unlock()
     emit(name: "UserGistPush:tokenReceived", body: ["token": hex, "platform": "ios"])
   }
 
@@ -180,41 +199,58 @@ public final class UserGistPushImpl: NSObject {
     if let actionIdentifier = actionIdentifier, actionIdentifier != "com.apple.UNNotificationDefaultActionIdentifier" {
       body["actionIdentifier"] = actionIdentifier
     }
+    stateLock.lock()
     if initialNotification == nil {
       // First open captured — surface via getInitialNotification.
       initialNotification = body
     }
+    stateLock.unlock()
     emit(name: "UserGistPush:notificationOpened", body: body)
   }
 
   // MARK: - Internal — emit + normalize
 
   private func emit(name: String, body: [String: Any]) {
+    stateLock.lock()
     guard hasJsListeners else {
       NSLog("[UserGistPush] emit BUFFER \(name) — JS not listening yet (pending=\(pendingEvents.count + 1))")
+      if pendingEvents.count >= 100 { pendingEvents.removeFirst() }
       pendingEvents.append((name, body))
+      stateLock.unlock()
       return
     }
+    stateLock.unlock()
     NSLog("[UserGistPush] emit SEND \(name)")
     sendToEmitter(name: name, body: body)
   }
 
   private func drainPendingEvents() {
+    stateLock.lock()
     let buffered = pendingEvents
     pendingEvents = []
+    stateLock.unlock()
     for ev in buffered {
       sendToEmitter(name: ev.name, body: ev.body)
     }
   }
 
   private func sendToEmitter(name: String, body: [String: Any]) {
-    guard let emitter = emitter else { return }
+    stateLock.lock()
+    let target = emitter
+    stateLock.unlock()
+    guard let emitter = target else { return }
     // RCTEventEmitter exposes `sendEventWithName:body:`. Reflect to call
     // it without importing React-Core in Swift (keeps the Swift module
     // free of React headers, which simplifies new-arch interop).
     let sel = NSSelectorFromString("sendEventWithName:body:")
     guard emitter.responds(to: sel) else { return }
     _ = emitter.perform(sel, with: name, with: body as NSDictionary)
+  }
+
+  private func readLastApnsToken() -> String? {
+    stateLock.lock()
+    defer { stateLock.unlock() }
+    return lastApnsTokenHex
   }
 
   private func normalizeUserInfo(_ userInfo: [AnyHashable: Any]) -> [String: Any] {
@@ -264,9 +300,7 @@ public final class UserGistPushImpl: NSObject {
   private static func installUNDelegateSwizzleIfNeeded() {
     guard !unDelegateInstalled else { return }
     unDelegateInstalled = true
-    // Install synchronously — at +load time we're on the main thread and
-    // Firebase's setDelegate call runs synchronously on main. Deferring
-    // via DispatchQueue.main.async would let Firebase's call land first.
+    // Install synchronously after enablePush opts into automatic integration.
     UserGistUNDelegateSwizzler.install()
     // Re-install whenever the app foregrounds. Belt-and-braces against
     // any SDK that re-takes the delegate while the app is backgrounded.

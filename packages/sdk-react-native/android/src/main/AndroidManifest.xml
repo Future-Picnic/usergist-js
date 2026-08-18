@@ -9,13 +9,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
-        <!-- Library-supplied FirebaseMessagingService. Merged into the host
-             AndroidManifest via the manifest merger.  If the host already
-             declares its own service for the FCM intent, the merger will
-             keep both unless tools:replace forces it; we don't force, so
-             coexistence with another push provider is safe. -->
+        <!-- Library-supplied FirebaseMessagingService. Hosts that already own
+             FCM delivery must set userGistFirebaseServiceEnabled=false and
+             forward tokens/messages through the public Push API. -->
         <service
             android:name=".UserGistFirebaseMessagingService"
+            android:enabled="${userGistFirebaseServiceEnabled}"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />

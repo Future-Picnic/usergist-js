@@ -8,7 +8,7 @@
 import { STORAGE_KEYS, type StorageScope } from './storage.js'
 import { reportError } from './debug.js'
 import type { FrequencyCapState } from './types.js'
-import type { FrequencyCaps } from '@usergist/sdk-core'
+import type { FrequencyCaps } from '@usergist/sdk-core/mobile'
 
 const DEFAULT: FrequencyCapState = {
   perPrompt: {},

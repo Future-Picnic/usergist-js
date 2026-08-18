@@ -20,6 +20,13 @@ type DebugState = {
 }
 
 let state: DebugState = { enabled: false, traces: [] }
+export interface SdkDiagnostic {
+  readonly code: 'sdk_error'
+  readonly message: string
+  readonly occurredAt: string
+}
+
+let diagnosticHandler: ((diagnostic: SdkDiagnostic) => void) | null = null
 
 const TRACE_CAP = 200
 
@@ -33,6 +40,12 @@ export function isDebugEnabled(): boolean {
 
 export function getTraces(): ReadonlyArray<DecisionTrace> {
   return state.traces
+}
+
+export function setDiagnosticHandler(
+  handler: ((diagnostic: SdkDiagnostic) => void) | null,
+): void {
+  diagnosticHandler = handler
 }
 
 export function logTrace(trace: DecisionTrace): void {
@@ -49,6 +62,15 @@ export function logTrace(trace: DecisionTrace): void {
 }
 
 export function reportError(message: string, error?: unknown): void {
+  try {
+    diagnosticHandler?.({
+      code: 'sdk_error',
+      message: message.slice(0, 200),
+      occurredAt: new Date().toISOString(),
+    })
+  } catch {
+    // Host diagnostics must never cross the SDK boundary.
+  }
   if (!__DEV__ || !state.enabled) return
   try {
     // eslint-disable-next-line no-console

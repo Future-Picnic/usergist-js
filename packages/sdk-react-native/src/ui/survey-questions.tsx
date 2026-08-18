@@ -12,7 +12,7 @@ import type {
   SingleChoiceQuestion as SCQ,
   SingleDateQuestion as SDQ,
   SurveyAnswerValue,
-} from '@usergist/sdk-core'
+} from '@usergist/sdk-core/mobile'
 import type { ResolvedTheme } from './theme.js'
 import { QuestionImageHeader } from './QuestionImageHeader.js'
 
@@ -217,6 +217,8 @@ export function LongTextQuestionView({
     <View>
       <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
       <TextInput
+        accessibilityLabel={question.title}
+        testID={`survey-question-${question.id}-input`}
         value={value}
         onChangeText={onChange}
         placeholder={question.placeholder ?? ''}
@@ -351,6 +353,8 @@ export function SingleDateQuestionView({
     <View>
       <TitleBlock title={question.title} subtitle={question.subtitle} imageUrl={question.imageUrl} theme={theme} />
       <TextInput
+        accessibilityLabel={question.title}
+        testID={`survey-question-${question.id}-input`}
         value={local}
         onChangeText={(s) => {
           setLocal(s)

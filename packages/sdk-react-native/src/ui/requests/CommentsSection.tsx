@@ -16,7 +16,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import type { RequestComment } from '@usergist/sdk-core'
+import type { RequestComment } from '@usergist/sdk-core/mobile'
 import { UserGist } from '../../UserGist.js'
 
 interface CommentsSectionProps {
@@ -54,14 +54,16 @@ export function CommentsSection({ requestId, accent }: CommentsSectionProps) {
 
   const handlePost = useCallback(async () => {
     if (!canPost) return
+    const submittedBody = trimmed
     setPosting(true)
+    setDraft('')
     try {
-      const created = await UserGist.postComment(requestId, trimmed)
+      const created = await UserGist.postComment(requestId, submittedBody)
       if (created) {
         setComments((prev) => [...prev, created])
-        setDraft('')
       }
     } catch (e) {
+      setDraft((current) => (current.length === 0 ? submittedBody : current))
       Alert.alert('Could not post', String((e as Error)?.message ?? e))
     } finally {
       setPosting(false)
@@ -117,6 +119,8 @@ export function CommentsSection({ requestId, accent }: CommentsSectionProps) {
 
       <View style={styles.composeCard}>
         <TextInput
+          accessibilityLabel="Request comment"
+          testID="request-comment-input"
           value={draft}
           onChangeText={setDraft}
           maxLength={1000}
@@ -129,6 +133,8 @@ export function CommentsSection({ requestId, accent }: CommentsSectionProps) {
         <View style={styles.composeFooter}>
           <Text style={styles.counter}>{draft.length}/1000</Text>
           <Pressable
+            accessibilityLabel="Post request comment"
+            testID="request-comment-post"
             onPress={handlePost}
             disabled={!canPost}
             style={[
@@ -254,6 +260,8 @@ function CommentRow({
         </Text>
         {comment.viewerIsAuthor && !isEditing ? (
           <Pressable
+            accessibilityLabel="Comment actions"
+            testID="request-comment-actions"
             onPress={showOverflow}
             hitSlop={12}
             style={styles.overflowBtn}

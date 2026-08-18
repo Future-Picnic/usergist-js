@@ -1,6 +1,6 @@
 import React from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import type { MultipleChoiceQuestion as MCQ } from '@usergist/sdk-core'
+import type { MultipleChoiceQuestion as MCQ } from '@usergist/sdk-core/mobile'
 import type { ResolvedTheme } from '../theme.js'
 import { QuestionImageHeader } from '../QuestionImageHeader.js'
 

@@ -106,6 +106,12 @@ export interface ArmedTrigger {
   readonly promptId: string
   readonly eventName: string
   readonly segmentRules?: SerializedSegmentRules | null
+  /**
+   * True when the SDK can safely decide this trigger locally for instant UI.
+   * Advanced occurrence, delay, property-filter, and server-only audience
+   * rules remain authoritative on the server and arrive via instructions.
+   */
+  readonly clientSideEligible?: boolean
   readonly frequency: FrequencyCaps
   readonly prompt: ClientPrompt
 }

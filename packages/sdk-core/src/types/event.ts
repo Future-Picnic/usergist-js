@@ -5,6 +5,8 @@ export interface EventProperties {
 }
 
 export interface IngestEvent {
+  /** Stable client-generated ID used to deduplicate network retries. */
+  readonly eventId?: string
   readonly name: string
   readonly timestamp: string
   readonly anonymousId: string

@@ -8,10 +8,9 @@
 // `imp_implementationWithBlock` has the standard objc_msgSend ABI and runs
 // on any NSObject subclass without surprises.
 //
-// On +load (which runs before main()), we register for the early
-// `UIApplicationDidFinishLaunchingNotification` so we can grab the live
-// AppDelegate class and patch it. After that, `registerForRemoteNotifications`
-// callbacks land in our block, which forwards to the Swift impl.
+// Installation is explicit and happens only after the host calls enablePush.
+// At that point UIApplication already has a delegate, and interception is in
+// place before registerForRemoteNotifications starts the APNs token cycle.
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -30,11 +29,11 @@
 
 @implementation UserGistPushSwizzle
 
-+ (void)load {
-    // The UN setter-swizzle MUST run as early as possible — before
-    // AppDelegate.didFinishLaunching, which is when FirebaseApp.configure()
-    // typically runs and may install its own UN delegate. +load fires at
-    // image load time, well before main(), so we win that race.
++ (void)load { }
+
++ (void)installIfNeeded {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
     [self installUNDelegateSetterSwizzle];
 
     // Force-instantiate the Swift singleton so its `init` runs and our
@@ -52,38 +51,29 @@
         }
     }
 
-    // AppDelegate-class swizzles (didRegister / didFail) can't run yet —
-    // the host's AppDelegate class isn't instantiated until iOS launches it.
-    // Defer those to UIApplicationDidFinishLaunchingNotification.
-    [[NSNotificationCenter defaultCenter]
-        addObserver:self
-           selector:@selector(_usergistInstallSwizzles:)
-               name:UIApplicationDidFinishLaunchingNotification
-             object:nil];
+    [self _usergistInstallSwizzles:nil];
+    });
 }
 
 + (void)_usergistInstallSwizzles:(NSNotification *)note {
-    [[NSNotificationCenter defaultCenter] removeObserver:self
-                                                    name:UIApplicationDidFinishLaunchingNotification
-                                                  object:nil];
     Class delegateClass = [[[UIApplication sharedApplication] delegate] class];
     if (!delegateClass) {
-        NSLog(@"[UserGistPush] +load swizzle: no AppDelegate at didFinishLaunching — skipping");
+        NSLog(@"[UserGistPush] opt-in swizzle: no AppDelegate — skipping");
         return;
     }
-    NSLog(@"[UserGistPush] +load swizzle: target class = %@", NSStringFromClass(delegateClass));
+    NSLog(@"[UserGistPush] opt-in swizzle: target class = %@", NSStringFromClass(delegateClass));
 
     [self installDidRegister:delegateClass];
     [self installDidFail:delegateClass];
 
-    NSLog(@"[UserGistPush] +load swizzle: complete");
+    NSLog(@"[UserGistPush] opt-in swizzle: complete");
 }
 
 // Holds whoever the host (or another SDK like FirebaseAnalytics) most
 // recently tried to install as the UNUserNotificationCenter delegate.
 // Read by UserGistUNDelegateSwizzler so it can chain didReceive / willPresent
 // to the displaced delegate.
-static id<NSObject> _usergist_lastForeignDelegate = nil;
+static __weak id<NSObject> _usergist_lastForeignDelegate = nil;
 
 // Swizzle UNUserNotificationCenter.setDelegate: so any code that tries to
 // install its own delegate (FirebaseAnalytics, OneSignal, Notifee, the

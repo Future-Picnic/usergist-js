@@ -22,6 +22,7 @@ export interface PromptResponse {
 }
 
 export interface SubmitResponsePayload {
+  readonly idempotencyKey?: string
   readonly promptId: string
   readonly anonymousId: string
   readonly externalId?: string | null

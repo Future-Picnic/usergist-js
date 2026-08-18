@@ -22,7 +22,7 @@ import {
   Text,
   View,
 } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
 import type {
   SurveyAnswerRecord,
   SurveyAnswerValue,
@@ -30,8 +30,8 @@ import type {
   SurveyEndScreen,
   SurveyQuestion,
   SurveyAttemptSource,
-} from '@usergist/sdk-core'
-import { estimateProgress, nextQuestionId } from '@usergist/sdk-core'
+} from '@usergist/sdk-core/mobile'
+import { estimateProgress, nextQuestionId } from '@usergist/sdk-core/mobile'
 import type { ResolvedTheme } from './theme.js'
 import { DEFAULT_THEME, mergeTheme } from './theme.js'
 import { RatingQuestion } from './questions/RatingQuestion.js'
@@ -46,6 +46,7 @@ import {
   SingleChoiceQuestionView,
   SingleDateQuestionView,
 } from './survey-questions.js'
+import { useModalSlot } from '../internal/modal-coordinator.js'
 
 export interface SurveyLifecycleCallbacks {
   readonly onShow?: (surveyId: string) => void
@@ -65,11 +66,10 @@ export interface SurveyViewProps extends SurveyLifecycleCallbacks {
     currentQuestionId: string | null,
     snapshot: SurveyAnswerRecord,
   ) => Promise<void>
-  readonly onSubmitAnswers: (
+  readonly onCompleteAttempt: (
     attemptId: string,
     answers: ReadonlyArray<{ questionId: string; value: SurveyAnswerValue }>,
   ) => Promise<void>
-  readonly onCompleteAttempt: (attemptId: string) => Promise<void>
   readonly onAbandonAttempt: (attemptId: string) => Promise<void>
   readonly onDismissRequest: () => void
 }
@@ -82,7 +82,6 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
     initialQuestionId,
     themeOverride,
     onSaveProgress,
-    onSubmitAnswers,
     onCompleteAttempt,
     onAbandonAttempt,
     onDismissRequest,
@@ -96,7 +95,19 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
   const [history, setHistory] = useState<ReadonlyArray<string>>([])
   const [ended, setEnded] = useState<boolean>(false)
   const [submitting, setSubmitting] = useState<boolean>(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const modalGranted = useModalSlot('survey', Boolean(survey))
+  // Hooks must run in the same order while the Provider transitions this
+  // component between its idle (survey=null) and visible states. Reading the
+  // context below the early return caused React's development warning and can
+  // corrupt later hook state on repeated opens.
+  const insets = React.useContext(SafeAreaInsetsContext) ?? {
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+  }
 
   const theme = useMemo<ResolvedTheme>(() => {
     // Priority: explicit per-app override > the survey's own theme
@@ -115,6 +126,7 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
       setCurrentId(start)
       setHistory([])
       setEnded(false)
+      setSubmitError(null)
       setAnswers(initialSnapshot)
       if (onShow) onShow(survey.id)
     } else {
@@ -244,6 +256,7 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
     if (!attemptId) return
     try {
       setSubmitting(true)
+      setSubmitError(null)
       const payload: Array<{ questionId: string; value: SurveyAnswerValue }> = []
       for (const q of flow.questions) {
         if (q.type === 'info_screen') continue
@@ -251,12 +264,11 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
         if (v === undefined) continue
         payload.push({ questionId: q.id, value: v })
       }
-      if (payload.length > 0) {
-        await onSubmitAnswers(attemptId, payload)
-      }
-      await onCompleteAttempt(attemptId)
+      await onCompleteAttempt(attemptId, payload)
       setEnded(true)
       if (onComplete) onComplete(surveyLocal.id, attemptId)
+    } catch {
+      setSubmitError('Your answers are saved on this device. Check your connection and retry.')
     } finally {
       setSubmitting(false)
     }
@@ -268,6 +280,10 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
     // attempt sweeper will mark it abandoned anyway if the request
     // never lands. Awaiting abandon here meant 5s of "stuck" UI on a
     // flaky server, and retry storms from repeated X-taps.
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current)
+      saveTimer.current = null
+    }
     if (attemptId) {
       const id = attemptId
       void (async () => {
@@ -283,11 +299,10 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
   }
 
   const progress = estimateProgress(flow, currentId)
-  const insets = useSafeAreaInsets()
 
   return (
     <Modal
-      visible
+      visible={modalGranted}
       animationType="slide"
       presentationStyle="fullScreen"
       onRequestClose={() => dismiss()}
@@ -312,6 +327,7 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
           <Pressable
             onPress={() => dismiss()}
             accessibilityLabel="Close"
+            testID="survey-close"
             hitSlop={16}
             style={styles.closeBtn}
           >
@@ -385,6 +401,21 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
                 }}
               >
                 {renderQuestion(currentQuestion, answers, setAnswerFor, theme)}
+                {submitError ? (
+                  <View accessibilityRole="alert" style={styles.submitError}>
+                    <Text style={{ color: theme.colors.text, fontFamily: theme.fontFamily }}>
+                      {submitError}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Retry survey submission"
+                      onPress={() => { void submitAndComplete() }}
+                      style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
+                    >
+                      <Text style={{ color: '#ffffff', fontWeight: '700' }}>Retry</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
                 {isTextInput(currentQuestion.type) ? (
                   <Pressable
                     onPress={advance}
@@ -393,6 +424,7 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
                     }
                     accessibilityRole="button"
                     accessibilityLabel="Next"
+                    testID="survey-next"
                     style={[
                       styles.inlineNext,
                       {
@@ -505,7 +537,7 @@ function renderQuestion(
   answers: SurveyAnswerRecord,
   setAnswer: (qid: string, v: SurveyAnswerValue) => void,
   theme: ResolvedTheme,
-): React.ReactElement {
+): React.ReactElement | null {
   const current = answers[q.id]
   switch (q.type) {
     case 'single_choice':
@@ -609,6 +641,10 @@ function renderQuestion(
       )
     case 'info_screen':
       return <InfoScreenView question={q} theme={theme} />
+    // Unknown/newer question type: render nothing rather than returning
+    // undefined, which throws a React render error and crashes the host app.
+    default:
+      return null
   }
 }
 
@@ -662,6 +698,8 @@ function EndScreen({
       ) : null}
       <Pressable
         onPress={onPressCta}
+        accessibilityLabel="Close completed survey"
+        testID="survey-complete-close"
         style={[styles.cta, { backgroundColor: theme.colors.primary }]}
       >
         <Text
@@ -685,6 +723,8 @@ function EndScreen({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  submitError: { marginTop: 20, gap: 12 },
+  retryButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

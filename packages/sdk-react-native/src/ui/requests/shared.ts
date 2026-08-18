@@ -7,7 +7,7 @@ import type {
   Request as RequestDto,
   RequestStatus,
   RequestSummary,
-} from '@usergist/sdk-core'
+} from '@usergist/sdk-core/mobile'
 import { UserGist } from '../../UserGist.js'
 
 export const STATUS_COLOR: Record<RequestStatus, string> = {

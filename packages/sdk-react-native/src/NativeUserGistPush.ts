@@ -15,6 +15,8 @@ import { TurboModuleRegistry } from 'react-native'
 export interface EnablePushOptions {
   readonly skipPermissionRequestIfDenied?: boolean
   readonly environment?: 'sandbox' | 'production'
+  /** Disable delegate interception when the host forwards tokens/messages via Push. */
+  readonly installDelegateProxy?: boolean
 }
 
 export interface EnablePushResult {

@@ -7,17 +7,20 @@ import type {
   IngestEvent,
   SdkConfig,
   SubmitResponsePayload,
-} from '@usergist/sdk-core'
-import { APP_OPEN_EVENT_NAME } from '@usergist/sdk-core'
+  CompleteSurveyAttemptRequest,
+  ClientPrompt,
+  ArmedInAppMessage,
+} from '@usergist/sdk-core/mobile'
+import { APP_OPEN_EVENT_NAME } from '@usergist/sdk-core/mobile'
 import {
   STORAGE_KEYS,
   createStorageScope,
   type StorageScope,
 } from './storage.js'
-import { createIdentityManager, type IdentityManager } from './identity.js'
+import { createIdentityManager, generateEventId, type IdentityManager } from './identity.js'
 import { createConsentManager, type ConsentManager } from './consent.js'
 import { createEventQueue, type EventQueue } from './queue.js'
-import { createTransport, type Transport } from './transport.js'
+import { createTransport, PermanentHttpError, type Transport } from './transport.js'
 import { createRulesCache, type RulesCache } from './rules-cache.js'
 import {
   createSurveyRulesCache,
@@ -39,9 +42,15 @@ import type {
   ResponseEmission,
 } from './types.js'
 import type { ResolvedTheme } from '../ui/theme.js'
+import { createMutationQueue, type MutationQueue } from './mutation-queue.js'
+
+const ENVIRONMENT_API_URLS = {
+  production: 'https://api.usergist.studio',
+  staging: 'https://api.staging.usergist.studio',
+  development: 'http://localhost:28743',
+} as const
 
 const DEFAULTS = {
-  apiUrl: 'https://api.usergist.studio',
   environment: 'production' as const,
   flushIntervalMs: 15_000,
   flushBatchSize: 100,
@@ -56,6 +65,7 @@ export interface Engine {
   readonly identity: IdentityManager
   readonly consent: ConsentManager
   readonly queue: EventQueue
+  readonly mutations: MutationQueue
   readonly transport: Transport
   readonly rules: RulesCache
   readonly surveyRules: SurveyRulesCache
@@ -71,19 +81,35 @@ export interface Engine {
   hydrated: boolean
   hydratingPromise: Promise<void> | null
   flushTimer: ReturnType<typeof setTimeout> | null
+  flushPromise: Promise<void> | null
+  mutationFlushPromise: Promise<MutationFlushResult> | null
+  subjectToken: string | null
+  sessionPromise: Promise<void> | null
+  instructionPollPromise: Promise<void> | null
+  readonly locallyHandledInstructionKeys: Set<string>
+  /** Survey campaigns rendered immediately on-device; suppresses the later
+   * offer-ledger poll for the same campaign. */
+  readonly locallyHandledSurveyIds: Set<string>
   themeOverride: ResolvedTheme | null
   /** Last push token registered with the server. Used by `rebindPushToken`. */
   lastPushToken: string | null
+  lastPushRegistrationKey: string | null
+  lastPushRegistrationAt: number
 }
 
 export function resolveConfig(config: SdkConfig): ResolvedConfig {
   if (!config || typeof config.writeKey !== 'string' || config.writeKey.length === 0) {
     throw new Error('UserGist.init requires a writeKey')
   }
+  const environment = config.environment ?? DEFAULTS.environment
+  const apiUrl = config.apiUrl ?? ENVIRONMENT_API_URLS[environment]
+  if (environment === 'production' && !apiUrl.startsWith('https://')) {
+    throw new Error('UserGist production apiUrl must use HTTPS')
+  }
   return {
     writeKey: config.writeKey,
-    apiUrl: config.apiUrl ?? DEFAULTS.apiUrl,
-    environment: config.environment ?? DEFAULTS.environment,
+    apiUrl,
+    environment,
     flushIntervalMs: config.flushIntervalMs ?? DEFAULTS.flushIntervalMs,
     flushBatchSize: config.flushBatchSize ?? DEFAULTS.flushBatchSize,
     maxQueueSize: config.maxQueueSize ?? DEFAULTS.maxQueueSize,
@@ -100,6 +126,7 @@ export function createEngine(config: SdkConfig): Engine {
   const identity = createIdentityManager(storage)
   const consent = createConsentManager(storage)
   const queue = createEventQueue(storage, resolved.maxQueueSize)
+  const mutations = createMutationQueue(storage)
   const transport = createTransport({ writeKey: resolved.writeKey, apiUrl: resolved.apiUrl })
   const rules = createRulesCache(storage, transport, resolved.triggerSyncIntervalMs)
   const surveyRules = createSurveyRulesCache(
@@ -147,21 +174,12 @@ export function createEngine(config: SdkConfig): Engine {
   const lifecycle = createLifecycleManager({
     onForeground: () => {
       const e = eng()
-      // Refresh first, THEN emit `$app_open` — otherwise the local
-      // matcher evaluates against stale rules cached from the previous
-      // session (e.g. an old `kind: 'event'` rule before the dashboard
-      // change). Without this await, dashboard updates take up to 5min
-      // (the sync tick interval) to take effect on cold launch.
       void ensureHydrated(e).then(async () => {
-        const id = e.identity.get()
-        await Promise.all([
-          e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId }),
-          e.surveyRules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId }),
-          e.inAppRules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId }),
-        ])
+        await refreshTargetingRules(e)
         emitAppOpenWhenConsentReady(e)
         void flushNow(e)
         void pollSurveyOffers(e)
+        void pollInstructions(e)
       })
     },
     onBackground: () => {
@@ -169,17 +187,9 @@ export function createEngine(config: SdkConfig): Engine {
     },
     onSyncTick: () => {
       const e = eng()
-      const id = e.identity.get()
-      void e.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
-      void e.surveyRules.refresh({
-        anonymousId: id.anonymousId,
-        externalId: id.externalId,
-      })
-      void e.inAppRules.refresh({
-        anonymousId: id.anonymousId,
-        externalId: id.externalId,
-      })
+      void refreshTargetingRules(e)
       void pollSurveyOffers(e)
+      void pollInstructions(e)
     },
     syncIntervalMs: resolved.triggerSyncIntervalMs,
   })
@@ -190,6 +200,7 @@ export function createEngine(config: SdkConfig): Engine {
     identity,
     consent,
     queue,
+    mutations,
     transport,
     rules,
     surveyRules,
@@ -205,8 +216,17 @@ export function createEngine(config: SdkConfig): Engine {
     hydrated: false,
     hydratingPromise: null,
     flushTimer: null,
+    flushPromise: null,
+    mutationFlushPromise: null,
+    subjectToken: null,
+    sessionPromise: null,
+    instructionPollPromise: null,
+    locallyHandledInstructionKeys: new Set(),
+    locallyHandledSurveyIds: new Set(),
     themeOverride: null,
     lastPushToken: null,
+    lastPushRegistrationKey: null,
+    lastPushRegistrationAt: 0,
   }
   ref.value = engine
 
@@ -214,6 +234,12 @@ export function createEngine(config: SdkConfig): Engine {
     debugLog('queue overflow', { dropped, queueSize: queue.size() })
   })
   consent.subscribe((s) => {
+    if (!s.analytics) engine.queue.removePurpose('analytics')
+    if (!s.feedback) {
+      engine.queue.removePurpose('feedback')
+      void engine.mutations.removePurpose('feedback')
+    }
+    if (!s.survey) void engine.mutations.removePurpose('survey')
     if (s.feedback || s.analytics) void flushNow(engine)
   })
 
@@ -229,28 +255,82 @@ export async function ensureHydrated(engine: Engine): Promise<void> {
         engine.identity.hydrate(),
         engine.consent.hydrate(),
         engine.queue.hydrate(),
+        engine.mutations.hydrate(),
         engine.caps.hydrate(),
         engine.userState.hydrate(),
         engine.rules.hydrate(),
         engine.surveyRules.hydrate(),
         engine.inAppRules.hydrate(),
       ])
+      await ensureSubjectSession(engine)
       engine.hydrated = true
-      const id = engine.identity.get()
-      void engine.rules.refresh({ anonymousId: id.anonymousId, externalId: id.externalId })
-      void engine.surveyRules.refresh({
-        anonymousId: id.anonymousId,
-        externalId: id.externalId,
-      })
-      void engine.inAppRules.refresh({
-        anonymousId: id.anonymousId,
-        externalId: id.externalId,
-      })
     } catch (e) {
       reportError('ensureHydrated failed', e)
+    } finally {
+      // A transient session/storage failure must not permanently poison this
+      // engine instance. Leave successful hydration fast, but allow a later
+      // public call or foreground transition to retry a failed attempt.
+      if (!engine.hydrated) engine.hydratingPromise = null
     }
   })()
   return engine.hydratingPromise
+}
+
+export async function ensureSubjectSession(engine: Engine): Promise<void> {
+  if (engine.subjectToken) return
+  if (engine.sessionPromise) return engine.sessionPromise
+  engine.sessionPromise = (async () => {
+    const id = engine.identity.get()
+    const persisted = await engine.storage.getJson<string>(STORAGE_KEYS.subjectToken)
+    try {
+      const session = await engine.transport.session({
+        anonymousId: id.anonymousId,
+        ...(persisted ? { currentToken: persisted } : {}),
+      })
+      engine.subjectToken = session.subjectToken
+      engine.transport.setSubjectToken(session.subjectToken)
+      await engine.storage.setJson(STORAGE_KEYS.subjectToken, session.subjectToken)
+    } catch (error) {
+      if (!persisted) throw error
+      // A lost/expired credential must never be replaced for the same known
+      // anonymous ID. Rotate to a fresh installation identity and establish a
+      // new server-bound subject instead.
+      await engine.storage.remove(STORAGE_KEYS.subjectToken)
+      const rotated = await engine.identity.rotate()
+      const session = await engine.transport.session({ anonymousId: rotated.anonymousId })
+      engine.subjectToken = session.subjectToken
+      engine.transport.setSubjectToken(session.subjectToken)
+      await engine.storage.setJson(STORAGE_KEYS.subjectToken, session.subjectToken)
+    }
+  })().finally(() => {
+    engine.sessionPromise = null
+  })
+  return engine.sessionPromise
+}
+
+export async function refreshTargetingRules(
+  engine: Engine,
+  force = false,
+): Promise<void> {
+  await ensureHydrated(engine)
+  const id = engine.identity.get()
+  await Promise.all([
+    engine.rules.refresh({
+      anonymousId: id.anonymousId,
+      externalId: id.externalId,
+      force,
+    }),
+    engine.surveyRules.refresh({
+      anonymousId: id.anonymousId,
+      externalId: id.externalId,
+      force,
+    }),
+    engine.inAppRules.refresh({
+      anonymousId: id.anonymousId,
+      externalId: id.externalId,
+      force,
+    }),
+  ])
 }
 
 /**
@@ -264,17 +344,39 @@ export async function ensureHydrated(engine: Engine): Promise<void> {
  * where `feedback === true`. Idempotent: only fires once per call.
  */
 export function emitAppOpenWhenConsentReady(engine: Engine): void {
+  const pending = pendingAppOpenConsent.get(engine)
   if (engine.consent.allowsFeedback()) {
+    pending?.()
+    pendingAppOpenConsent.delete(engine)
     enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined)
     return
   }
+  if (pending) return
   let fired = false
   const unsubscribe = engine.consent.subscribe((s) => {
     if (fired || !s.feedback) return
     fired = true
     enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined)
     unsubscribe()
+    pendingAppOpenConsent.delete(engine)
   })
+  pendingAppOpenConsent.set(engine, unsubscribe)
+}
+
+const pendingAppOpenConsent = new WeakMap<Engine, () => void>()
+const MAX_LOCAL_INSTRUCTION_KEYS = 200
+
+function instructionKey(type: string, refId: string, eventId: string): string {
+  return `${type}:${refId}:event:${eventId}`
+}
+
+function rememberLocalInstruction(engine: Engine, key: string): void {
+  engine.locallyHandledInstructionKeys.add(key)
+  while (engine.locallyHandledInstructionKeys.size > MAX_LOCAL_INSTRUCTION_KEYS) {
+    const oldest = engine.locallyHandledInstructionKeys.values().next().value
+    if (typeof oldest !== 'string') break
+    engine.locallyHandledInstructionKeys.delete(oldest)
+  }
 }
 
 export function scheduleFlush(engine: Engine): void {
@@ -286,14 +388,34 @@ export function scheduleFlush(engine: Engine): void {
 }
 
 export async function flushNow(engine: Engine): Promise<void> {
+  if (engine.flushPromise) return engine.flushPromise
+  engine.flushPromise = performFlush(engine).finally(() => {
+    engine.flushPromise = null
+  })
+  return engine.flushPromise
+}
+
+async function performFlush(engine: Engine): Promise<void> {
   try {
     await ensureHydrated(engine)
-    if (!engine.consent.allowsTransport()) return
     while (engine.queue.size() > 0) {
-      const batch = engine.queue.peek(engine.config.flushBatchSize)
+      const consent = engine.consent.get()
+      const allowed = engine.queue.snapshot().filter((event) =>
+        event.purpose === 'analytics' ? consent.analytics : consent.feedback,
+      )
+      const firstAllowed = allowed[0]
+      if (!firstAllowed) break
+      // An identify transition can leave pre-identify events queued beside
+      // post-identify events. The API deliberately rejects a batch whose
+      // event identities differ from its context, so drain one identity at a
+      // time while retaining FIFO order within that identity.
+      const batch = allowed.filter((event) =>
+        event.anonymousId === firstAllowed.anonymousId &&
+        event.externalId === firstAllowed.externalId,
+      ).slice(0, engine.config.flushBatchSize)
       if (batch.length === 0) break
-      const id = engine.identity.get()
       const ingestEvents: ReadonlyArray<IngestEvent> = batch.map((e) => ({
+        eventId: e.eventId,
         name: e.name,
         timestamp: e.timestamp,
         anonymousId: e.anonymousId,
@@ -305,26 +427,157 @@ export async function flushNow(engine: Engine): Promise<void> {
       }))
       const payload: IngestBatch = {
         events: ingestEvents,
-        context: engine.context.build({ anonymousId: id.anonymousId, externalId: id.externalId }),
+        context: engine.context.build({
+          anonymousId: batch[0]!.anonymousId,
+          externalId: batch[0]!.externalId,
+        }),
       }
       try {
         await engine.transport.ingest(payload)
-        engine.queue.drop(batch.length)
+        engine.queue.remove(batch.map((event) => event.eventId))
       } catch (e) {
+        if (e instanceof PermanentHttpError) {
+          if (batch.length === 1) {
+            engine.queue.remove([batch[0]!.eventId])
+            reportError('ingest event quarantined after permanent rejection', {
+              eventId: batch[0]!.eventId,
+              status: e.status,
+            })
+            continue
+          }
+          // Retry smaller slices on the next loop so one invalid entry cannot
+          // permanently block every later event on this installation.
+          const first = batch[0]!
+          try {
+            await engine.transport.ingest({
+              events: [ingestEvents[0]!],
+              context: engine.context.build({
+                anonymousId: first.anonymousId,
+                externalId: first.externalId,
+              }),
+            })
+            engine.queue.remove([first.eventId])
+          } catch (singleError) {
+            if (singleError instanceof PermanentHttpError) {
+              engine.queue.remove([first.eventId])
+              reportError('ingest event quarantined after permanent rejection', {
+                eventId: first.eventId,
+                status: singleError.status,
+              })
+              continue
+            }
+            reportError('ingest failed', singleError)
+            return
+          }
+          continue
+        }
         reportError('ingest failed', e)
         return
       }
     }
     // After draining the queue, opportunistically pull pending survey offers.
+    await flushMutations(engine)
     // Triggered surveys appear in the offer ledger after the server processes
     // the event; the small delay gives NATS + the trigger engine time to
     // run before we ask.
     setTimeout(() => {
       void pollSurveyOffers(engine)
+      void pollInstructions(engine)
     }, 1500)
   } catch (e) {
     reportError('flushNow failed', e)
   }
+}
+
+export interface MutationFlushResult {
+  readonly permanentlyRejectedIds: ReadonlySet<string>
+}
+
+export async function flushMutations(engine: Engine): Promise<MutationFlushResult> {
+  if (engine.mutationFlushPromise) return engine.mutationFlushPromise
+  engine.mutationFlushPromise = performMutationFlush(engine).finally(() => {
+    engine.mutationFlushPromise = null
+  })
+  return engine.mutationFlushPromise
+}
+
+async function performMutationFlush(engine: Engine): Promise<MutationFlushResult> {
+  const permanentlyRejectedIds = new Set<string>()
+  while (engine.mutations.size() > 0) {
+    const mutation = engine.mutations.peek()
+    if (!mutation) break
+    const consent = engine.consent.get()
+    if (mutation.purpose === 'feedback' && !consent.feedback) break
+    if (mutation.purpose === 'survey' && !consent.survey) break
+    try {
+      if (mutation.kind === 'feedback-response') {
+        await engine.transport.submitResponse(
+          mutation.payload as unknown as SubmitResponsePayload,
+        )
+      } else if (mutation.kind === 'survey-complete') {
+        const attemptId = mutation.payload.attemptId
+        if (typeof attemptId !== 'string') throw new Error('invalid-survey-mutation')
+        await engine.transport.surveyComplete(
+          attemptId,
+          mutation.payload.body as unknown as CompleteSurveyAttemptRequest,
+        )
+      } else if (mutation.kind === 'survey-abandon') {
+        const attemptId = mutation.payload.attemptId
+        if (typeof attemptId !== 'string') throw new Error('invalid-survey-mutation')
+        await engine.transport.surveyAbandon(attemptId)
+      } else {
+        const subjectToken = mutation.payload.subjectToken
+        const anonymousId = mutation.payload.anonymousId
+        const externalId = mutation.payload.externalId
+        const properties = mutation.payload.properties
+        if (
+          typeof subjectToken !== 'string' ||
+          typeof anonymousId !== 'string' ||
+          typeof externalId !== 'string'
+        ) throw new Error('invalid-identify-mutation')
+        const previousToken = engine.subjectToken
+        engine.subjectToken = subjectToken
+        engine.transport.setSubjectToken(subjectToken)
+        try {
+          await engine.transport.identify({
+            anonymousId,
+            externalId,
+            ...(properties && typeof properties === 'object'
+              ? { properties: properties as Readonly<Record<string, EventPropertyValue>> }
+              : {}),
+          })
+          await engine.storage.setJsonStrict(STORAGE_KEYS.subjectToken, subjectToken)
+          await engine.identity.setExternalId(externalId)
+          if (properties && typeof properties === 'object') {
+            const clean = properties as Readonly<Record<string, EventPropertyValue>>
+            engine.userState.mergeProperties(clean)
+            if (engine.consent.allowsAnalytics()) {
+              enqueueAndEvaluate(engine, '$identify', clean)
+            }
+          } else if (engine.consent.allowsAnalytics()) {
+            enqueueAndEvaluate(engine, '$identify', undefined)
+          }
+        } catch (error) {
+          engine.subjectToken = previousToken
+          engine.transport.setSubjectToken(previousToken)
+          throw error
+        }
+      }
+      await engine.mutations.remove(mutation.id)
+    } catch (error) {
+      if (error instanceof PermanentHttpError) {
+        await engine.mutations.remove(mutation.id)
+        permanentlyRejectedIds.add(mutation.id)
+        reportError('mutation quarantined after permanent rejection', {
+          mutationId: mutation.id,
+          kind: mutation.kind,
+          status: error.status,
+        })
+      }
+      break
+    }
+  }
+  return { permanentlyRejectedIds }
 }
 
 const SEEN_OFFERS_KEY = 'surveys:seen-offers'
@@ -349,8 +602,15 @@ export async function pollSurveyOffers(engine: Engine): Promise<void> {
 
     const seen = (await engine.storage.getJson<ReadonlyArray<string>>(SEEN_OFFERS_KEY)) ?? []
     const seenSet = new Set(seen)
-    const fresh = surveys.filter((s) => !seenSet.has(s.id))
-    if (fresh.length === 0) return
+    const localIds = surveys
+      .map((survey) => survey.id)
+      .filter((surveyId) => engine.locallyHandledSurveyIds.has(surveyId))
+    const fresh = surveys.filter(
+      (survey) =>
+        !seenSet.has(survey.id) &&
+        !engine.locallyHandledSurveyIds.has(survey.id),
+    )
+    if (fresh.length === 0 && localIds.length === 0) return
 
     for (const s of fresh) {
       engine.events.emit('surveyInvite', {
@@ -360,10 +620,152 @@ export async function pollSurveyOffers(engine: Engine): Promise<void> {
       })
     }
 
-    const nextSeen = [...seen, ...fresh.map((s) => s.id)].slice(-200)
+    // A locally rendered survey and its later offer-ledger row represent one
+    // delivery. Persist both classes as seen so polling cannot reopen a modal
+    // minutes after the user already completed or dismissed it.
+    const nextSeen = [
+      ...new Set([...seen, ...localIds, ...fresh.map((survey) => survey.id)]),
+    ].slice(-200)
     await engine.storage.setJson(SEEN_OFFERS_KEY, nextSeen)
   } catch (e) {
     reportError('pollSurveyOffers failed', e)
+  }
+}
+
+export async function pollInstructions(engine: Engine): Promise<void> {
+  if (engine.instructionPollPromise) return engine.instructionPollPromise
+  engine.instructionPollPromise = performInstructionPoll(engine).finally(() => {
+    engine.instructionPollPromise = null
+  })
+  return engine.instructionPollPromise
+}
+
+async function performInstructionPoll(engine: Engine): Promise<void> {
+  try {
+    await ensureHydrated(engine)
+    const after = (await engine.storage.getJson<number>(STORAGE_KEYS.instructionCursor)) ?? 0
+    const seen = (await engine.storage.getJson<ReadonlyArray<number>>(
+      STORAGE_KEYS.seenInstructions,
+    )) ?? []
+    const seenSet = new Set(seen)
+    const result = await engine.transport.instructions(after)
+    if (result.instructions.length === 0) return
+
+    const handledIds: number[] = []
+    for (const instruction of result.instructions) {
+      handledIds.push(instruction.id)
+      if (seenSet.has(instruction.id)) continue
+      dispatchInstruction(engine, instruction.type, instruction.payload)
+      seenSet.add(instruction.id)
+      await engine.storage.setJsonStrict(
+        STORAGE_KEYS.seenInstructions,
+        [...seenSet].slice(-200),
+      )
+    }
+    await engine.storage.setJsonStrict(
+      STORAGE_KEYS.instructionCursor,
+      Math.max(after, ...handledIds),
+    )
+    await engine.transport.acknowledgeInstructions(handledIds)
+  } catch (error) {
+    reportError('instruction poll failed', error)
+  }
+}
+
+function dispatchInstruction(
+  engine: Engine,
+  type: string,
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  if (type === 'prompt.show') {
+    if (!engine.consent.allowsFeedback()) return
+    const promptId = payload.promptId
+    const prompt = payload.prompt
+    if (typeof promptId !== 'string' || !prompt || typeof prompt !== 'object') return
+    const triggerEventId = payload.triggerEventId
+    if (
+      typeof triggerEventId === 'string' &&
+      engine.locallyHandledInstructionKeys.delete(
+        instructionKey('prompt.show', promptId, triggerEventId),
+      )
+    ) {
+      debugLog('prompt instruction skipped after immediate local render', {
+        promptId,
+        triggerEventId,
+      })
+      return
+    }
+    const shownAt = Date.now()
+    const typedPrompt = prompt as ClientPrompt
+    const emission = {
+      promptId,
+      prompt: typedPrompt,
+      theme: typedPrompt.theme,
+      shownAt,
+      triggerEventName: typeof payload.triggerEventName === 'string'
+        ? payload.triggerEventName
+        : 'server',
+    }
+    engine.events.emit('showPrompt', emission)
+    engine.events.emit('promptShown', emission)
+    return
+  }
+  if (type === 'survey.offer') {
+    if (!engine.consent.allowsSurvey()) return
+    if (typeof payload.surveyId !== 'string' || typeof payload.name !== 'string') return
+    const triggerEventId = payload.triggerEventId
+    if (
+      typeof triggerEventId === 'string' &&
+      engine.locallyHandledInstructionKeys.delete(
+        instructionKey('survey.offer', payload.surveyId, triggerEventId),
+      )
+    ) {
+      debugLog('survey instruction skipped after immediate local render', {
+        surveyId: payload.surveyId,
+        triggerEventId,
+      })
+      return
+    }
+    engine.events.emit('surveyInvite', {
+      surveyId: payload.surveyId,
+      name: payload.name,
+      source: typeof payload.source === 'string' ? payload.source : 'triggered',
+    })
+    return
+  }
+  if (type === 'inapp.show') {
+    if (!engine.consent.allowsFeedback()) return
+    const message = payload.message
+    if (!message || typeof message !== 'object') return
+    const typed = message as ArmedInAppMessage
+    const triggerEventId = payload.triggerEventId
+    if (
+      typeof triggerEventId === 'string' &&
+      engine.locallyHandledInstructionKeys.delete(
+        instructionKey('inapp.show', typed.messageId, triggerEventId),
+      )
+    ) {
+      debugLog('in-app instruction skipped after immediate local render', {
+        messageId: typed.messageId,
+        triggerEventId,
+      })
+      return
+    }
+    engine.events.emit('showInAppMessage', {
+      messageId: typed.messageId,
+      message: typed,
+      shownAt: Date.now(),
+      triggerEventName: typeof payload.triggerEventName === 'string'
+        ? payload.triggerEventName
+        : 'server',
+    })
+    return
+  }
+  if (type.startsWith('request.')) {
+    engine.events.emit('pushEvent', {
+      name: `$${type.replaceAll('.', '_')}`,
+      props: payload,
+    })
   }
 }
 
@@ -372,9 +774,13 @@ export function asEventProps(
 ): Readonly<Record<string, EventPropertyValue>> | undefined {
   if (!properties) return undefined
   const out: Record<string, EventPropertyValue> = {}
-  for (const k of Object.keys(properties)) {
+  const piiKey = /(?:^|[._])(email|phone|ssn|tax_id)$/i
+  for (const k of Object.keys(properties).slice(0, 100)) {
+    if (!k || k.length > 120 || piiKey.test(k)) continue
     const v = properties[k]
-    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null) {
+    if (typeof v === 'string') {
+      out[k] = v.slice(0, 10_000)
+    } else if (typeof v === 'number' || typeof v === 'boolean' || v === null) {
       out[k] = v
     }
   }
@@ -385,10 +791,13 @@ export function enqueueAndEvaluate(
   engine: Engine,
   eventName: string,
   properties: Readonly<Record<string, EventPropertyValue>> | undefined,
+  purpose: QueuedEvent['purpose'] = 'analytics',
 ): void {
   const now = Date.now()
   const id = engine.identity.get()
   const base: QueuedEvent = {
+    eventId: generateEventId(),
+    purpose,
     name: eventName,
     timestamp: new Date(now).toISOString(),
     anonymousId: id.anonymousId || 'pending',
@@ -398,9 +807,7 @@ export function enqueueAndEvaluate(
   if (engine.hydrated) {
     engine.queue.enqueue(base)
     engine.userState.recordEvent(eventName, now)
-    engine.matcher.evaluate(eventName)
-    engine.surveyMatcher.evaluate(eventName)
-    engine.inAppMatcher.evaluate(eventName)
+    evaluateLocally(engine, eventName, base.eventId)
     if (engine.queue.size() >= engine.config.flushBatchSize) void flushNow(engine)
     else scheduleFlush(engine)
     return
@@ -414,22 +821,50 @@ export function enqueueAndEvaluate(
     }
     engine.queue.enqueue(withId)
     engine.userState.recordEvent(eventName, now)
-    engine.matcher.evaluate(eventName)
-    engine.surveyMatcher.evaluate(eventName)
-    engine.inAppMatcher.evaluate(eventName)
+    evaluateLocally(engine, eventName, withId.eventId)
     if (engine.queue.size() >= engine.config.flushBatchSize) void flushNow(engine)
     else scheduleFlush(engine)
   })
+}
+
+function evaluateLocally(engine: Engine, eventName: string, eventId: string): void {
+  const promptId = engine.matcher.evaluate(eventName)
+  if (promptId) {
+    rememberLocalInstruction(
+      engine,
+      instructionKey('prompt.show', promptId, eventId),
+    )
+  }
+  const surveyId = engine.surveyMatcher.evaluate(eventName)
+  if (surveyId) {
+    engine.locallyHandledSurveyIds.add(surveyId)
+    rememberLocalInstruction(
+      engine,
+      instructionKey('survey.offer', surveyId, eventId),
+    )
+  }
+  const messageId = engine.inAppMatcher.evaluate(eventName)
+  if (messageId) {
+    rememberLocalInstruction(
+      engine,
+      instructionKey('inapp.show', messageId, eventId),
+    )
+  }
 }
 
 export async function submitResponse(
   engine: Engine,
   payload: ResponseEmission,
   triggerEventName: string,
-  trackInternal: (name: string, props: Readonly<Record<string, EventPropertyValue>>) => void,
+  trackInternal: (
+    name: string,
+    props: Readonly<Record<string, EventPropertyValue>>,
+    purpose?: QueuedEvent['purpose'],
+  ) => void,
 ): Promise<void> {
   const id = engine.identity.get()
   const submitPayload: SubmitResponsePayload = {
+    idempotencyKey: generateEventId(),
     promptId: payload.promptId,
     anonymousId: id.anonymousId,
     externalId: id.externalId,
@@ -443,21 +878,27 @@ export async function submitResponse(
     dismissed: payload.dismissed,
     latencyMs: payload.latencyMs,
     triggerEventName,
-  })
+  }, 'feedback')
   debugLog('[usergist:analyze] response-submit', {
     promptId: payload.promptId,
     answersCount: payload.answers.length,
     dismissed: payload.dismissed,
   })
   if (!engine.consent.allowsFeedback()) return
-  try {
-    await engine.transport.submitResponse(submitPayload)
-  } catch (e) {
-    reportError('submitResponse failed', e)
-  }
+  await engine.mutations.enqueue(
+    'feedback-response',
+    'feedback',
+    submitPayload as unknown as Readonly<Record<string, unknown>>,
+  )
+  void flushMutations(engine)
 }
 
 export async function clearAllState(engine: Engine): Promise<void> {
+  pendingAppOpenConsent.get(engine)?.()
+  pendingAppOpenConsent.delete(engine)
+  await engine.transport.revokeSession().catch((error) =>
+    reportError('subject session revoke failed', error),
+  )
   engine.transport.cancelAll()
   if (engine.flushTimer) {
     clearTimeout(engine.flushTimer)
@@ -466,10 +907,12 @@ export async function clearAllState(engine: Engine): Promise<void> {
   await ensureHydrated(engine)
   await Promise.all([
     engine.queue.clear(),
+    engine.mutations.clear(),
     engine.identity.clear(),
     engine.caps.clear(),
     engine.rules.clear(),
     engine.surveyRules.clear(),
+    engine.inAppRules.clear(),
     engine.userState.clear(),
     engine.consent.clear(),
   ])
@@ -483,6 +926,18 @@ export async function clearAllState(engine: Engine): Promise<void> {
     STORAGE_KEYS.frequencyCaps,
     STORAGE_KEYS.userProperties,
     STORAGE_KEYS.eventHistory,
+    STORAGE_KEYS.subjectToken,
+    STORAGE_KEYS.mutationQueue,
+    STORAGE_KEYS.instructionCursor,
+    STORAGE_KEYS.seenInstructions,
+    SEEN_OFFERS_KEY,
   ])
+  engine.subjectToken = null
+  engine.transport.setSubjectToken(null)
+  engine.locallyHandledInstructionKeys.clear()
+  engine.locallyHandledSurveyIds.clear()
+  engine.lastPushToken = null
+  lastPollAt = 0
   await engine.identity.hydrate()
+  await ensureSubjectSession(engine)
 }

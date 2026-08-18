@@ -9,15 +9,23 @@
 
 import { reportError } from './debug.js'
 
-type AsyncStorageLike = {
+export interface UserGistStorageAdapter {
   readonly getItem: (k: string) => Promise<string | null>
   readonly setItem: (k: string, v: string) => Promise<void>
   readonly removeItem: (k: string) => Promise<void>
   readonly multiRemove?: (keys: ReadonlyArray<string>) => Promise<void>
 }
 
+type AsyncStorageLike = UserGistStorageAdapter
+
 let cached: AsyncStorageLike | null = null
 let checked = false
+let customAdapter: UserGistStorageAdapter | null = null
+
+/** Configure a host-owned encrypted key/value backend before `init()`. */
+export function configureStorageAdapter(adapter: UserGistStorageAdapter): void {
+  customAdapter = adapter
+}
 
 declare const require: (id: string) => unknown
 
@@ -54,7 +62,7 @@ const memoryImpl: AsyncStorageLike = {
 }
 
 function backend(): AsyncStorageLike {
-  return loadAsyncStorage() ?? memoryImpl
+  return customAdapter ?? loadAsyncStorage() ?? memoryImpl
 }
 
 // Non-crypto stable hash of the writeKey → short prefix
@@ -70,6 +78,7 @@ export interface StorageScope {
   readonly key: (suffix: string) => string
   readonly getJson: <T>(suffix: string) => Promise<T | null>
   readonly setJson: <T>(suffix: string, value: T) => Promise<void>
+  readonly setJsonStrict: <T>(suffix: string, value: T) => Promise<void>
   readonly remove: (suffix: string) => Promise<void>
   readonly clearAll: (suffixes: ReadonlyArray<string>) => Promise<void>
 }
@@ -95,6 +104,9 @@ export function createStorageScope(writeKey: string): StorageScope {
       } catch (e) {
         reportError('storage.setJson failed', e)
       }
+    },
+    async setJsonStrict<T>(suffix: string, value: T): Promise<void> {
+      await backend().setItem(key(suffix), JSON.stringify(value))
     },
     async remove(suffix: string): Promise<void> {
       try {
@@ -129,6 +141,10 @@ export const STORAGE_KEYS = {
   frequencyCaps: 'frequencyCaps',
   userProperties: 'userProperties',
   eventHistory: 'eventHistory',
+  subjectToken: 'subjectToken',
+  mutationQueue: 'mutationQueue',
+  instructionCursor: 'instructionCursor',
+  seenInstructions: 'seenInstructions',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

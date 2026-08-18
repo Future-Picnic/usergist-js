@@ -1,8 +1,9 @@
 /**
  * UserGist Push — React Native public surface.
  *
- * Host apps own APNs / FCM plumbing (via `@react-native-firebase/messaging`
- * or `notifee`). They forward tokens and message payloads here.
+ * `UserGist.enablePush()` installs the bundled APNs / FCM integration. Host
+ * apps that already own those delegates can disable proxying and forward
+ * tokens and message payloads through this surface instead.
  *
  * Includes the "under the hood" primitives:
  *  • Silent reachability ping detection + ack
@@ -12,7 +13,7 @@
  *  • Token rebind on identify
  */
 
-import { isSilentPushPayload, type PushChannelDef } from '@usergist/sdk-core'
+import { isSilentPushPayload, type PushChannelDef } from '@usergist/sdk-core/mobile'
 import { UserGist } from './UserGist.js'
 
 export type PushPermissionStatus =

@@ -2,6 +2,7 @@ package studio.usergist.feedback
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.ActivityCompat
@@ -13,6 +14,8 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableMap
+import com.facebook.react.bridge.ActivityEventListener
+import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.modules.core.PermissionAwareActivity
 import com.facebook.react.modules.core.PermissionListener
 import com.facebook.react.modules.core.DeviceEventManagerModule
@@ -30,16 +33,51 @@ import com.google.firebase.messaging.FirebaseMessaging
  *     this module exposes only the imperative side (JS -> native calls).
  */
 class UserGistPushModule(reactContext: ReactApplicationContext) :
-  ReactContextBaseJavaModule(reactContext) {
+  ReactContextBaseJavaModule(reactContext), LifecycleEventListener, ActivityEventListener {
 
   init {
     // Wire ourselves into the static event-emit helper so the Firebase
     // service can hand events back without holding a strong reference to
     // the React module.
     UserGistPushEventBus.attach(reactContext)
+    reactContext.addLifecycleEventListener(this)
+    reactContext.addActivityEventListener(this)
   }
 
   override fun getName(): String = NAME
+
+  override fun onHostResume() {
+    currentActivity?.intent?.let { consumeNotificationIntent(it) }
+  }
+
+  override fun onHostPause() = Unit
+  override fun onHostDestroy() = Unit
+  override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) = Unit
+
+  override fun onNewIntent(intent: Intent) {
+    consumeNotificationIntent(intent)
+  }
+
+  private fun consumeNotificationIntent(intent: Intent) {
+    val extras = intent.extras ?: return
+    val keys = extras.keySet().filter { it.startsWith("usergist_") }
+    if (keys.isEmpty()) return
+    val body = Arguments.createMap()
+    val data = Arguments.createMap()
+    for (key in keys) {
+      val value = extras.get(key)?.toString() ?: continue
+      val normalized = key.removePrefix("usergist_")
+      when (normalized) {
+        "title" -> body.putString("title", value)
+        "body" -> body.putString("body", value)
+        "delivery_id" -> body.putString("deliveryId", value)
+        else -> data.putString(normalized, value)
+      }
+      intent.removeExtra(key)
+    }
+    body.putMap("data", data)
+    UserGistPushEventBus.emitNotificationOpened(body)
+  }
 
   // MARK: - Exported methods
 
@@ -219,6 +257,7 @@ internal object UserGistPushEventBus {
     emit("UserGistPush:notificationReceived", body)
   }
 
+  @Synchronized
   fun emitNotificationOpened(body: WritableMap) {
     if (initialNotification == null) {
       // Snapshot so getInitialNotification() can return it once.
@@ -227,6 +266,7 @@ internal object UserGistPushEventBus {
     emit("UserGistPush:notificationOpened", body)
   }
 
+  @Synchronized
   fun takeInitialNotification(): WritableMap? {
     val v = initialNotification
     initialNotification = null
@@ -237,6 +277,7 @@ internal object UserGistPushEventBus {
   private fun emit(name: String, body: WritableMap) {
     val ctx = reactContext
     if (ctx == null || !ctx.hasActiveReactInstance()) {
+      if (pending.size >= 100) pending.removeAt(0)
       pending.add(name to body)
       return
     }

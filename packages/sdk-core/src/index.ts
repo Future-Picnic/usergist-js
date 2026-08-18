@@ -14,8 +14,8 @@
  *     server trigger engine and the SDK so client-side firing matches what
  *     the server would have done. Always pass an explicit `now` for parity.
  *
- * The package is published as dual ESM + CJS, fully tree-shakeable, with no
- * runtime dependencies.
+ * Mobile SDKs use `@usergist/sdk-core/mobile`, which excludes the Zod-backed
+ * schemas and dashboard/admin endpoint registry from native bundles.
  */
 export * from './types/event.js'
 export * from './types/prompt.js'

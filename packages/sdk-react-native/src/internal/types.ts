@@ -2,7 +2,7 @@ import type {
   ArmedTrigger,
   ClientPrompt,
   PromptTheme,
-} from '@usergist/sdk-core'
+} from '@usergist/sdk-core/mobile'
 
 export interface ResolvedConfig {
   readonly writeKey: string
@@ -26,9 +26,12 @@ export interface ConsentState {
   readonly push: boolean
   readonly survey: boolean
   readonly updatedAt: string | null
+  readonly version: number
 }
 
 export interface QueuedEvent {
+  readonly eventId: string
+  readonly purpose: 'analytics' | 'feedback'
   readonly name: string
   readonly timestamp: string
   readonly anonymousId: string
@@ -45,7 +48,7 @@ export interface StoredRulesCache {
 }
 
 export interface StoredSurveyRulesCache {
-  readonly surveys: ReadonlyArray<import('@usergist/sdk-core').ArmedSurvey>
+  readonly surveys: ReadonlyArray<import('@usergist/sdk-core/mobile').ArmedSurvey>
   readonly fetchedAt: string
   readonly serverTime: string
   readonly nextSyncMs: number

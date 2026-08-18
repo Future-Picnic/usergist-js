@@ -47,6 +47,7 @@ android {
     targetSdkVersion getExtOrDefault('targetSdkVersion')?.toInteger() ?: 34
     consumerProguardFiles 'consumer-rules.pro'
     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
+    manifestPlaceholders = [userGistFirebaseServiceEnabled: "true"]
   }
 
   buildFeatures {

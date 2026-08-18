@@ -10,7 +10,7 @@
 
 import { STORAGE_KEYS, type StorageScope } from './storage.js'
 import { reportError } from './debug.js'
-import type { UserState } from '@usergist/sdk-core'
+import type { UserState } from '@usergist/sdk-core/mobile'
 
 const HISTORY_CAP_PER_EVENT = 200
 
