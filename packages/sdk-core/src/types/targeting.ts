@@ -83,7 +83,9 @@ export interface EventPerformedCondition {
   readonly kind: 'event_performed'
   readonly op: 'did' | 'did_not'
   readonly eventName: string
+  /** @deprecated Kept so previously saved audience definitions still load. */
   readonly property?: EventPropertyFilter
+  readonly propertyFilters?: ReadonlyArray<EventPropertyFilter>
   readonly windowDays?: number
   readonly minCount?: number
 }

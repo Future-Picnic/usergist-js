@@ -1,5 +1,9 @@
-import React, { useEffect } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  AccessibilityInfo,
+  Animated,
+  Dimensions,
+  Easing,
   Image,
   Modal,
   Pressable,
@@ -30,6 +34,13 @@ export function InAppMessageView({
   onDismiss,
 }: Props): React.ReactElement | null {
   const modalGranted = useModalSlot('inapp', Boolean(message))
+  const isFull = message?.format === 'modal_full'
+  const isSlide = message?.format === 'slideup'
+  const backdropEnabled = message?.backdropEnabled !== false
+  const sheetProgress = useRef(new Animated.Value(0)).current
+  const backdropProgress = useRef(new Animated.Value(0)).current
+  const closingRef = useRef(false)
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false)
   const theme: ResolvedTheme = React.useMemo(() => {
     const override: PromptTheme | undefined =
       message?.backgroundColor || message?.accentColor
@@ -44,6 +55,99 @@ export function InAppMessageView({
     return mergeTheme(DEFAULT_THEME, override)
   }, [themeOverride, message?.backgroundColor, message?.accentColor])
 
+  useEffect(() => {
+    let mounted = true
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) setReduceMotionEnabled(enabled)
+    })
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      setReduceMotionEnabled,
+    )
+    return () => {
+      mounted = false
+      subscription.remove()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!message || !modalGranted || !isSlide) return
+
+    closingRef.current = false
+    sheetProgress.stopAnimation()
+    backdropProgress.stopAnimation()
+    sheetProgress.setValue(reduceMotionEnabled ? 1 : 0)
+    backdropProgress.setValue(reduceMotionEnabled ? 1 : 0)
+    if (reduceMotionEnabled) return
+
+    const frame = requestAnimationFrame(() => {
+      Animated.parallel([
+        Animated.timing(sheetProgress, {
+          toValue: 1,
+          duration: 360,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropProgress, {
+          toValue: 1,
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start()
+    })
+
+    return () => {
+      cancelAnimationFrame(frame)
+      sheetProgress.stopAnimation()
+      backdropProgress.stopAnimation()
+    }
+  }, [
+    backdropProgress,
+    isSlide,
+    message,
+    modalGranted,
+    reduceMotionEnabled,
+    sheetProgress,
+  ])
+
+  const closeWithAnimation = useCallback(
+    (afterClose: () => void): void => {
+      if (closingRef.current) return
+      closingRef.current = true
+
+      if (!isSlide || reduceMotionEnabled) {
+        afterClose()
+        return
+      }
+
+      Animated.parallel([
+        Animated.timing(sheetProgress, {
+          toValue: 0,
+          duration: 220,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropProgress, {
+          toValue: 0,
+          duration: 160,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(() => afterClose())
+    }, [
+      backdropProgress,
+      isSlide,
+      reduceMotionEnabled,
+      sheetProgress,
+    ],
+  )
+
+  const dismiss = useCallback(
+    () => closeWithAnimation(onDismiss),
+    [closeWithAnimation, onDismiss],
+  )
+
   // Auto-dismiss for slide-up. Always run the effect (hooks rule); the
   // cleanup is a no-op when there's nothing to schedule.
   useEffect(() => {
@@ -51,31 +155,45 @@ export function InAppMessageView({
     if (message.format !== 'slideup') return
     const seconds = message.autoDismissSeconds
     if (!seconds || seconds <= 0) return
-    const t = setTimeout(() => onDismiss(), seconds * 1000)
+    const t = setTimeout(dismiss, seconds * 1000)
     return () => clearTimeout(t)
-  }, [message, modalGranted, onDismiss])
+  }, [dismiss, message, modalGranted])
 
   if (!message) return null
 
-  const isFull = message.format === 'modal_full'
-  const isSlide = message.format === 'slideup'
+  const translateY = sheetProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [Dimensions.get('window').height, 0],
+  })
 
   return (
     <Modal
       transparent={!isFull}
       visible={modalGranted}
-      animationType={isSlide ? 'slide' : 'fade'}
-      onRequestClose={onDismiss}
+      animationType={isSlide ? 'none' : 'fade'}
+      onRequestClose={dismiss}
     >
       <View style={isFull ? styles.fullRoot : styles.overlayRoot}>
         {!isFull ? (
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={onDismiss}
-            accessibilityLabel="Dismiss"
-          />
+          <Animated.View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: backdropEnabled
+                  ? 'rgba(0,0,0,0.4)'
+                  : 'transparent',
+                opacity: isSlide ? backdropProgress : 1,
+              },
+            ]}
+          >
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={dismiss}
+              accessibilityLabel="Dismiss"
+            />
+          </Animated.View>
         ) : null}
-        <View
+        <Animated.View
           style={[
             isFull ? styles.fullCard : isSlide ? styles.slideCard : styles.modalCard,
             {
@@ -83,6 +201,7 @@ export function InAppMessageView({
               borderTopLeftRadius: isSlide ? theme.radius : undefined,
               borderTopRightRadius: isSlide ? theme.radius : undefined,
               borderRadius: isSlide || isFull ? undefined : theme.radius,
+              transform: isSlide ? [{ translateY }] : undefined,
             },
           ]}
         >
@@ -93,7 +212,7 @@ export function InAppMessageView({
             />
           ) : null}
           <Pressable
-            onPress={onDismiss}
+            onPress={dismiss}
             accessibilityRole="button"
             accessibilityLabel="Close"
             hitSlop={12}
@@ -148,7 +267,9 @@ export function InAppMessageView({
                 return (
                   <Pressable
                     key={i}
-                    onPress={() => onCtaPress(cta, i)}
+                    onPress={() =>
+                      closeWithAnimation(() => onCtaPress(cta, i))
+                    }
                     accessibilityRole="button"
                     accessibilityLabel={cta.label}
                     style={[
@@ -172,7 +293,7 @@ export function InAppMessageView({
               })}
             </View>
           ) : null}
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   )
@@ -183,7 +304,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.4)',
     paddingHorizontal: 16,
   },
   fullRoot: {

@@ -67,6 +67,7 @@ export interface InAppMessage {
   readonly imageUrl: string | null
   readonly backgroundColor: string | null
   readonly accentColor: string | null
+  readonly backdropEnabled: boolean
   readonly ctas: ReadonlyArray<InAppCta>
 
   readonly startAt: string | null
@@ -95,6 +96,7 @@ export interface CreateInAppMessageRequest {
   readonly imageUrl?: string | null
   readonly backgroundColor?: string | null
   readonly accentColor?: string | null
+  readonly backdropEnabled?: boolean
   readonly ctas?: ReadonlyArray<InAppCta>
   readonly startAt?: string | null
   readonly endAt?: string | null
@@ -135,6 +137,8 @@ export interface ArmedInAppMessage {
   readonly imageUrl: string | null
   readonly backgroundColor: string | null
   readonly accentColor: string | null
+  /** Defaults to true when omitted by an older API/cache payload. */
+  readonly backdropEnabled?: boolean
   readonly ctas: ReadonlyArray<InAppCta>
   readonly autoDismissSeconds: number | null
   readonly screenAllowlist: ReadonlyArray<string>
