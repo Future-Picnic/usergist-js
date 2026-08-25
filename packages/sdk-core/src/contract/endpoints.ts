@@ -29,9 +29,12 @@ import type {
   User,
   Workspace,
   WorkspaceWithRole,
+  WorkspaceInvite,
   WorkspaceMember,
   WorkspaceRole,
   WriteKey,
+  AcceptWorkspaceInviteRequest,
+  AcceptWorkspaceInviteResponse,
 } from '../types/workspace.js'
 import type { Consent } from '../types/sdk.js'
 import type {
@@ -42,6 +45,18 @@ import type {
   BillingUsage,
   Subscription,
 } from '../types/billing.js'
+import type {
+  AdminActivityEntry,
+  AdminCustomerDetail,
+  AdminCustomerListRequest,
+  AdminCustomerListResponse,
+  AdminSession,
+  CreateWorkspacePlanGrantRequest,
+  EffectivePlanAccess,
+  ExtendWorkspacePlanGrantRequest,
+  RevokeWorkspacePlanGrantRequest,
+  WorkspacePlanGrant,
+} from '../types/admin.js'
 import type {
   Campaign,
   CampaignAnalytics,
@@ -394,7 +409,13 @@ export const endpoints = {
   'GET /v1/workspaces': {} as Endpoint<void, ReadonlyArray<Workspace>>,
   'POST /v1/workspaces': {} as Endpoint<CreateWorkspaceRequest, Workspace>,
   'GET /v1/workspaces/:wid/members': {} as Endpoint<void, ReadonlyArray<WorkspaceMember>>,
-  'POST /v1/workspaces/:wid/invites': {} as Endpoint<InviteMemberRequest, { sent: true }>,
+  'GET /v1/workspaces/:wid/invites': {} as Endpoint<void, ReadonlyArray<WorkspaceInvite>>,
+  'POST /v1/workspaces/:wid/invites': {} as Endpoint<InviteMemberRequest, { queued: true }>,
+  'DELETE /v1/workspaces/:wid/invites/:inviteId': {} as Endpoint<void, { revoked: true }>,
+  'POST /v1/invites/accept': {} as Endpoint<
+    AcceptWorkspaceInviteRequest,
+    AcceptWorkspaceInviteResponse
+  >,
 
   'GET /v1/workspaces/:wid/apps': {} as Endpoint<void, ReadonlyArray<App>>,
   'POST /v1/workspaces/:wid/apps': {} as Endpoint<CreateAppRequest, App>,
@@ -861,6 +882,7 @@ export const endpoints = {
       subscription: Subscription | null
       plan: BillingPlan | null
       usage: BillingUsage
+      access: EffectivePlanAccess
     }
   >,
   'POST /v1/workspaces/:wid/billing/checkout': {} as Endpoint<
@@ -873,12 +895,34 @@ export const endpoints = {
   >,
 
   // ---------- super admin ----------
+  'GET /v1/admin/session': {} as Endpoint<void, AdminSession>,
+  'GET /v1/admin/customers': {} as Endpoint<
+    AdminCustomerListRequest,
+    AdminCustomerListResponse
+  >,
+  'GET /v1/admin/customers/:workspaceId': {} as Endpoint<void, AdminCustomerDetail>,
+  'POST /v1/admin/customers/:workspaceId/grants': {} as Endpoint<
+    CreateWorkspacePlanGrantRequest,
+    { grant: WorkspacePlanGrant }
+  >,
+  'POST /v1/admin/customers/:workspaceId/grants/:grantId/extend': {} as Endpoint<
+    ExtendWorkspacePlanGrantRequest,
+    { grant: WorkspacePlanGrant }
+  >,
+  'POST /v1/admin/customers/:workspaceId/grants/:grantId/revoke': {} as Endpoint<
+    RevokeWorkspacePlanGrantRequest,
+    { grant: WorkspacePlanGrant }
+  >,
+  'GET /v1/admin/activity': {} as Endpoint<
+    { workspaceId?: string; action?: string; cursor?: string; limit?: number },
+    { entries: ReadonlyArray<AdminActivityEntry>; nextCursor: string | null }
+  >,
   'GET /v1/admin/workspaces': {} as Endpoint<
     void,
     { workspaces: ReadonlyArray<AdminWorkspaceSummary> }
   >,
   'GET /v1/admin/plans': {} as Endpoint<
-    void,
+    { grantable?: boolean },
     { plans: ReadonlyArray<BillingPlan> }
   >,
   'GET /v1/admin/workspaces/:wid': {} as Endpoint<

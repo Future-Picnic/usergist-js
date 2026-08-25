@@ -40,9 +40,14 @@ export const inviteMemberSchema = z.object({
   role: z.enum(['admin', 'editor', 'viewer']),
 })
 
+export const acceptWorkspaceInviteSchema = z.object({
+  token: z.string().regex(/^[a-f0-9]{64}$/i, 'Invalid invitation token'),
+})
+
 export type CreateAppBody = z.infer<typeof createAppSchema>
 export type UpdateAppBody = z.infer<typeof updateAppSchema>
 export type CreateWriteKeyBody = z.infer<typeof createWriteKeySchema>
 export type RotateWriteKeyBody = z.infer<typeof rotateWriteKeySchema>
 export type CreateWorkspaceBody = z.infer<typeof createWorkspaceSchema>
 export type InviteMemberBody = z.infer<typeof inviteMemberSchema>
+export type AcceptWorkspaceInviteBody = z.infer<typeof acceptWorkspaceInviteSchema>

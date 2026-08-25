@@ -23,6 +23,26 @@ export interface WorkspaceMember {
   readonly createdAt: string
 }
 
+export interface WorkspaceInvite {
+  readonly id: string
+  readonly workspaceId: string
+  readonly email: string
+  readonly role: Exclude<WorkspaceRole, 'owner'>
+  readonly deliveryStatus: 'pending' | 'sent' | 'failed'
+  readonly expiresAt: string
+  readonly createdAt: string
+}
+
+export interface AcceptWorkspaceInviteRequest {
+  readonly token: string
+}
+
+export interface AcceptWorkspaceInviteResponse {
+  readonly workspace: Workspace
+  readonly role: WorkspaceRole
+  readonly alreadyMember: boolean
+}
+
 export interface User {
   readonly id: string
   readonly email: string

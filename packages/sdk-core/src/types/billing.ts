@@ -20,6 +20,8 @@ export interface BillingPlan {
   readonly unlimited: boolean
   readonly isActive: boolean
   readonly sortOrder: number
+  readonly accessRank: number
+  readonly adminGrantable: boolean
 }
 
 export interface Subscription {
