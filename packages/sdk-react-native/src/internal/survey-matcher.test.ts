@@ -17,13 +17,15 @@ function armed(clientSideEligible: boolean): ArmedSurvey {
 
 function matcherFor(survey: ArmedSurvey) {
   const events = createEventBus()
+  const recordShown = vi.fn()
   return {
     events,
+    recordShown,
     matcher: createSurveyMatcher({
       rulesCache: { getForEvent: () => [survey] } as never,
       frequencyCaps: {
         canShow: () => ({ ok: true }),
-        recordShown: vi.fn(),
+        recordShown,
       } as never,
       userState: { buildForEval: () => ({ properties: {}, eventCounts: {} }) } as never,
       consent: { allowsSurvey: () => true } as never,
@@ -33,12 +35,16 @@ function matcherFor(survey: ArmedSurvey) {
 }
 
 describe('survey matcher delivery lifecycle', () => {
-  it('opens an eligible survey on every repeated event when uncapped', () => {
-    const { events, matcher } = matcherFor(armed(true))
+  it('reserves an eligible survey until presentation is confirmed', () => {
+    const { events, matcher, recordShown } = matcherFor(armed(true))
     const invited = vi.fn()
     events.on('surveyInvite', invited)
 
     expect(matcher.evaluate('survey.requested')).toBe('survey-1')
+    expect(matcher.evaluate('survey.requested')).toBeNull()
+    expect(recordShown).not.toHaveBeenCalled()
+    matcher.recordShown('survey-1', 123)
+    expect(recordShown).toHaveBeenCalledWith('survey:survey-1', 123)
     expect(matcher.evaluate('survey.requested')).toBe('survey-1')
     expect(invited).toHaveBeenCalledTimes(2)
   })

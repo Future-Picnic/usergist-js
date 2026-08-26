@@ -43,7 +43,8 @@
     "verify:qa:ios": "pnpm check:services && pnpm verify:qa:code && pnpm verify:qa:ui",
     "db:migrate": "pnpm --filter @usergist/api db:migrate",
     "db:seed": "pnpm --filter @usergist/api db:seed",
-    "parity": "tsx tools/check-parity.ts"
+    "parity": "tsx tools/check-parity.ts && tsx tools/check-demo-parity.ts",
+    "parity:demos": "tsx tools/check-demo-parity.ts"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {

@@ -13,20 +13,15 @@ import { RatingQuestion } from '../ui/questions/RatingQuestion.js'
 import { NpsQuestion } from '../ui/questions/NpsQuestion.js'
 import { MultipleChoiceQuestion } from '../ui/questions/MultipleChoiceQuestion.js'
 import { ShortTextQuestion } from '../ui/questions/ShortTextQuestion.js'
+import {
+  promptNeedsExplicitNext,
+  promptNextRequiresAnswer,
+} from '../internal/prompt-flow.js'
 
 export interface PromptShellProps {
   readonly questions: ReadonlyArray<Question>
   readonly currentQuestionId?: string | null
   readonly theme?: PromptTheme | null
-}
-
-// Tap-to-select questions auto-advance — mirrors PromptSheet:
-//   - rating / nps: always
-//   - multiple_choice: only when single-select (multiSelect=false)
-function shouldAutoAdvance(q: Question): boolean {
-  if (q.type === 'rating' || q.type === 'nps') return true
-  if (q.type === 'multiple_choice') return !q.multiSelect
-  return false
 }
 
 function isTextInput(type: Question['type']): boolean {
@@ -113,9 +108,15 @@ export function PromptShell({
             </>
           ) : null}
         </ScrollView>
-        {current && !shouldAutoAdvance(current) && !isTextInput(current.type) ? (
+        {current && promptNeedsExplicitNext(current) && !isTextInput(current.type) ? (
           <View
-            style={[styles.next, { backgroundColor: resolvedTheme.colors.primary }]}
+            style={[
+              styles.next,
+              {
+                backgroundColor: resolvedTheme.colors.primary,
+                opacity: promptNextRequiresAnswer(current) ? 0.4 : 1,
+              },
+            ]}
           >
             <Text
               style={{

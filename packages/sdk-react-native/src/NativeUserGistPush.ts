@@ -39,6 +39,10 @@ export interface Spec extends TurboModule {
   getPushPermissionStatus(): Promise<PushPermissionStatus>
   setBadgeCount(count: number): Promise<void>
   getInitialNotification(): Promise<{ [key: string]: unknown } | null>
+  secureGetItem(key: string): Promise<string | null>
+  secureSetItem(key: string, value: string): Promise<void>
+  secureRemoveItem(key: string): Promise<void>
+  secureMultiRemove(keys: ReadonlyArray<string>): Promise<void>
   // Required by RN's NativeEventEmitter on the new architecture.
   addListener(eventName: string): void
   removeListeners(count: number): void

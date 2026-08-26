@@ -53,4 +53,16 @@ describe('durable mutation queue', () => {
     })
     expect(queue.peek()?.id).toBe(identityId)
   })
+
+  it('rolls back in-memory state when durable persistence fails', async () => {
+    const storage = memoryStorage()
+    storage.setJsonStrict = async () => { throw new Error('disk-full') }
+    const queue = createMutationQueue(storage)
+    await queue.hydrate()
+
+    await expect(
+      queue.enqueue('feedback-response', 'feedback', { promptId: 'prompt-a' }),
+    ).rejects.toThrow('disk-full')
+    expect(queue.size()).toBe(0)
+  })
 })

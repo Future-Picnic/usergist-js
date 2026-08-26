@@ -7,12 +7,15 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.LifecycleEventListener
@@ -32,6 +35,7 @@ import com.google.firebase.messaging.FirebaseMessaging
  *     RemoteMessage handling lives in UserGistFirebaseMessagingService;
  *     this module exposes only the imperative side (JS -> native calls).
  */
+@Suppress("UNUSED_PARAMETER")
 class UserGistPushModule(reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext), LifecycleEventListener, ActivityEventListener {
 
@@ -45,6 +49,19 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
   }
 
   override fun getName(): String = NAME
+
+  private val securePreferences by lazy {
+    val masterKey = MasterKey.Builder(reactApplicationContext)
+      .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+      .build()
+    EncryptedSharedPreferences.create(
+      reactApplicationContext,
+      "usergist_react_native_secure",
+      masterKey,
+      EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+      EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+  }
 
   override fun onHostResume() {
     currentActivity?.intent?.let { consumeNotificationIntent(it) }
@@ -65,7 +82,7 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
     val body = Arguments.createMap()
     val data = Arguments.createMap()
     for (key in keys) {
-      val value = extras.get(key)?.toString() ?: continue
+      val value = extras.getString(key) ?: continue
       val normalized = key.removePrefix("usergist_")
       when (normalized) {
         "title" -> body.putString("title", value)
@@ -82,7 +99,7 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
   // MARK: - Exported methods
 
   @ReactMethod
-  fun enablePush(options: ReadableMap?, promise: Promise) {
+  fun enablePush(_options: ReadableMap?, promise: Promise) {
     // Android < 13: notification permission is install-time, no runtime
     // prompt. We can short-circuit straight to the token fetch.
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
@@ -166,7 +183,7 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
-  fun setBadgeCount(count: Double, promise: Promise) {
+  fun setBadgeCount(_count: Double, promise: Promise) {
     // Android does not expose a portable badge API; some launchers honour
     // a ShortcutBadger-style broadcast but it's launcher-specific. No-op
     // for now; consumers who need it can use ShortcutBadger directly.
@@ -178,13 +195,47 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
     promise.resolve(UserGistPushEventBus.takeInitialNotification())
   }
 
+  @ReactMethod
+  fun secureGetItem(key: String, promise: Promise) {
+    runCatching { securePreferences.getString(key, null) }
+      .onSuccess(promise::resolve)
+      .onFailure { promise.reject("secure_read_failed", it) }
+  }
+
+  @ReactMethod
+  fun secureSetItem(key: String, value: String, promise: Promise) {
+    runCatching {
+      check(securePreferences.edit().putString(key, value).commit())
+    }.onSuccess { promise.resolve(null) }
+      .onFailure { promise.reject("secure_write_failed", it) }
+  }
+
+  @ReactMethod
+  fun secureRemoveItem(key: String, promise: Promise) {
+    runCatching { check(securePreferences.edit().remove(key).commit()) }
+      .onSuccess { promise.resolve(null) }
+      .onFailure { promise.reject("secure_remove_failed", it) }
+  }
+
+  @ReactMethod
+  fun secureMultiRemove(keys: ReadableArray, promise: Promise) {
+    runCatching {
+      val edit = securePreferences.edit()
+      for (index in 0 until keys.size()) {
+        edit.remove(keys.getString(index))
+      }
+      check(edit.commit())
+    }.onSuccess { promise.resolve(null) }
+      .onFailure { promise.reject("secure_remove_failed", it) }
+  }
+
   // Required for RN's NativeEventEmitter API even though we emit from a
   // separate static bus — RN will warn otherwise.
   @ReactMethod
-  fun addListener(eventName: String?) { /* no-op */ }
+  fun addListener(_eventName: String?) { /* no-op */ }
 
   @ReactMethod
-  fun removeListeners(count: Double) { /* no-op */ }
+  fun removeListeners(_count: Double) { /* no-op */ }
 
   // MARK: - Internal
 

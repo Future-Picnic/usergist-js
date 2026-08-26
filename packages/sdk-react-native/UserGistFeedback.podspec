@@ -24,7 +24,7 @@ Pod::Spec.new do |s|
   # Pulls in React-Core because it imports <React/...> headers.
   s.subspec 'Core' do |core|
     core.source_files = 'ios/*.{h,m,mm,swift}'
-    core.frameworks   = 'UIKit', 'UserNotifications'
+    core.frameworks   = 'UIKit', 'UserNotifications', 'Security'
     core.dependency 'React-Core'
   end
 

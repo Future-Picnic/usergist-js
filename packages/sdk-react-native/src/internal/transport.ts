@@ -172,7 +172,10 @@ export interface Transport {
     readonly externalId: string | null
   }) => Promise<SdkArmedInAppMessagesResponse>
   readonly consent: (p: SdkConsentPayload) => Promise<{ ok: true }>
-  readonly identify: (p: SdkIdentifyPayload) => Promise<{ ok: true }>
+  readonly identify: (
+    p: SdkIdentifyPayload,
+    subjectToken: string,
+  ) => Promise<{ ok: true }>
   readonly submitResponse: (p: SubmitResponsePayload) => Promise<{ ok: true }>
   readonly pushRegisterToken: (p: PushRegisterTokenPayload) => Promise<unknown>
   readonly pushInvalidateToken: (p: PushInvalidateTokenPayload) => Promise<unknown>
@@ -291,6 +294,8 @@ interface RequestOpts {
   readonly body?: unknown
   readonly idempotent: boolean
   readonly requiresSubject?: boolean
+  /** Uses this credential for one request without changing shared session state. */
+  readonly subjectTokenOverride?: string
 }
 
 export class PermanentHttpError extends Error {
@@ -326,7 +331,8 @@ export function createTransport(cfg: TransportConfig): Transport {
   }
 
   async function request<T>(opts: RequestOpts): Promise<T> {
-    if (opts.requiresSubject !== false && !subjectToken) {
+    const requestSubjectToken = opts.subjectTokenOverride ?? subjectToken
+    if (opts.requiresSubject !== false && !requestSubjectToken) {
       throw new Error('subject-session-unavailable')
     }
     if (isCircuitOpen()) {
@@ -354,7 +360,9 @@ export function createTransport(cfg: TransportConfig): Transport {
               'Content-Type': 'application/json',
               Accept: 'application/json',
               'X-UserGist-SDK-Version': 'rn-0.1.0',
-              ...(subjectToken ? { 'X-UserGist-Subject-Token': subjectToken } : {}),
+              ...(requestSubjectToken
+                ? { 'X-UserGist-Subject-Token': requestSubjectToken }
+                : {}),
             },
             body: opts.body == null ? undefined : JSON.stringify(opts.body),
             signal: timeoutCtrl.signal,
@@ -418,21 +426,14 @@ export function createTransport(cfg: TransportConfig): Transport {
     setSubjectToken(token): void {
       subjectToken = token
     },
-    session: async ({ anonymousId, currentToken }) => {
-      const previous = subjectToken
-      subjectToken = currentToken ?? null
-      try {
-        return await request<SdkSessionResponse>({
-          method: 'POST',
-          path: '/v1/sdk/session',
-          body: { anonymousId },
-          idempotent: false,
-          requiresSubject: false,
-        })
-      } finally {
-        subjectToken = previous
-      }
-    },
+    session: ({ anonymousId, currentToken }) => request<SdkSessionResponse>({
+      method: 'POST',
+      path: '/v1/sdk/session',
+      body: { anonymousId },
+      idempotent: false,
+      requiresSubject: false,
+      ...(currentToken ? { subjectTokenOverride: currentToken } : {}),
+    }),
     revokeSession: () => request<{ ok: true }>({
       method: 'POST',
       path: '/v1/sdk/session/revoke',
@@ -490,12 +491,13 @@ export function createTransport(cfg: TransportConfig): Transport {
         body: p,
         idempotent: true,
       }),
-    identify: (p) =>
+    identify: (p, identifySubjectToken) =>
       request<{ ok: true }>({
         method: 'POST',
         path: '/v1/sdk/identify',
         body: p,
         idempotent: true,
+        subjectTokenOverride: identifySubjectToken,
       }),
     submitResponse: (p) =>
       request<{ ok: true }>({

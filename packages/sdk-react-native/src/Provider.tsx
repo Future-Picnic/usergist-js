@@ -8,6 +8,7 @@ import { PromptSheet } from './ui/PromptSheet.js'
 import { SurveyView } from './ui/SurveyView.js'
 import { InAppMessageView } from './ui/InAppMessageView.js'
 import { RequestsHost } from './ui/requests/RequestsHost.js'
+import { createModalQueue, type ModalTask } from './internal/modal-queue.js'
 import type { ShowPromptPayload, ResponseEmission } from './internal/types.js'
 import type {
   ArmedInAppMessage,
@@ -83,6 +84,32 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
 
   const [surveyState, setSurveyState] = useState<SurveyState | null>(null)
   const [inAppMessage, setInAppMessage] = useState<ArmedInAppMessage | null>(null)
+  const modalQueueRef = useRef(createModalQueue())
+  const promptReleaseRef = useRef<(() => void) | null>(null)
+  const surveyReleaseRef = useRef<(() => void) | null>(null)
+  const inAppReleaseRef = useRef<(() => void) | null>(null)
+
+  function enqueueModal(task: ModalTask): void {
+    modalQueueRef.current.enqueue(task)
+  }
+
+  function releasePrompt(): void {
+    const release = promptReleaseRef.current
+    promptReleaseRef.current = null
+    release?.()
+  }
+
+  function releaseSurvey(): void {
+    const release = surveyReleaseRef.current
+    surveyReleaseRef.current = null
+    release?.()
+  }
+
+  function releaseInApp(): void {
+    const release = inAppReleaseRef.current
+    inAppReleaseRef.current = null
+    release?.()
+  }
 
   useEffect(() => {
     let unsubShow: (() => void) | null = null
@@ -90,31 +117,55 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     let unsubShowSurvey: (() => void) | null = null
     let unsubInvite: (() => void) | null = null
     let unsubShowInApp: (() => void) | null = null
+    let unsubResetSurfaces: (() => void) | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     function attach(): void {
       try {
         const bus = UserGist.__internal_events()
         unsubShow = bus.on('showPrompt', (p) => {
-          currentRef.current = p
-          setPayload(p)
+          enqueueModal((release) => {
+            promptReleaseRef.current = release
+            currentRef.current = p
+            setPayload(p)
+            bus.emit('promptShown', p)
+          })
         })
         unsubDismiss = bus.on('dismissPrompt', () => {
           currentRef.current = null
           setPayload(null)
+          releasePrompt()
         })
         unsubShowSurvey = bus.on('showSurvey', (payload) => {
-          void openSurvey(
-            payload.surveyId,
-            payload.source as SurveyAttemptSource,
-            payload.language,
-          )
+          enqueueModal((release) => {
+            surveyReleaseRef.current = release
+            void openSurvey(
+              payload.surveyId,
+              payload.source as SurveyAttemptSource,
+              payload.language,
+            ).then((shown) => {
+              if (!shown) releaseSurvey()
+            })
+          })
         })
         unsubShowInApp = bus.on('showInAppMessage', (p) => {
-          setInAppMessage(p.message)
-          // Track impression so analytics + cross-pillar caps see it —
-          // the analytics endpoint pivots on properties.message_id.
-          safeTrack(INAPP_SHOWN_EVENT_NAME, { message_id: p.messageId })
-          safeInAppHandlers().onShow?.(p.messageId)
+          enqueueModal((release) => {
+            inAppReleaseRef.current = release
+            setInAppMessage(p.message)
+            // Track impression so analytics + cross-pillar caps see it —
+            // the analytics endpoint pivots on properties.message_id.
+            safeTrack(INAPP_SHOWN_EVENT_NAME, { message_id: p.messageId })
+            safeInAppHandlers().onShow?.(p.messageId)
+          })
+        })
+        unsubResetSurfaces = bus.on('resetSurfaces', () => {
+          modalQueueRef.current.clearPending()
+          currentRef.current = null
+          setPayload(null)
+          setSurveyState(null)
+          setInAppMessage(null)
+          releasePrompt()
+          releaseSurvey()
+          releaseInApp()
         })
         unsubInvite = bus.on('surveyInvite', (invite) => {
           // If host registered onInvite, defer rendering to them. Otherwise
@@ -134,7 +185,15 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
             })
             return
           }
-          void openSurvey(invite.surveyId, invite.source as SurveyAttemptSource)
+          enqueueModal((release) => {
+            surveyReleaseRef.current = release
+            void openSurvey(
+              invite.surveyId,
+              invite.source as SurveyAttemptSource,
+            ).then((shown) => {
+              if (!shown) releaseSurvey()
+            })
+          })
         })
       } catch {
         retryTimer = setTimeout(attach, 250)
@@ -148,6 +207,8 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       if (unsubShowSurvey) unsubShowSurvey()
       if (unsubInvite) unsubInvite()
       if (unsubShowInApp) unsubShowInApp()
+      if (unsubResetSurfaces) unsubResetSurfaces()
+      modalQueueRef.current.clearPending()
     }
   }, [])
 
@@ -156,7 +217,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       surveyId: string,
       source: SurveyAttemptSource,
       language?: string,
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       try {
         // Local-fire fast-path: when the survey-matcher just fired,
         // the full survey content is already in the SDK's cache. Use
@@ -165,9 +226,9 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
         // through the polling path.
         const cached = language ? null : UserGist.__internal_armedSurveyById(surveyId)
         const survey = cached ?? (await UserGist.__internal_fetchSurvey(surveyId, language))
-        if (!survey) return
+        if (!survey) return false
         const attempt = await UserGist.__internal_createAttempt(surveyId, source, language)
-        if (!attempt) return
+        if (!attempt) return false
         setSurveyState({
           survey,
           attemptId: attempt.attemptId,
@@ -175,8 +236,9 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
           initialQuestionId: attempt.currentQuestionId ?? attempt.startQuestionId,
           initialSnapshot: attempt.snapshot ?? {},
         })
+        return true
       } catch {
-        // ignore
+        return false
       }
     },
     [],
@@ -188,6 +250,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       await UserGist.__internal_submitResponse(r, p.triggerEventName)
       currentRef.current = null
       setPayload(null)
+      releasePrompt()
     }
   }
 
@@ -197,12 +260,14 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       await UserGist.__internal_submitResponse(r, p.triggerEventName)
       currentRef.current = null
       setPayload(null)
+      releasePrompt()
     }
   }
 
   function handleInAppDismiss(reason: 'user' | 'auto'): void {
     const m = inAppMessage
     setInAppMessage(null)
+    releaseInApp()
     if (!m) return
     safeTrack(
       reason === 'auto'
@@ -240,6 +305,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     }
     // CTA tap implicitly closes the message.
     setInAppMessage(null)
+    releaseInApp()
   }
 
   const themeOverride = (() => {
@@ -251,6 +317,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
   })()
 
   const handleSurveyShow = useCallback((surveyId: string): void => {
+    UserGist.__internal_reportSurveyShown(surveyId)
     safeSurveyHandlers().onShow?.(surveyId)
   }, [])
   const handleSurveyComplete = useCallback((surveyId: string, attemptId: string): void => {
@@ -259,6 +326,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
   const handleSurveyAbandon = useCallback((surveyId: string, attemptId: string): void => {
     safeSurveyHandlers().onAbandon?.(surveyId, attemptId)
     setSurveyState(null)
+    releaseSurvey()
   }, [])
 
   return (
@@ -284,7 +352,10 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
           UserGist.__internal_completeAttempt(attemptId, answers)
         }
         onAbandonAttempt={(attemptId) => UserGist.__internal_abandonAttempt(attemptId)}
-        onDismissRequest={() => setSurveyState(null)}
+        onDismissRequest={() => {
+          setSurveyState(null)
+          releaseSurvey()
+        }}
         onShow={handleSurveyShow}
         onComplete={handleSurveyComplete}
         onAbandon={handleSurveyAbandon}
@@ -293,7 +364,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
         message={inAppMessage}
         themeOverride={themeOverride}
         onCtaPress={handleInAppCta}
-        onDismiss={() => handleInAppDismiss('user')}
+        onDismiss={handleInAppDismiss}
       />
       <RequestsHost />
     </>

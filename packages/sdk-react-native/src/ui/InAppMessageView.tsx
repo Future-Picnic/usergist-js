@@ -20,7 +20,7 @@ interface Props {
   readonly message: ArmedInAppMessage | null
   readonly themeOverride?: ResolvedTheme | null
   readonly onCtaPress: (cta: InAppCta, index: number) => void
-  readonly onDismiss: () => void
+  readonly onDismiss: (reason: 'user' | 'auto') => void
 }
 
 // Single component that renders all 3 formats (modal, modal_full,
@@ -144,7 +144,8 @@ export function InAppMessageView({
   )
 
   const dismiss = useCallback(
-    () => closeWithAnimation(onDismiss),
+    (reason: 'user' | 'auto' = 'user') =>
+      closeWithAnimation(() => onDismiss(reason)),
     [closeWithAnimation, onDismiss],
   )
 
@@ -155,7 +156,7 @@ export function InAppMessageView({
     if (message.format !== 'slideup') return
     const seconds = message.autoDismissSeconds
     if (!seconds || seconds <= 0) return
-    const t = setTimeout(dismiss, seconds * 1000)
+    const t = setTimeout(() => dismiss('auto'), seconds * 1000)
     return () => clearTimeout(t)
   }, [dismiss, message, modalGranted])
 
@@ -171,7 +172,7 @@ export function InAppMessageView({
       transparent={!isFull}
       visible={modalGranted}
       animationType={isSlide ? 'none' : 'fade'}
-      onRequestClose={dismiss}
+      onRequestClose={() => dismiss('user')}
     >
       <View style={isFull ? styles.fullRoot : styles.overlayRoot}>
         {!isFull ? (
@@ -188,7 +189,7 @@ export function InAppMessageView({
           >
             <Pressable
               style={StyleSheet.absoluteFill}
-              onPress={dismiss}
+              onPress={() => dismiss('user')}
               accessibilityLabel="Dismiss"
             />
           </Animated.View>
@@ -212,7 +213,7 @@ export function InAppMessageView({
             />
           ) : null}
           <Pressable
-            onPress={dismiss}
+            onPress={() => dismiss('user')}
             accessibilityRole="button"
             accessibilityLabel="Close"
             hitSlop={12}

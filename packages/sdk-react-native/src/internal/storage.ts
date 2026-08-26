@@ -18,6 +18,13 @@ export interface UserGistStorageAdapter {
 
 type AsyncStorageLike = UserGistStorageAdapter
 
+interface NativeSecureStorageLike {
+  readonly secureGetItem: (key: string) => Promise<string | null>
+  readonly secureSetItem: (key: string, value: string) => Promise<void>
+  readonly secureRemoveItem: (key: string) => Promise<void>
+  readonly secureMultiRemove: (keys: ReadonlyArray<string>) => Promise<void>
+}
+
 let cached: AsyncStorageLike | null = null
 let checked = false
 let customAdapter: UserGistStorageAdapter | null = null
@@ -61,6 +68,57 @@ const memoryImpl: AsyncStorageLike = {
   },
 }
 
+// Credential-bearing values must never silently degrade to AsyncStorage.
+// When the native module is unavailable (for example Expo Go), keep them only
+// in process memory and report the loss of relaunch durability.
+const secureMemoryStore = new Map<string, string>()
+const secureMemoryImpl: AsyncStorageLike = {
+  getItem: async (k) => secureMemoryStore.get(k) ?? null,
+  setItem: async (k, v) => { secureMemoryStore.set(k, v) },
+  removeItem: async (k) => { secureMemoryStore.delete(k) },
+  multiRemove: async (keys) => { for (const k of keys) secureMemoryStore.delete(k) },
+}
+
+let nativeSecureChecked = false
+let nativeSecure: AsyncStorageLike | null = null
+let warnedSecureFallback = false
+
+function loadNativeSecureStorage(): AsyncStorageLike | null {
+  if (nativeSecureChecked) return nativeSecure
+  nativeSecureChecked = true
+  try {
+    const rn = require('react-native') as {
+      NativeModules?: { UserGistPush?: NativeSecureStorageLike }
+    }
+    const module = rn.NativeModules?.UserGistPush
+    if (!module?.secureGetItem || !module.secureSetItem || !module.secureRemoveItem) {
+      return null
+    }
+    nativeSecure = {
+      getItem: (key) => module.secureGetItem(key),
+      setItem: (key, value) => module.secureSetItem(key, value),
+      removeItem: (key) => module.secureRemoveItem(key),
+      multiRemove: (keys) => module.secureMultiRemove(keys),
+    }
+  } catch {
+    nativeSecure = null
+  }
+  return nativeSecure
+}
+
+function credentialBackend(): AsyncStorageLike {
+  if (customAdapter) return customAdapter
+  const native = loadNativeSecureStorage()
+  if (native) return native
+  if (!warnedSecureFallback) {
+    warnedSecureFallback = true
+    reportError(
+      'native secure storage unavailable; subject credentials are memory-only until the app is rebuilt with the UserGist native module',
+    )
+  }
+  return secureMemoryImpl
+}
+
 function backend(): AsyncStorageLike {
   return customAdapter ?? loadAsyncStorage() ?? memoryImpl
 }
@@ -86,11 +144,32 @@ export interface StorageScope {
 export function createStorageScope(writeKey: string): StorageScope {
   const prefix = `@usergist/${hashKey(writeKey)}/`
   const key = (suffix: string): string => `${prefix}${suffix}`
+  const isCredential = (suffix: string): boolean =>
+    suffix === STORAGE_KEYS.subjectToken || suffix === STORAGE_KEYS.mutationQueue
+  const implementation = (suffix: string): AsyncStorageLike =>
+    isCredential(suffix) ? credentialBackend() : backend()
   return {
     key,
     async getJson<T>(suffix: string): Promise<T | null> {
       try {
-        const raw = await backend().getItem(key(suffix))
+        const impl = implementation(suffix)
+        let raw = await impl.getItem(key(suffix))
+        // One-time migration from older SDK builds that stored credentials in
+        // AsyncStorage. Always remove the plaintext copy, even if a native
+        // secure-store write fails, so migration cannot preserve credentials
+        // in an unencrypted backend.
+        if (raw == null && isCredential(suffix) && !customAdapter) {
+          const legacy = loadAsyncStorage()
+          const old = await legacy?.getItem(key(suffix))
+          if (old != null) {
+            try {
+              await impl.setItem(key(suffix), old)
+            } finally {
+              await legacy?.removeItem(key(suffix))
+            }
+            raw = old
+          }
+        }
         if (raw == null) return null
         return JSON.parse(raw) as T
       } catch (e) {
@@ -100,30 +179,43 @@ export function createStorageScope(writeKey: string): StorageScope {
     },
     async setJson<T>(suffix: string, value: T): Promise<void> {
       try {
-        await backend().setItem(key(suffix), JSON.stringify(value))
+        await implementation(suffix).setItem(key(suffix), JSON.stringify(value))
       } catch (e) {
         reportError('storage.setJson failed', e)
       }
     },
     async setJsonStrict<T>(suffix: string, value: T): Promise<void> {
-      await backend().setItem(key(suffix), JSON.stringify(value))
+      await implementation(suffix).setItem(key(suffix), JSON.stringify(value))
     },
     async remove(suffix: string): Promise<void> {
       try {
-        await backend().removeItem(key(suffix))
+        await implementation(suffix).removeItem(key(suffix))
+        if (isCredential(suffix) && !customAdapter) {
+          await loadAsyncStorage()?.removeItem(key(suffix))
+        }
       } catch (e) {
         reportError('storage.remove failed', e)
       }
     },
     async clearAll(suffixes: ReadonlyArray<string>): Promise<void> {
       try {
-        const impl = backend()
-        const fullKeys = suffixes.map((s) => key(s))
-        if (impl.multiRemove) {
-          await impl.multiRemove(fullKeys)
-          return
+        const normal = suffixes.filter((suffix) => !isCredential(suffix)).map(key)
+        const credentials = suffixes.filter(isCredential).map(key)
+        const normalImpl = backend()
+        const credentialImpl = credentialBackend()
+        if (normal.length > 0) {
+          if (normalImpl.multiRemove) await normalImpl.multiRemove(normal)
+          else await Promise.all(normal.map((k) => normalImpl.removeItem(k)))
         }
-        await Promise.all(fullKeys.map((k) => impl.removeItem(k)))
+        if (credentials.length > 0) {
+          if (credentialImpl.multiRemove) await credentialImpl.multiRemove(credentials)
+          else await Promise.all(credentials.map((k) => credentialImpl.removeItem(k)))
+          if (!customAdapter) {
+            const legacy = loadAsyncStorage()
+            if (legacy?.multiRemove) await legacy.multiRemove(credentials)
+            else await Promise.all(credentials.map((k) => legacy?.removeItem(k)))
+          }
+        }
       } catch (e) {
         reportError('storage.clearAll failed', e)
       }

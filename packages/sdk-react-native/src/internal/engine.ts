@@ -86,6 +86,8 @@ export interface Engine {
   subjectToken: string | null
   sessionPromise: Promise<void> | null
   instructionPollPromise: Promise<void> | null
+  resetGeneration: number
+  resetting: boolean
   readonly locallyHandledInstructionKeys: Set<string>
   /** Survey campaigns rendered immediately on-device; suppresses the later
    * offer-ledger poll for the same campaign. */
@@ -221,6 +223,8 @@ export function createEngine(config: SdkConfig): Engine {
     subjectToken: null,
     sessionPromise: null,
     instructionPollPromise: null,
+    resetGeneration: 0,
+    resetting: false,
     locallyHandledInstructionKeys: new Set(),
     locallyHandledSurveyIds: new Set(),
     themeOverride: null,
@@ -233,13 +237,20 @@ export function createEngine(config: SdkConfig): Engine {
   queue.onOverflow((dropped) => {
     debugLog('queue overflow', { dropped, queueSize: queue.size() })
   })
+  events.on('promptShown', (payload) => {
+    matcher.recordShown(payload.promptId, payload.shownAt)
+  })
   consent.subscribe((s) => {
     if (!s.analytics) engine.queue.removePurpose('analytics')
     if (!s.feedback) {
       engine.queue.removePurpose('feedback')
       void engine.mutations.removePurpose('feedback')
+      engine.matcher.resetPending()
     }
-    if (!s.survey) void engine.mutations.removePurpose('survey')
+    if (!s.survey) {
+      void engine.mutations.removePurpose('survey')
+      engine.surveyMatcher.resetPending()
+    }
     if (s.feedback || s.analytics) void flushNow(engine)
   })
 
@@ -291,11 +302,13 @@ export async function ensureSubjectSession(engine: Engine): Promise<void> {
       engine.transport.setSubjectToken(session.subjectToken)
       await engine.storage.setJson(STORAGE_KEYS.subjectToken, session.subjectToken)
     } catch (error) {
-      if (!persisted) throw error
+      const mayRotate = error instanceof PermanentHttpError &&
+        (error.status === 401 || error.status === 403 || error.status === 409)
+      if (!mayRotate) throw error
       // A lost/expired credential must never be replaced for the same known
       // anonymous ID. Rotate to a fresh installation identity and establish a
       // new server-bound subject instead.
-      await engine.storage.remove(STORAGE_KEYS.subjectToken)
+      if (persisted) await engine.storage.remove(STORAGE_KEYS.subjectToken)
       const rotated = await engine.identity.rotate()
       const session = await engine.transport.session({ anonymousId: rotated.anonymousId })
       engine.subjectToken = session.subjectToken
@@ -348,7 +361,7 @@ export function emitAppOpenWhenConsentReady(engine: Engine): void {
   if (engine.consent.allowsFeedback()) {
     pending?.()
     pendingAppOpenConsent.delete(engine)
-    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined)
+    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined, 'feedback')
     return
   }
   if (pending) return
@@ -356,7 +369,7 @@ export function emitAppOpenWhenConsentReady(engine: Engine): void {
   const unsubscribe = engine.consent.subscribe((s) => {
     if (fired || !s.feedback) return
     fired = true
-    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined)
+    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined, 'feedback')
     unsubscribe()
     pendingAppOpenConsent.delete(engine)
   })
@@ -504,8 +517,10 @@ export async function flushMutations(engine: Engine): Promise<MutationFlushResul
 async function performMutationFlush(engine: Engine): Promise<MutationFlushResult> {
   const permanentlyRejectedIds = new Set<string>()
   while (engine.mutations.size() > 0) {
+    if (engine.resetting) break
     const mutation = engine.mutations.peek()
     if (!mutation) break
+    const deliveryGeneration = engine.resetGeneration
     const consent = engine.consent.get()
     if (mutation.purpose === 'feedback' && !consent.feedback) break
     if (mutation.purpose === 'survey' && !consent.survey) break
@@ -535,18 +550,22 @@ async function performMutationFlush(engine: Engine): Promise<MutationFlushResult
           typeof anonymousId !== 'string' ||
           typeof externalId !== 'string'
         ) throw new Error('invalid-identify-mutation')
-        const previousToken = engine.subjectToken
-        engine.subjectToken = subjectToken
-        engine.transport.setSubjectToken(subjectToken)
         try {
-          await engine.transport.identify({
-            anonymousId,
-            externalId,
-            ...(properties && typeof properties === 'object'
-              ? { properties: properties as Readonly<Record<string, EventPropertyValue>> }
-              : {}),
-          })
+          await engine.transport.identify(
+            {
+              anonymousId,
+              externalId,
+              ...(properties && typeof properties === 'object'
+                ? { properties: properties as Readonly<Record<string, EventPropertyValue>> }
+                : {}),
+            },
+            subjectToken,
+          )
+          if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
           await engine.storage.setJsonStrict(STORAGE_KEYS.subjectToken, subjectToken)
+          if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
+          engine.subjectToken = subjectToken
+          engine.transport.setSubjectToken(subjectToken)
           await engine.identity.setExternalId(externalId)
           if (properties && typeof properties === 'object') {
             const clean = properties as Readonly<Record<string, EventPropertyValue>>
@@ -558,13 +577,13 @@ async function performMutationFlush(engine: Engine): Promise<MutationFlushResult
             enqueueAndEvaluate(engine, '$identify', undefined)
           }
         } catch (error) {
-          engine.subjectToken = previousToken
-          engine.transport.setSubjectToken(previousToken)
           throw error
         }
       }
+      if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
       await engine.mutations.remove(mutation.id)
     } catch (error) {
+      if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
       if (error instanceof PermanentHttpError) {
         await engine.mutations.remove(mutation.id)
         permanentlyRejectedIds.add(mutation.id)
@@ -707,7 +726,6 @@ function dispatchInstruction(
         : 'server',
     }
     engine.events.emit('showPrompt', emission)
-    engine.events.emit('promptShown', emission)
     return
   }
   if (type === 'survey.offer') {
@@ -896,10 +914,17 @@ export async function submitResponse(
 export async function clearAllState(engine: Engine): Promise<void> {
   pendingAppOpenConsent.get(engine)?.()
   pendingAppOpenConsent.delete(engine)
+  engine.events.emit('resetSurfaces', undefined)
+  engine.transport.cancelAll()
+  await Promise.allSettled([
+    engine.mutationFlushPromise ?? Promise.resolve(),
+    engine.flushPromise ?? Promise.resolve(),
+    engine.sessionPromise ?? Promise.resolve(),
+    engine.instructionPollPromise ?? Promise.resolve(),
+  ])
   await engine.transport.revokeSession().catch((error) =>
     reportError('subject session revoke failed', error),
   )
-  engine.transport.cancelAll()
   if (engine.flushTimer) {
     clearTimeout(engine.flushTimer)
     engine.flushTimer = null
@@ -936,6 +961,8 @@ export async function clearAllState(engine: Engine): Promise<void> {
   engine.transport.setSubjectToken(null)
   engine.locallyHandledInstructionKeys.clear()
   engine.locallyHandledSurveyIds.clear()
+  engine.matcher.resetPending()
+  engine.surveyMatcher.resetPending()
   engine.lastPushToken = null
   lastPollAt = 0
   await engine.identity.hydrate()

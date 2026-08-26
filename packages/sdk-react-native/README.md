@@ -1,6 +1,9 @@
 # @usergist/feedback-react-native
 
-Launch-supported userGist SDK for React Native. Production use still requires the repository launch checklist: backend deployment, provider configuration, real-device push validation, and release-build verification.
+Launch-supported userGist SDK for React Native and the behavioral reference for
+the iOS, Android, and Flutter packages. Production use still requires the
+repository launch checklist: backend deployment, provider configuration,
+real-device push validation, and release-build verification.
 
 ## Install
 
@@ -50,7 +53,7 @@ AppRegistry.registerComponent('app', () => App)
 |---|---|
 | `UserGist.init(config)` | Returns synchronously, then hydrates and establishes the anonymous session in the background. |
 | `UserGist.identify(userId, props?, subjectToken)` | Links the anonymous installation using a customer-backend-minted subject token. |
-| `UserGist.track(name, props?)` | Enqueues a stable event id; the server makes targeting decisions. |
+| `UserGist.track(name, props?)` | Enqueues a stable event id and immediately evaluates only server-authorized client-side campaigns; all other decisions remain server-authoritative. |
 | `await UserGist.setConsent({ analytics?, feedback?, push?, survey? })` | Persists and synchronizes the transition, refreshes targeting rules, then resolves with `true`; returns `false` when synchronization fails. |
 | `UserGist.reset()` | Cancels in-flight, clears queue, rotates anonymous id, wipes caches. |
 | `UserGist.setThemeOverrides(theme)` | Global theme applied under per-prompt theme. |
@@ -62,9 +65,12 @@ AppRegistry.registerComponent('app', () => App)
 
 ### Encrypted persistence
 
-By default, the SDK uses AsyncStorage for its bounded offline queues, identity,
-and signed subject session. Apps that may include PII in user IDs or queued
-properties should provide an encrypted key/value adapter **before** init:
+By default, the SDK uses AsyncStorage for bounded event/campaign state and
+identity. Signed subject credentials and the durable mutation queue use the
+bundled Keychain/EncryptedSharedPreferences native store and never fall back to
+plaintext; if that native store is unavailable they remain process-memory only.
+Apps that want every persisted value encrypted can provide an encrypted
+key/value adapter **before** init:
 
 ```ts
 UserGist.setStorageAdapter({
@@ -76,16 +82,15 @@ UserGist.init(config)
 ```
 
 The adapter uses the same asynchronous string interface as AsyncStorage, so it
-can wrap the host application's Keychain/Keystore-backed storage without the
-SDK forcing another native storage dependency into every app.
+can wrap the host application's Keychain/Keystore-backed storage.
 
 ## Architecture
 
 See DEV_PRD §6. The SDK is a singleton that orchestrates:
-`Storage · Subject session · Consent · Durable queues · Transport · Instruction inbox · Lifecycle · Debug`.
+`Storage · Subject session · Consent · Durable queues · Transport · Instruction inbox · Armed campaigns · Persistent user state · Modal UI · Lifecycle · Debug`.
 
-AsyncStorage is bounded but not encrypted. Use `setStorageAdapter` when the app
-requires encryption at rest, and never put credentials or secrets in event
+AsyncStorage is bounded but not encrypted. Use `setStorageAdapter` when all SDK
+state must be encrypted at rest, and never put credentials or secrets in event
 properties. Default email/phone/SSN/tax-id property keys are removed before
 persistence and again by the API.
 

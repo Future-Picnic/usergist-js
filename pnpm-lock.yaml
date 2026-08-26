@@ -339,6 +339,12 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
 
+  apps/demo-android: {}
+
+  apps/demo-flutter: {}
+
+  apps/demo-ios: {}
+
   apps/demo-react-native:
     dependencies:
       '@react-native-async-storage/async-storage':

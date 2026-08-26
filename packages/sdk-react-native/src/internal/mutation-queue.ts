@@ -46,11 +46,17 @@ export function createMutationQueue(storage: StorageScope): MutationQueue {
 
   function mutate(fn: () => void): Promise<void> {
     const next = serial.then(async () => {
-      fn()
-      await storage.setJsonStrict<PersistedMutations>(STORAGE_KEYS.mutationQueue, {
-        version: 1,
-        items,
-      })
+      const previous = items
+      try {
+        fn()
+        await storage.setJsonStrict<PersistedMutations>(STORAGE_KEYS.mutationQueue, {
+          version: 1,
+          items,
+        })
+      } catch (error) {
+        items = previous
+        throw error
+      }
     })
     serial = next.catch((error) => {
       reportError('mutation queue persistence failed', error)

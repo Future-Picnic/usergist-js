@@ -383,12 +383,18 @@ export const UserGist = {
   reset(): void {
     try {
       const e = requireEngine()
+      if (e.resetting) return
+      e.resetting = true
+      e.resetGeneration += 1
+      e.events.emit('resetSurfaces', undefined)
       void (async () => {
         await ensureHydrated(e)
         if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
         await UserGistPushNative.disablePush().catch(() => undefined)
         await clearAllState(e)
-      })().catch((err: unknown) => reportError('reset failed', err))
+      })()
+        .catch((err: unknown) => reportError('reset failed', err))
+        .finally(() => { e.resetting = false })
     } catch (err) {
       reportError('reset failed', err)
     }
@@ -609,6 +615,7 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
+      if (!e.lastPushToken) return
       const id = e.identity.get()
       await e.transport.pushAppOpen({ anonymousId: id.anonymousId })
     } catch (err) {
@@ -861,6 +868,15 @@ export const UserGist = {
   __internal_surveyHandlers(): SurveyHandlers {
     return surveyHandlers
   },
+
+  __internal_reportSurveyShown(surveyId: string): void {
+    try {
+      const e = requireEngine()
+      e.surveyMatcher.recordShown(surveyId)
+    } catch (err) {
+      reportError('reportSurveyShown failed', err)
+    }
+  },
   __internal_armedSurveyById(surveyId: string): SurveyCampaignWithFlow | null {
     // Local-fire fast-path. If the survey-rules-cache already has the
     // full survey content (because the matcher just fired), the
@@ -960,11 +976,16 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
+      if (e.resetting) throw new Error('Survey submission cancelled by reset')
+      const resetGeneration = e.resetGeneration
       const mutationId = await e.mutations.enqueue('survey-complete', 'survey', {
         attemptId,
         body: { finalAnswers },
       }, `survey-complete:${attemptId}`)
       const result = await flushMutations(e)
+      if (e.resetting || e.resetGeneration !== resetGeneration) {
+        throw new Error('Survey submission cancelled by reset')
+      }
       if (result.permanentlyRejectedIds.has(mutationId)) {
         throw new Error('Survey submission was rejected by the server')
       }

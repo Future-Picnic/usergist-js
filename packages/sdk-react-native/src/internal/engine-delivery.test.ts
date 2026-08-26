@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   enqueueAndEvaluate,
   ensureHydrated,
+  ensureSubjectSession,
   flushMutations,
   pollSurveyOffers,
   type Engine,
 } from './engine.js'
+import { PermanentHttpError } from './transport.js'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -107,6 +109,57 @@ describe('engine hydration recovery', () => {
     expect(engine.hydrated).toBe(true)
     expect(session).toHaveBeenCalledTimes(2)
   })
+
+  it('preserves persisted identity after a transient session failure', async () => {
+    const rotate = vi.fn()
+    const remove = vi.fn(async () => undefined)
+    const engine = {
+      subjectToken: null,
+      sessionPromise: null,
+      identity: {
+        get: () => ({ anonymousId: 'anonymous-stable' }),
+        rotate,
+      },
+      storage: {
+        getJson: vi.fn(async () => 'st_persisted'),
+        setJson: vi.fn(async () => undefined),
+        remove,
+      },
+      transport: {
+        session: vi.fn(async () => { throw new Error('offline') }),
+        setSubjectToken: vi.fn(),
+      },
+    } as unknown as Engine
+
+    await expect(ensureSubjectSession(engine)).rejects.toThrow('offline')
+    expect(rotate).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it('rotates persisted identity only after an explicit credential conflict', async () => {
+    const rotate = vi.fn(async () => ({ anonymousId: 'anonymous-rotated' }))
+    const session = vi.fn()
+      .mockRejectedValueOnce(new PermanentHttpError(409))
+      .mockResolvedValueOnce({ subjectToken: 'st_rotated' })
+    const engine = {
+      subjectToken: null,
+      sessionPromise: null,
+      identity: {
+        get: () => ({ anonymousId: 'anonymous-stable' }),
+        rotate,
+      },
+      storage: {
+        getJson: vi.fn(async () => 'st_persisted'),
+        setJson: vi.fn(async () => undefined),
+        remove: vi.fn(async () => undefined),
+      },
+      transport: { session, setSubjectToken: vi.fn() },
+    } as unknown as Engine
+
+    await ensureSubjectSession(engine)
+    expect(rotate).toHaveBeenCalledTimes(1)
+    expect(session).toHaveBeenLastCalledWith({ anonymousId: 'anonymous-rotated' })
+  })
 })
 
 describe('durable survey abandonment', () => {
@@ -136,5 +189,52 @@ describe('durable survey abandonment', () => {
     expect(result.permanentlyRejectedIds.size).toBe(0)
     expect(surveyAbandon).toHaveBeenCalledWith('attempt-a')
     expect(engine.mutations.remove).toHaveBeenCalledWith('mutation-abandon')
+  })
+
+  it('does not apply an identify completion from before reset', async () => {
+    let resolveIdentify: (() => void) | undefined
+    const identify = vi.fn(() => new Promise<void>((resolve) => {
+      resolveIdentify = resolve
+    }))
+    let pending = true
+    const mutation = {
+      id: 'mutation-identify',
+      kind: 'identify' as const,
+      purpose: 'essential' as const,
+      payload: {
+        subjectToken: 'st_user',
+        anonymousId: 'anonymous-a',
+        externalId: 'user-a',
+      },
+      createdAt: new Date().toISOString(),
+    }
+    const setJsonStrict = vi.fn(async () => undefined)
+    const setExternalId = vi.fn(async () => undefined)
+    const engine = {
+      resetting: false,
+      resetGeneration: 0,
+      mutationFlushPromise: null,
+      consent: { get: () => ({ analytics: true }) },
+      mutations: {
+        size: () => (pending ? 1 : 0),
+        peek: () => (pending ? mutation : null),
+        remove: vi.fn(async () => { pending = false }),
+      },
+      transport: { identify, setSubjectToken: vi.fn() },
+      storage: { setJsonStrict },
+      identity: { setExternalId },
+      userState: { mergeProperties: vi.fn() },
+    } as unknown as Engine
+
+    const flushing = flushMutations(engine)
+    await vi.waitFor(() => expect(identify).toHaveBeenCalledOnce())
+    engine.resetting = true
+    engine.resetGeneration += 1
+    resolveIdentify?.()
+    await flushing
+
+    expect(setJsonStrict).not.toHaveBeenCalled()
+    expect(setExternalId).not.toHaveBeenCalled()
+    expect(engine.mutations.remove).not.toHaveBeenCalled()
   })
 })
