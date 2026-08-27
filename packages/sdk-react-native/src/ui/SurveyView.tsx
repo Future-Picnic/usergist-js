@@ -135,7 +135,7 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
-  }, [survey, initialQuestionId, initialSnapshot, onShow])
+  }, [survey, attemptId, initialQuestionId, initialSnapshot, onShow])
 
   const scheduleSave = useCallback(
     (qid: string | null, snap: SurveyAnswerRecord) => {
@@ -257,6 +257,10 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
     try {
       setSubmitting(true)
       setSubmitError(null)
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current)
+        saveTimer.current = null
+      }
       const payload: Array<{ questionId: string; value: SurveyAnswerValue }> = []
       for (const q of flow.questions) {
         if (q.type === 'info_screen') continue
@@ -275,6 +279,10 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
   }
 
   function dismiss(): void {
+    if (ended) {
+      onDismissRequest()
+      return
+    }
     // Close the modal IMMEDIATELY so the user always gets feedback on
     // their X tap. Server-side abandon goes out fire-and-forget; the
     // attempt sweeper will mark it abandoned anyway if the request
@@ -512,7 +520,7 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
 // global footer either. multi_choice / ranking / single_date /
 // info_screen keep the bottom footer.
 function renderFooter(type: SurveyQuestion['type'] | undefined): boolean {
-  if (!type) return true
+  if (!type) return false
   return (
     type === 'multi_choice' ||
     type === 'ranking' ||

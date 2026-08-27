@@ -1,5 +1,6 @@
 #import "UserGistPush.h"
 #import <React/RCTLog.h>
+#import <Security/Security.h>
 
 #if __has_include("UserGistFeedback-Swift.h")
 #import "UserGistFeedback-Swift.h"
@@ -81,6 +82,77 @@ RCT_EXPORT_METHOD(setBadgeCount:(double)count
 RCT_EXPORT_METHOD(getInitialNotification:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject) {
   [UserGistPushImpl.shared getInitialNotificationWithResolver:resolve rejecter:reject];
+}
+
+static NSString * const UserGistSecureService = @"studio.usergist.feedback.react-native";
+
+static NSMutableDictionary *UserGistSecureQuery(NSString *key) {
+  return [@{
+    (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+    (__bridge id)kSecAttrService: UserGistSecureService,
+    (__bridge id)kSecAttrAccount: key,
+  } mutableCopy];
+}
+
+RCT_EXPORT_METHOD(secureGetItem:(NSString *)key
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
+  NSMutableDictionary *query = UserGistSecureQuery(key);
+  query[(__bridge id)kSecReturnData] = @YES;
+  query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+  CFTypeRef result = NULL;
+  OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
+  if (status == errSecItemNotFound) { resolve(nil); return; }
+  if (status != errSecSuccess) {
+    reject(@"secure_read_failed", [NSString stringWithFormat:@"Keychain read failed: %d", (int)status], nil);
+    return;
+  }
+  NSData *data = CFBridgingRelease(result);
+  resolve([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]);
+}
+
+RCT_EXPORT_METHOD(secureSetItem:(NSString *)key
+                  value:(NSString *)value
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
+  NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
+  NSMutableDictionary *query = UserGistSecureQuery(key);
+  OSStatus status = SecItemUpdate((__bridge CFDictionaryRef)query,
+                                  (__bridge CFDictionaryRef)@{(__bridge id)kSecValueData: data});
+  if (status == errSecItemNotFound) {
+    query[(__bridge id)kSecValueData] = data;
+    query[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlock;
+    status = SecItemAdd((__bridge CFDictionaryRef)query, NULL);
+  }
+  if (status != errSecSuccess) {
+    reject(@"secure_write_failed", [NSString stringWithFormat:@"Keychain write failed: %d", (int)status], nil);
+    return;
+  }
+  resolve(nil);
+}
+
+RCT_EXPORT_METHOD(secureRemoveItem:(NSString *)key
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
+  OSStatus status = SecItemDelete((__bridge CFDictionaryRef)UserGistSecureQuery(key));
+  if (status != errSecSuccess && status != errSecItemNotFound) {
+    reject(@"secure_remove_failed", [NSString stringWithFormat:@"Keychain delete failed: %d", (int)status], nil);
+    return;
+  }
+  resolve(nil);
+}
+
+RCT_EXPORT_METHOD(secureMultiRemove:(NSArray<NSString *> *)keys
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
+  for (NSString *key in keys) {
+    OSStatus status = SecItemDelete((__bridge CFDictionaryRef)UserGistSecureQuery(key));
+    if (status != errSecSuccess && status != errSecItemNotFound) {
+      reject(@"secure_remove_failed", [NSString stringWithFormat:@"Keychain delete failed: %d", (int)status], nil);
+      return;
+    }
+  }
+  resolve(nil);
 }
 
 @end

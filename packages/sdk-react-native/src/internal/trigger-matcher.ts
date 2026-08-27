@@ -22,6 +22,10 @@ import { debugLog, logTrace } from './debug.js'
 export interface TriggerMatcher {
   /** Returns the locally rendered prompt id, or null when the server decides. */
   readonly evaluate: (eventName: string) => string | null
+  /** Commits a reserved cap only after the UI presenter confirms rendering. */
+  readonly recordShown: (promptId: string, at?: number) => void
+  /** Releases process-local reservations during reset. */
+  readonly resetPending: () => void
 }
 
 export function createTriggerMatcher(params: {
@@ -32,6 +36,7 @@ export function createTriggerMatcher(params: {
   readonly events: EventBus
 }): TriggerMatcher {
   const { rulesCache, frequencyCaps, userState, consent, events } = params
+  const pendingPromptIds = new Set<string>()
 
   function tryFire(trigger: ArmedTrigger, eventName: string): boolean {
     if (trigger.clientSideEligible === false) {
@@ -66,6 +71,9 @@ export function createTriggerMatcher(params: {
       return false
     }
     // Frequency cap
+    if (pendingPromptIds.has(trigger.promptId)) {
+      return false
+    }
     const cap = frequencyCaps.canShow(trigger.promptId, trigger.frequency)
     if (!cap.ok) {
       logTrace({
@@ -78,7 +86,7 @@ export function createTriggerMatcher(params: {
       return false
     }
     // Fire
-    frequencyCaps.recordShown(trigger.promptId)
+    pendingPromptIds.add(trigger.promptId)
     const shownAt = Date.now()
     debugLog('[usergist:analyze] prompt-show', {
       promptId: trigger.promptId,
@@ -86,13 +94,6 @@ export function createTriggerMatcher(params: {
       triggerEventName: eventName,
     })
     events.emit('showPrompt', {
-      promptId: trigger.promptId,
-      prompt: trigger.prompt,
-      theme: trigger.prompt.theme,
-      shownAt,
-      triggerEventName: eventName,
-    })
-    events.emit('promptShown', {
       promptId: trigger.promptId,
       prompt: trigger.prompt,
       theme: trigger.prompt.theme,
@@ -124,6 +125,13 @@ export function createTriggerMatcher(params: {
         if (tryFire(t, eventName)) return t.promptId
       }
       return null
+    },
+    recordShown(promptId, at) {
+      pendingPromptIds.delete(promptId)
+      frequencyCaps.recordShown(promptId, at)
+    },
+    resetPending() {
+      pendingPromptIds.clear()
     },
   }
 }

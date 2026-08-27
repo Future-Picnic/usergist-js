@@ -34,6 +34,7 @@ export interface SdkEvents {
     readonly source: string
   }
   readonly showInAppMessage: ShowInAppMessagePayload
+  readonly resetSurfaces: undefined
   readonly pushEvent: PushEventPayload
   readonly showRequestsBoard: undefined
   readonly showRequestDetail: { readonly requestId: string }

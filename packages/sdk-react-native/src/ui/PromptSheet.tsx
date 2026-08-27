@@ -36,20 +36,13 @@ import {
   type PromptAnswerRecord,
   type PromptAnswerValue,
 } from '../internal/prompt-answers.js'
+import {
+  promptNeedsExplicitNext,
+  promptNextRequiresAnswer,
+  promptShouldAutoAdvance,
+} from '../internal/prompt-flow.js'
 
 type AnswerRecord = PromptAnswerRecord
-
-// Tap-to-select questions auto-advance — there's nothing more for
-// the user to do, the Next button would just be friction.
-//   - rating / nps: always auto-advance
-//   - multiple_choice: auto-advance only when it's single-select
-//     (multiSelect=false). When the prompt allows multiple picks the
-//     user needs the explicit Next button to commit their choices.
-function shouldAutoAdvance(q: Question): boolean {
-  if (q.type === 'rating' || q.type === 'nps') return true
-  if (q.type === 'multiple_choice') return !q.multiSelect
-  return false
-}
 
 // Text inputs render their OWN inline Next button under the field
 // (full-width, disabled until the user types something).
@@ -175,7 +168,7 @@ export function PromptSheet({
     // as the survey shell. multi_choice + text inputs keep the
     // explicit Next button so the user can pick multiple options
     // or finish typing.
-    if (current?.id === qid && shouldAutoAdvance(current)) {
+    if (current?.id === qid && promptShouldAutoAdvance(current)) {
       if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current)
       advanceTimerRef.current = setTimeout(() => {
         advanceTimerRef.current = null
@@ -342,13 +335,27 @@ export function PromptSheet({
           ) : null}
           {/* Footer Next for non-text, non-auto-advance types
               (multi_choice). Full-width pill, no Back. */}
-          {current && !shouldAutoAdvance(current) && !isTextInput(current.type) ? (
+          {current && promptNeedsExplicitNext(current) && !isTextInput(current.type) ? (
             <Pressable
               onPress={next}
               testID="feedback-next"
+              disabled={
+                promptNextRequiresAnswer(current) &&
+                !answerHasValue(answers[current.id])
+              }
               accessibilityRole="button"
               accessibilityLabel="Next"
-              style={[styles.next, { backgroundColor: theme.colors.primary }]}
+              style={[
+                styles.next,
+                {
+                  backgroundColor: theme.colors.primary,
+                  opacity:
+                    promptNextRequiresAnswer(current) &&
+                    !answerHasValue(answers[current.id])
+                      ? 0.4
+                      : 1,
+                },
+              ]}
             >
               <Text
                 style={{

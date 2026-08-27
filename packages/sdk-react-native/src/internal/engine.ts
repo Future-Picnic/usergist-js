@@ -43,6 +43,10 @@ import type {
 } from './types.js'
 import type { ResolvedTheme } from '../ui/theme.js'
 import { createMutationQueue, type MutationQueue } from './mutation-queue.js'
+import {
+  createLocalInstructionDedupe,
+  type LocalInstructionDedupe,
+} from './instruction-dedupe.js'
 
 const ENVIRONMENT_API_URLS = {
   production: 'https://api.usergist.studio',
@@ -86,7 +90,9 @@ export interface Engine {
   subjectToken: string | null
   sessionPromise: Promise<void> | null
   instructionPollPromise: Promise<void> | null
-  readonly locallyHandledInstructionKeys: Set<string>
+  resetGeneration: number
+  resetting: boolean
+  readonly localInstructionDedupe: LocalInstructionDedupe
   /** Survey campaigns rendered immediately on-device; suppresses the later
    * offer-ledger poll for the same campaign. */
   readonly locallyHandledSurveyIds: Set<string>
@@ -127,6 +133,7 @@ export function createEngine(config: SdkConfig): Engine {
   const consent = createConsentManager(storage)
   const queue = createEventQueue(storage, resolved.maxQueueSize)
   const mutations = createMutationQueue(storage)
+  const localInstructionDedupe = createLocalInstructionDedupe(storage)
   const transport = createTransport({ writeKey: resolved.writeKey, apiUrl: resolved.apiUrl })
   const rules = createRulesCache(storage, transport, resolved.triggerSyncIntervalMs)
   const surveyRules = createSurveyRulesCache(
@@ -188,6 +195,7 @@ export function createEngine(config: SdkConfig): Engine {
     onSyncTick: () => {
       const e = eng()
       void refreshTargetingRules(e)
+      void flushMutations(e)
       void pollSurveyOffers(e)
       void pollInstructions(e)
     },
@@ -221,7 +229,9 @@ export function createEngine(config: SdkConfig): Engine {
     subjectToken: null,
     sessionPromise: null,
     instructionPollPromise: null,
-    locallyHandledInstructionKeys: new Set(),
+    resetGeneration: 0,
+    resetting: false,
+    localInstructionDedupe,
     locallyHandledSurveyIds: new Set(),
     themeOverride: null,
     lastPushToken: null,
@@ -233,13 +243,20 @@ export function createEngine(config: SdkConfig): Engine {
   queue.onOverflow((dropped) => {
     debugLog('queue overflow', { dropped, queueSize: queue.size() })
   })
+  events.on('promptShown', (payload) => {
+    matcher.recordShown(payload.promptId, payload.shownAt)
+  })
   consent.subscribe((s) => {
     if (!s.analytics) engine.queue.removePurpose('analytics')
     if (!s.feedback) {
       engine.queue.removePurpose('feedback')
       void engine.mutations.removePurpose('feedback')
+      engine.matcher.resetPending()
     }
-    if (!s.survey) void engine.mutations.removePurpose('survey')
+    if (!s.survey) {
+      void engine.mutations.removePurpose('survey')
+      engine.surveyMatcher.resetPending()
+    }
     if (s.feedback || s.analytics) void flushNow(engine)
   })
 
@@ -261,6 +278,7 @@ export async function ensureHydrated(engine: Engine): Promise<void> {
         engine.rules.hydrate(),
         engine.surveyRules.hydrate(),
         engine.inAppRules.hydrate(),
+        engine.localInstructionDedupe.hydrate(),
       ])
       await ensureSubjectSession(engine)
       engine.hydrated = true
@@ -291,11 +309,13 @@ export async function ensureSubjectSession(engine: Engine): Promise<void> {
       engine.transport.setSubjectToken(session.subjectToken)
       await engine.storage.setJson(STORAGE_KEYS.subjectToken, session.subjectToken)
     } catch (error) {
-      if (!persisted) throw error
+      const mayRotate = error instanceof PermanentHttpError &&
+        (error.status === 401 || error.status === 403 || error.status === 409)
+      if (!mayRotate) throw error
       // A lost/expired credential must never be replaced for the same known
       // anonymous ID. Rotate to a fresh installation identity and establish a
       // new server-bound subject instead.
-      await engine.storage.remove(STORAGE_KEYS.subjectToken)
+      if (persisted) await engine.storage.remove(STORAGE_KEYS.subjectToken)
       const rotated = await engine.identity.rotate()
       const session = await engine.transport.session({ anonymousId: rotated.anonymousId })
       engine.subjectToken = session.subjectToken
@@ -312,7 +332,9 @@ export async function refreshTargetingRules(
   engine: Engine,
   force = false,
 ): Promise<void> {
+  if (engine.resetting) return
   await ensureHydrated(engine)
+  if (engine.resetting) return
   const id = engine.identity.get()
   await Promise.all([
     engine.rules.refresh({
@@ -344,11 +366,12 @@ export async function refreshTargetingRules(
  * where `feedback === true`. Idempotent: only fires once per call.
  */
 export function emitAppOpenWhenConsentReady(engine: Engine): void {
+  if (engine.resetting) return
   const pending = pendingAppOpenConsent.get(engine)
   if (engine.consent.allowsFeedback()) {
     pending?.()
     pendingAppOpenConsent.delete(engine)
-    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined)
+    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined, 'feedback')
     return
   }
   if (pending) return
@@ -356,7 +379,7 @@ export function emitAppOpenWhenConsentReady(engine: Engine): void {
   const unsubscribe = engine.consent.subscribe((s) => {
     if (fired || !s.feedback) return
     fired = true
-    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined)
+    enqueueAndEvaluate(engine, APP_OPEN_EVENT_NAME, undefined, 'feedback')
     unsubscribe()
     pendingAppOpenConsent.delete(engine)
   })
@@ -364,19 +387,12 @@ export function emitAppOpenWhenConsentReady(engine: Engine): void {
 }
 
 const pendingAppOpenConsent = new WeakMap<Engine, () => void>()
-const MAX_LOCAL_INSTRUCTION_KEYS = 200
-
 function instructionKey(type: string, refId: string, eventId: string): string {
   return `${type}:${refId}:event:${eventId}`
 }
 
 function rememberLocalInstruction(engine: Engine, key: string): void {
-  engine.locallyHandledInstructionKeys.add(key)
-  while (engine.locallyHandledInstructionKeys.size > MAX_LOCAL_INSTRUCTION_KEYS) {
-    const oldest = engine.locallyHandledInstructionKeys.values().next().value
-    if (typeof oldest !== 'string') break
-    engine.locallyHandledInstructionKeys.delete(oldest)
-  }
+  engine.localInstructionDedupe.remember(key)
 }
 
 export function scheduleFlush(engine: Engine): void {
@@ -388,6 +404,7 @@ export function scheduleFlush(engine: Engine): void {
 }
 
 export async function flushNow(engine: Engine): Promise<void> {
+  if (engine.resetting) return
   if (engine.flushPromise) return engine.flushPromise
   engine.flushPromise = performFlush(engine).finally(() => {
     engine.flushPromise = null
@@ -494,6 +511,7 @@ export interface MutationFlushResult {
 }
 
 export async function flushMutations(engine: Engine): Promise<MutationFlushResult> {
+  if (engine.resetting) return { permanentlyRejectedIds: new Set() }
   if (engine.mutationFlushPromise) return engine.mutationFlushPromise
   engine.mutationFlushPromise = performMutationFlush(engine).finally(() => {
     engine.mutationFlushPromise = null
@@ -504,8 +522,10 @@ export async function flushMutations(engine: Engine): Promise<MutationFlushResul
 async function performMutationFlush(engine: Engine): Promise<MutationFlushResult> {
   const permanentlyRejectedIds = new Set<string>()
   while (engine.mutations.size() > 0) {
+    if (engine.resetting) break
     const mutation = engine.mutations.peek()
     if (!mutation) break
+    const deliveryGeneration = engine.resetGeneration
     const consent = engine.consent.get()
     if (mutation.purpose === 'feedback' && !consent.feedback) break
     if (mutation.purpose === 'survey' && !consent.survey) break
@@ -535,18 +555,22 @@ async function performMutationFlush(engine: Engine): Promise<MutationFlushResult
           typeof anonymousId !== 'string' ||
           typeof externalId !== 'string'
         ) throw new Error('invalid-identify-mutation')
-        const previousToken = engine.subjectToken
-        engine.subjectToken = subjectToken
-        engine.transport.setSubjectToken(subjectToken)
         try {
-          await engine.transport.identify({
-            anonymousId,
-            externalId,
-            ...(properties && typeof properties === 'object'
-              ? { properties: properties as Readonly<Record<string, EventPropertyValue>> }
-              : {}),
-          })
+          await engine.transport.identify(
+            {
+              anonymousId,
+              externalId,
+              ...(properties && typeof properties === 'object'
+                ? { properties: properties as Readonly<Record<string, EventPropertyValue>> }
+                : {}),
+            },
+            subjectToken,
+          )
+          if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
           await engine.storage.setJsonStrict(STORAGE_KEYS.subjectToken, subjectToken)
+          if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
+          engine.subjectToken = subjectToken
+          engine.transport.setSubjectToken(subjectToken)
           await engine.identity.setExternalId(externalId)
           if (properties && typeof properties === 'object') {
             const clean = properties as Readonly<Record<string, EventPropertyValue>>
@@ -558,13 +582,13 @@ async function performMutationFlush(engine: Engine): Promise<MutationFlushResult
             enqueueAndEvaluate(engine, '$identify', undefined)
           }
         } catch (error) {
-          engine.subjectToken = previousToken
-          engine.transport.setSubjectToken(previousToken)
           throw error
         }
       }
+      if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
       await engine.mutations.remove(mutation.id)
     } catch (error) {
+      if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
       if (error instanceof PermanentHttpError) {
         await engine.mutations.remove(mutation.id)
         permanentlyRejectedIds.add(mutation.id)
@@ -572,6 +596,12 @@ async function performMutationFlush(engine: Engine): Promise<MutationFlushResult
           mutationId: mutation.id,
           kind: mutation.kind,
           status: error.status,
+        })
+      } else {
+        debugLog('mutation delivery deferred', {
+          mutationId: mutation.id,
+          kind: mutation.kind,
+          reason: error instanceof Error ? error.message : String(error),
         })
       }
       break
@@ -586,6 +616,7 @@ let lastPollAt = 0
 
 export async function pollSurveyOffers(engine: Engine): Promise<void> {
   try {
+    if (engine.resetting) return
     const now = Date.now()
     if (now - lastPollAt < POLL_BACKOFF_MS) return
     lastPollAt = now
@@ -633,6 +664,7 @@ export async function pollSurveyOffers(engine: Engine): Promise<void> {
 }
 
 export async function pollInstructions(engine: Engine): Promise<void> {
+  if (engine.resetting) return
   if (engine.instructionPollPromise) return engine.instructionPollPromise
   engine.instructionPollPromise = performInstructionPoll(engine).finally(() => {
     engine.instructionPollPromise = null
@@ -685,7 +717,7 @@ function dispatchInstruction(
     const triggerEventId = payload.triggerEventId
     if (
       typeof triggerEventId === 'string' &&
-      engine.locallyHandledInstructionKeys.delete(
+      engine.localInstructionDedupe.consume(
         instructionKey('prompt.show', promptId, triggerEventId),
       )
     ) {
@@ -707,7 +739,6 @@ function dispatchInstruction(
         : 'server',
     }
     engine.events.emit('showPrompt', emission)
-    engine.events.emit('promptShown', emission)
     return
   }
   if (type === 'survey.offer') {
@@ -716,7 +747,7 @@ function dispatchInstruction(
     const triggerEventId = payload.triggerEventId
     if (
       typeof triggerEventId === 'string' &&
-      engine.locallyHandledInstructionKeys.delete(
+      engine.localInstructionDedupe.consume(
         instructionKey('survey.offer', payload.surveyId, triggerEventId),
       )
     ) {
@@ -741,7 +772,7 @@ function dispatchInstruction(
     const triggerEventId = payload.triggerEventId
     if (
       typeof triggerEventId === 'string' &&
-      engine.locallyHandledInstructionKeys.delete(
+      engine.localInstructionDedupe.consume(
         instructionKey('inapp.show', typed.messageId, triggerEventId),
       )
     ) {
@@ -896,10 +927,30 @@ export async function submitResponse(
 export async function clearAllState(engine: Engine): Promise<void> {
   pendingAppOpenConsent.get(engine)?.()
   pendingAppOpenConsent.delete(engine)
-  await engine.transport.revokeSession().catch((error) =>
-    reportError('subject session revoke failed', error),
-  )
+  engine.events.emit('resetSurfaces', undefined)
   engine.transport.cancelAll()
+  await Promise.allSettled([
+    engine.mutationFlushPromise ?? Promise.resolve(),
+    engine.flushPromise ?? Promise.resolve(),
+    engine.sessionPromise ?? Promise.resolve(),
+    engine.instructionPollPromise ?? Promise.resolve(),
+  ])
+  // Reset is a local privacy operation and must not wait on network retries.
+  // Revoke the old credential through an isolated transport so failures cannot
+  // open the live engine's circuit or delay the new anonymous session.
+  const subjectToken = engine.subjectToken
+  if (subjectToken) {
+    const revocationTransport = createTransport({
+      writeKey: engine.config.writeKey,
+      apiUrl: engine.config.apiUrl,
+    })
+    revocationTransport.setSubjectToken(subjectToken)
+    void revocationTransport.revokeSession().catch((error) => {
+      debugLog('subject session revoke deferred', {
+        reason: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
   if (engine.flushTimer) {
     clearTimeout(engine.flushTimer)
     engine.flushTimer = null
@@ -915,6 +966,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
     engine.inAppRules.clear(),
     engine.userState.clear(),
     engine.consent.clear(),
+    engine.localInstructionDedupe.clear(),
   ])
   await engine.storage.clearAll([
     STORAGE_KEYS.identity,
@@ -930,12 +982,14 @@ export async function clearAllState(engine: Engine): Promise<void> {
     STORAGE_KEYS.mutationQueue,
     STORAGE_KEYS.instructionCursor,
     STORAGE_KEYS.seenInstructions,
+    STORAGE_KEYS.localInstructionDedupe,
     SEEN_OFFERS_KEY,
   ])
   engine.subjectToken = null
   engine.transport.setSubjectToken(null)
-  engine.locallyHandledInstructionKeys.clear()
   engine.locallyHandledSurveyIds.clear()
+  engine.matcher.resetPending()
+  engine.surveyMatcher.resetPending()
   engine.lastPushToken = null
   lastPollAt = 0
   await engine.identity.hydrate()

@@ -73,6 +73,7 @@ import {
   configureStorageAdapter,
   type UserGistStorageAdapter,
 } from './internal/storage.js'
+import { surveyCompletionOutcome } from './internal/survey-completion.js'
 
 type PromptShownCb = (p: ShowPromptPayload) => void
 type ResponseCb = (r: ResponseEmission) => void
@@ -108,6 +109,7 @@ export interface InAppHandlers {
 }
 
 let engine: Engine | null = null
+let resetPromise: Promise<void> | null = null
 let surveyStore: SurveyStore | null = null
 let surveyHandlers: SurveyHandlers = {}
 let inAppHandlers: InAppHandlers = {}
@@ -380,17 +382,30 @@ export const UserGist = {
     }
   },
 
-  reset(): void {
+  reset(): Promise<void> {
     try {
       const e = requireEngine()
-      void (async () => {
+      if (e.resetting) return resetPromise ?? Promise.resolve()
+      e.resetting = true
+      e.resetGeneration += 1
+      e.events.emit('resetSurfaces', undefined)
+      const operation = (async () => {
         await ensureHydrated(e)
         if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
         await UserGistPushNative.disablePush().catch(() => undefined)
         await clearAllState(e)
-      })().catch((err: unknown) => reportError('reset failed', err))
+      })()
+      const finalized = operation
+        .catch((err: unknown) => reportError('reset failed', err))
+        .finally(() => {
+          e.resetting = false
+          if (resetPromise === finalized) resetPromise = null
+        })
+      resetPromise = finalized
+      return finalized
     } catch (err) {
       reportError('reset failed', err)
+      return Promise.resolve()
     }
   },
 
@@ -609,6 +624,7 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
+      if (!e.lastPushToken) return
       const id = e.identity.get()
       await e.transport.pushAppOpen({ anonymousId: id.anonymousId })
     } catch (err) {
@@ -861,6 +877,15 @@ export const UserGist = {
   __internal_surveyHandlers(): SurveyHandlers {
     return surveyHandlers
   },
+
+  __internal_reportSurveyShown(surveyId: string): void {
+    try {
+      const e = requireEngine()
+      e.surveyMatcher.recordShown(surveyId)
+    } catch (err) {
+      reportError('reportSurveyShown failed', err)
+    }
+  },
   __internal_armedSurveyById(surveyId: string): SurveyCampaignWithFlow | null {
     // Local-fire fast-path. If the survey-rules-cache already has the
     // full survey content (because the matcher just fired), the
@@ -898,6 +923,9 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
+      // Give a previously deferred completion a chance to reach the server
+      // before asking it to create or resume another attempt.
+      await flushMutations(e)
       const id = e.identity.get()
       const res = await e.transport.surveyCreateAttempt(surveyId, {
         anonymousId: id.anonymousId,
@@ -931,15 +959,22 @@ export const UserGist = {
     currentQuestionId: string | null,
     snapshot: SurveyAnswerRecord,
   ): Promise<void> {
+    // Persist the resume point before attempting the network. Progress is
+    // best-effort transport; losing connectivity must not lose local answers.
+    await surveyStore?.updateProgress(attemptId, currentQuestionId, snapshot)
     try {
       const e = requireEngine()
       await e.transport.surveyUpdateProgress(attemptId, {
         currentQuestionId,
         progressSnapshot: snapshot,
       })
-      await surveyStore?.updateProgress(attemptId, currentQuestionId, snapshot)
     } catch (err) {
-      reportError('saveProgress failed', err)
+      // Completion can win a race with an in-flight progress PATCH, making a
+      // server-side 404 harmless. Keep this out of React Native's LogBox.
+      debugLog('survey progress delivery deferred', {
+        attemptId,
+        reason: err instanceof Error ? err.message : String(err),
+      })
     }
   },
   async __internal_submitAnswers(
@@ -960,17 +995,25 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
+      if (e.resetting) throw new Error('Survey submission cancelled by reset')
+      const resetGeneration = e.resetGeneration
       const mutationId = await e.mutations.enqueue('survey-complete', 'survey', {
         attemptId,
         body: { finalAnswers },
       }, `survey-complete:${attemptId}`)
       const result = await flushMutations(e)
-      if (result.permanentlyRejectedIds.has(mutationId)) {
+      if (e.resetting || e.resetGeneration !== resetGeneration) {
+        throw new Error('Survey submission cancelled by reset')
+      }
+      const outcome = surveyCompletionOutcome(mutationId, e.mutations, result)
+      if (outcome === 'rejected') {
         throw new Error('Survey submission was rejected by the server')
       }
-      if (e.mutations.has(mutationId)) {
-        throw new Error('Survey submission is saved locally and pending retry')
+      if (outcome === 'deferred') {
+        debugLog('survey completion saved locally; delivery deferred', { attemptId })
       }
+      // Once the completion is durably queued, the attempt must not reopen as
+      // resumable work. The mutation queue owns delivery from this point.
       await surveyStore?.remove(attemptId)
     } catch (err) {
       reportError('completeAttempt failed', err)

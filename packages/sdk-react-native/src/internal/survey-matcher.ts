@@ -26,6 +26,10 @@ import { logTrace } from './debug.js'
 export interface SurveyMatcher {
   /** Returns the locally rendered survey id, or null when the server decides. */
   readonly evaluate: (eventName: string) => string | null
+  /** Commits cap/cooldown state after the survey route actually appears. */
+  readonly recordShown: (campaignId: string, at?: number) => void
+  /** Releases process-local reservations during reset. */
+  readonly resetPending: () => void
 }
 
 // Translate the survey-side PushFrequencyCap shape into the prompt-
@@ -63,6 +67,7 @@ export function createSurveyMatcher(params: {
   readonly events: EventBus
 }): SurveyMatcher {
   const { rulesCache, frequencyCaps, userState, consent, events } = params
+  const pendingCampaignIds = new Set<string>()
 
   function tryFire(armed: ArmedSurvey, eventName: string): boolean {
     if (armed.clientSideEligible === false) {
@@ -94,6 +99,7 @@ export function createSurveyMatcher(params: {
       })
       return false
     }
+    if (pendingCampaignIds.has(armed.campaignId)) return false
     const cap = frequencyCaps.canShow(
       `survey:${armed.campaignId}`,
       toPromptCaps(armed.frequencyCap),
@@ -122,8 +128,7 @@ export function createSurveyMatcher(params: {
     // pipeline opens it. The Provider's openSurvey first hits the
     // cache (via __internal_armedSurveyById) so there's no follow-up
     // server fetch for survey content.
-    frequencyCaps.recordShown(`survey:${armed.campaignId}`)
-    cooldownByCampaign.set(armed.campaignId, Date.now())
+    pendingCampaignIds.add(armed.campaignId)
     events.emit('surveyInvite', {
       surveyId: armed.campaignId,
       name: armed.survey.name,
@@ -148,6 +153,15 @@ export function createSurveyMatcher(params: {
         if (tryFire(armed, eventName)) return armed.campaignId
       }
       return null
+    },
+    recordShown(campaignId, at = Date.now()) {
+      pendingCampaignIds.delete(campaignId)
+      frequencyCaps.recordShown(`survey:${campaignId}`, at)
+      cooldownByCampaign.set(campaignId, at)
+    },
+    resetPending() {
+      pendingCampaignIds.clear()
+      cooldownByCampaign.clear()
     },
   }
 }
