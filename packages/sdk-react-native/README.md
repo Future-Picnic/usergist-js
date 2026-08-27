@@ -55,7 +55,7 @@ AppRegistry.registerComponent('app', () => App)
 | `UserGist.identify(userId, props?, subjectToken)` | Links the anonymous installation using a customer-backend-minted subject token. |
 | `UserGist.track(name, props?)` | Enqueues a stable event id and immediately evaluates only server-authorized client-side campaigns; all other decisions remain server-authoritative. |
 | `await UserGist.setConsent({ analytics?, feedback?, push?, survey? })` | Persists and synchronizes the transition, refreshes targeting rules, then resolves with `true`; returns `false` when synchronization fails. |
-| `UserGist.reset()` | Cancels in-flight, clears queue, rotates anonymous id, wipes caches. |
+| `await UserGist.reset()` | Cancels in-flight, clears queue, rotates anonymous id, wipes caches, and resolves after the new anonymous session is ready. |
 | `UserGist.setThemeOverrides(theme)` | Global theme applied under per-prompt theme. |
 | `UserGist.flush()` | Best-effort flush. |
 | `UserGist.setDebug(boolean)` | Toggle the debug trace logger at runtime. |

@@ -237,6 +237,7 @@ export const STORAGE_KEYS = {
   mutationQueue: 'mutationQueue',
   instructionCursor: 'instructionCursor',
   seenInstructions: 'seenInstructions',
+  localInstructionDedupe: 'localInstructionDedupe',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

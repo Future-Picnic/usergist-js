@@ -20,6 +20,7 @@ describe('engine repeat delivery', () => {
     const surveyMatcher = vi.fn(() => 'survey-1')
     const inAppMatcher = vi.fn(() => 'message-1')
     const enqueue = vi.fn()
+    const remember = vi.fn()
     const engine = {
       hydrated: true,
       identity: { get: () => ({ anonymousId: 'anonymous-acceptance', externalId: null }) },
@@ -30,7 +31,7 @@ describe('engine repeat delivery', () => {
       inAppMatcher: { evaluate: inAppMatcher },
       config: { flushBatchSize: 100, flushIntervalMs: 60_000 },
       flushTimer: null,
-      locallyHandledInstructionKeys: new Set<string>(),
+      localInstructionDedupe: { remember },
       locallyHandledSurveyIds: new Set<string>(),
     } as unknown as Engine
 
@@ -41,7 +42,7 @@ describe('engine repeat delivery', () => {
     expect(matcher).toHaveBeenCalledTimes(2)
     expect(surveyMatcher).toHaveBeenCalledTimes(2)
     expect(inAppMatcher).toHaveBeenCalledTimes(2)
-    expect(engine.locallyHandledInstructionKeys.size).toBe(6)
+    expect(remember).toHaveBeenCalledTimes(6)
     expect(engine.locallyHandledSurveyIds).toEqual(new Set(['survey-1']))
   })
 })
@@ -93,6 +94,7 @@ describe('engine hydration recovery', () => {
       rules: { hydrate },
       surveyRules: { hydrate },
       inAppRules: { hydrate },
+      localInstructionDedupe: { hydrate },
       storage: {
         getJson: vi.fn(async () => null),
         setJson: vi.fn(async () => undefined),

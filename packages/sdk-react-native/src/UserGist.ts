@@ -73,6 +73,7 @@ import {
   configureStorageAdapter,
   type UserGistStorageAdapter,
 } from './internal/storage.js'
+import { surveyCompletionOutcome } from './internal/survey-completion.js'
 
 type PromptShownCb = (p: ShowPromptPayload) => void
 type ResponseCb = (r: ResponseEmission) => void
@@ -108,6 +109,7 @@ export interface InAppHandlers {
 }
 
 let engine: Engine | null = null
+let resetPromise: Promise<void> | null = null
 let surveyStore: SurveyStore | null = null
 let surveyHandlers: SurveyHandlers = {}
 let inAppHandlers: InAppHandlers = {}
@@ -380,23 +382,30 @@ export const UserGist = {
     }
   },
 
-  reset(): void {
+  reset(): Promise<void> {
     try {
       const e = requireEngine()
-      if (e.resetting) return
+      if (e.resetting) return resetPromise ?? Promise.resolve()
       e.resetting = true
       e.resetGeneration += 1
       e.events.emit('resetSurfaces', undefined)
-      void (async () => {
+      const operation = (async () => {
         await ensureHydrated(e)
         if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
         await UserGistPushNative.disablePush().catch(() => undefined)
         await clearAllState(e)
       })()
+      const finalized = operation
         .catch((err: unknown) => reportError('reset failed', err))
-        .finally(() => { e.resetting = false })
+        .finally(() => {
+          e.resetting = false
+          if (resetPromise === finalized) resetPromise = null
+        })
+      resetPromise = finalized
+      return finalized
     } catch (err) {
       reportError('reset failed', err)
+      return Promise.resolve()
     }
   },
 
@@ -914,6 +923,9 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
+      // Give a previously deferred completion a chance to reach the server
+      // before asking it to create or resume another attempt.
+      await flushMutations(e)
       const id = e.identity.get()
       const res = await e.transport.surveyCreateAttempt(surveyId, {
         anonymousId: id.anonymousId,
@@ -947,15 +959,22 @@ export const UserGist = {
     currentQuestionId: string | null,
     snapshot: SurveyAnswerRecord,
   ): Promise<void> {
+    // Persist the resume point before attempting the network. Progress is
+    // best-effort transport; losing connectivity must not lose local answers.
+    await surveyStore?.updateProgress(attemptId, currentQuestionId, snapshot)
     try {
       const e = requireEngine()
       await e.transport.surveyUpdateProgress(attemptId, {
         currentQuestionId,
         progressSnapshot: snapshot,
       })
-      await surveyStore?.updateProgress(attemptId, currentQuestionId, snapshot)
     } catch (err) {
-      reportError('saveProgress failed', err)
+      // Completion can win a race with an in-flight progress PATCH, making a
+      // server-side 404 harmless. Keep this out of React Native's LogBox.
+      debugLog('survey progress delivery deferred', {
+        attemptId,
+        reason: err instanceof Error ? err.message : String(err),
+      })
     }
   },
   async __internal_submitAnswers(
@@ -986,12 +1005,15 @@ export const UserGist = {
       if (e.resetting || e.resetGeneration !== resetGeneration) {
         throw new Error('Survey submission cancelled by reset')
       }
-      if (result.permanentlyRejectedIds.has(mutationId)) {
+      const outcome = surveyCompletionOutcome(mutationId, e.mutations, result)
+      if (outcome === 'rejected') {
         throw new Error('Survey submission was rejected by the server')
       }
-      if (e.mutations.has(mutationId)) {
-        throw new Error('Survey submission is saved locally and pending retry')
+      if (outcome === 'deferred') {
+        debugLog('survey completion saved locally; delivery deferred', { attemptId })
       }
+      // Once the completion is durably queued, the attempt must not reopen as
+      // resumable work. The mutation queue owns delivery from this point.
       await surveyStore?.remove(attemptId)
     } catch (err) {
       reportError('completeAttempt failed', err)

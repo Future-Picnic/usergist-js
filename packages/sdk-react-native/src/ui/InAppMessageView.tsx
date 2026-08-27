@@ -71,9 +71,15 @@ export function InAppMessageView({
   }, [])
 
   useEffect(() => {
+    if (!message || !modalGranted) return
+    // The same campaign may be presented repeatedly. A completed close from
+    // the previous presentation must never leave the next modal inert.
+    closingRef.current = false
+  }, [message, modalGranted])
+
+  useEffect(() => {
     if (!message || !modalGranted || !isSlide) return
 
-    closingRef.current = false
     sheetProgress.stopAnimation()
     backdropProgress.stopAnimation()
     sheetProgress.setValue(reduceMotionEnabled ? 1 : 0)
