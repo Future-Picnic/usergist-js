@@ -1,4 +1,5 @@
 import type { AudienceSpec, TriggerSpec } from './targeting.js'
+import type { ThemeMode } from './brand.js'
 
 export const INAPP_SHOWN_EVENT_NAME = '$inapp_shown'
 export const INAPP_DISMISSED_EVENT_NAME = '$inapp_dismissed'
@@ -65,6 +66,7 @@ export interface InAppMessage {
   readonly title: string
   readonly body: string | null
   readonly imageUrl: string | null
+  readonly themeMode: ThemeMode
   readonly backgroundColor: string | null
   readonly accentColor: string | null
   readonly backdropEnabled: boolean
@@ -94,6 +96,7 @@ export interface CreateInAppMessageRequest {
   readonly title: string
   readonly body?: string | null
   readonly imageUrl?: string | null
+  readonly themeMode?: ThemeMode
   readonly backgroundColor?: string | null
   readonly accentColor?: string | null
   readonly backdropEnabled?: boolean
@@ -135,6 +138,7 @@ export interface ArmedInAppMessage {
   readonly title: string
   readonly body: string | null
   readonly imageUrl: string | null
+  readonly themeMode?: ThemeMode
   readonly backgroundColor: string | null
   readonly accentColor: string | null
   /** Defaults to true when omitted by an older API/cache payload. */

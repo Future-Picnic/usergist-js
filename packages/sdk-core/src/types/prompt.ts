@@ -1,3 +1,5 @@
+import type { ThemeMode } from './brand.js'
+
 export type QuestionType = 'rating' | 'nps' | 'multiple_choice' | 'short_text'
 
 export type RatingDisplayMode = 'stars' | 'numeric' | 'emoji'
@@ -93,6 +95,7 @@ export interface Prompt {
   readonly audience?: import('./targeting.js').AudienceSpec
   readonly trigger?: import('./targeting.js').TriggerSpec
   readonly questions: ReadonlyArray<Question>
+  readonly themeMode: ThemeMode
   readonly theme?: PromptTheme
   readonly frequency: FrequencyCaps
   readonly startAt?: string | null

@@ -5,6 +5,8 @@
 // All shapes are `readonly`. Identity uses anonymousId + externalId
 // as on every other SDK payload — no new identity types here.
 
+import type { ThemeMode } from './brand.js'
+
 export type RequestStatus =
   | 'under_review'
   | 'planned'
@@ -242,6 +244,7 @@ export interface RequestSettings {
   readonly submitSegmentId: string | null
   readonly publicRoadmapEnabled: boolean
   readonly publicSlug: string | null
+  readonly themeMode: ThemeMode
   readonly branding: RequestBranding
   readonly notificationRules: RequestNotificationRules
 }
@@ -253,6 +256,7 @@ export interface UpdateRequestSettingsRequest {
   readonly submitSegmentId?: string | null
   readonly publicRoadmapEnabled?: boolean
   readonly publicSlug?: string | null
+  readonly themeMode?: ThemeMode
   readonly branding?: RequestBranding
   readonly notificationRules?: RequestNotificationRules
 }

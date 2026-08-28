@@ -7,6 +7,7 @@
 import type { PromptTheme, FrequencyCaps, SerializedSegmentRules } from './prompt.js'
 import type { PushFrequencyCap, PushSchedule } from './campaign.js'
 import type { AudienceSpec, TriggerSpec } from './targeting.js'
+import type { ThemeMode } from './brand.js'
 
 export type SurveyQuestionType =
   | 'single_choice'
@@ -230,6 +231,7 @@ export interface SurveyCampaign {
   readonly openAccess: boolean
   readonly saveResumeWindowSeconds: number
   readonly endScreen: SurveyEndScreen | null
+  readonly themeMode: ThemeMode
   readonly theme: PromptTheme | null
   readonly startAt: string | null
   readonly endAt: string | null
@@ -387,6 +389,7 @@ export interface CreateSurveyRequest {
   readonly openAccess?: boolean
   readonly saveResumeWindowSeconds?: number
   readonly endScreen?: SurveyEndScreen
+  readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
   readonly startAt?: string | null
   readonly endAt?: string | null
