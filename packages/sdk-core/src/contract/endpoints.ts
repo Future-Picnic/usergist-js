@@ -43,6 +43,11 @@ import type {
   BillingCheckoutResponse,
   BillingPlan,
   BillingUsage,
+  BillingTrial,
+  BillingPeriod,
+  BillingOfferAvailability,
+  BillingChangePlanRequest,
+  BillingChangePlanResponse,
   Subscription,
 } from '../types/billing.js'
 import type {
@@ -126,6 +131,14 @@ import type {
   PostCommentPayload,
   EditCommentPayload,
 } from '../types/request.js'
+import type {
+  AppBrandSettings,
+  BrandTheme,
+  CreateBrandThemeRequest,
+  ThemeMode,
+  UpdateBrandThemeDefaultsRequest,
+  UpdateBrandThemeRequest,
+} from '../types/brand.js'
 
 // ---------- auth ----------
 // Sign-in / sign-up / sign-out are handled by WorkOS AuthKit on the
@@ -287,6 +300,7 @@ export interface CreatePromptRequest {
   readonly triggerEventName: string
   readonly segmentId?: string | null
   readonly questions: ReadonlyArray<Question>
+  readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
   readonly frequency?: FrequencyCaps
   readonly startAt?: string | null
@@ -299,6 +313,7 @@ export interface UpdatePromptRequest {
   readonly triggerEventName?: string
   readonly segmentId?: string | null
   readonly questions?: ReadonlyArray<Question>
+  readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
   readonly frequency?: FrequencyCaps
   readonly startAt?: string | null
@@ -422,6 +437,14 @@ export const endpoints = {
   'GET /v1/apps/:appId': {} as Endpoint<void, App>,
   'PATCH /v1/apps/:appId': {} as Endpoint<UpdateAppRequest, App>,
   'DELETE /v1/apps/:appId': {} as Endpoint<void, { ok: true }>,
+
+  'GET /v1/apps/:appId/brand-settings': {} as Endpoint<void, AppBrandSettings>,
+  'POST /v1/apps/:appId/brand-themes': {} as Endpoint<CreateBrandThemeRequest, BrandTheme>,
+  'PATCH /v1/apps/:appId/brand-themes/:themeId':
+    {} as Endpoint<UpdateBrandThemeRequest, BrandTheme>,
+  'DELETE /v1/apps/:appId/brand-themes/:themeId': {} as Endpoint<void, { ok: true }>,
+  'PUT /v1/apps/:appId/brand-theme-defaults':
+    {} as Endpoint<UpdateBrandThemeDefaultsRequest, AppBrandSettings>,
 
   'GET /v1/apps/:appId/write-keys': {} as Endpoint<void, ReadonlyArray<WriteKey>>,
   'POST /v1/apps/:appId/write-keys': {} as Endpoint<CreateWriteKeyRequest, CreatedWriteKey>,
@@ -874,7 +897,7 @@ export const endpoints = {
   // ---------- billing (Paddle) ----------
   'GET /v1/workspaces/:wid/billing/plans': {} as Endpoint<
     void,
-    { plans: ReadonlyArray<BillingPlan> }
+    { plans: ReadonlyArray<BillingPlan>; foundingOffer: BillingOfferAvailability }
   >,
   'GET /v1/workspaces/:wid/billing/subscription': {} as Endpoint<
     void,
@@ -883,6 +906,7 @@ export const endpoints = {
       plan: BillingPlan | null
       usage: BillingUsage
       access: EffectivePlanAccess
+      trial: BillingTrial | null
     }
   >,
   'POST /v1/workspaces/:wid/billing/checkout': {} as Endpoint<
@@ -893,6 +917,14 @@ export const endpoints = {
     void,
     { url: string }
   >,
+  'POST /v1/workspaces/:wid/billing/change-plan': {} as Endpoint<
+    BillingChangePlanRequest,
+    BillingChangePlanResponse
+  >,
+  'GET /v1/workspaces/:wid/billing/periods': {} as Endpoint<
+    void,
+    { periods: ReadonlyArray<BillingPeriod> }
+  >,
 
   // ---------- super admin ----------
   'GET /v1/admin/session': {} as Endpoint<void, AdminSession>,
@@ -901,6 +933,10 @@ export const endpoints = {
     AdminCustomerListResponse
   >,
   'GET /v1/admin/customers/:workspaceId': {} as Endpoint<void, AdminCustomerDetail>,
+  'POST /v1/admin/customers/:workspaceId/billing-events/:eventId/replay': {} as Endpoint<
+    Record<string, never>,
+    { replayed: true }
+  >,
   'POST /v1/admin/customers/:workspaceId/grants': {} as Endpoint<
     CreateWorkspacePlanGrantRequest,
     { grant: WorkspacePlanGrant }
@@ -923,7 +959,23 @@ export const endpoints = {
   >,
   'GET /v1/admin/plans': {} as Endpoint<
     { grantable?: boolean },
-    { plans: ReadonlyArray<BillingPlan> }
+    {
+      plans: ReadonlyArray<BillingPlan>
+      foundingOffer: BillingOfferAvailability
+      paddleEnvironment: 'sandbox' | 'production'
+      configuration: {
+        apiKeyConfigured: boolean
+        clientTokenConfigured: boolean
+        webhookSecretConfigured: boolean
+        enforcementMode: 'observe' | 'warn' | 'enforce'
+        overageMode: 'observe' | 'charge'
+      }
+      bindings: ReadonlyArray<{
+        planId: string
+        baseReady: boolean
+        overageReady: boolean
+      }>
+    }
   >,
   'GET /v1/admin/workspaces/:wid': {} as Endpoint<
     void,

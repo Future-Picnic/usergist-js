@@ -64,6 +64,7 @@ export interface App {
   readonly platforms: ReadonlyArray<'ios' | 'android' | 'react-native' | 'flutter'>
   readonly piiAllowList: ReadonlyArray<string>
   readonly lifecycleEventsEnabled: boolean
+  readonly billingSuspendedAt: string | null
   readonly createdAt: string
   readonly updatedAt: string
 }

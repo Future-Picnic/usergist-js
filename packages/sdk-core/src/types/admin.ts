@@ -1,4 +1,11 @@
-import type { BillingPlan, Subscription, SubscriptionStatus } from './billing.js'
+import type {
+  BillingAccessState,
+  BillingPeriod,
+  BillingPlan,
+  BillingTrial,
+  Subscription,
+  SubscriptionStatus,
+} from './billing.js'
 import type { WorkspaceRole } from './workspace.js'
 
 export type AdminGrantStatus = 'active' | 'expired' | 'revoked'
@@ -29,6 +36,15 @@ export interface EffectivePlanAccess {
   readonly grantPlan: BillingPlan | null
   readonly effectivePlan: BillingPlan | null
   readonly source: 'subscription' | 'grant' | 'none'
+  readonly state: BillingAccessState
+  readonly reason: string | null
+  readonly canCollect: boolean
+  readonly canDeliver: boolean
+  readonly canMutateProduct: boolean
+  readonly canManageBilling: boolean
+  readonly activeAppLimit: number | null
+  readonly deadlineAt: string | null
+  readonly trial: BillingTrial | null
 }
 
 export interface AdminSession {
@@ -56,6 +72,8 @@ export interface AdminCustomerSummary {
   readonly billingPlan: BillingPlan | null
   readonly effectivePlan: BillingPlan | null
   readonly activeGrant: WorkspacePlanGrant | null
+  readonly accessState: BillingAccessState
+  readonly accessDeadlineAt: string | null
   readonly createdAt: string
 }
 
@@ -72,6 +90,7 @@ export interface AdminCustomerApp {
   readonly name: string
   readonly slug: string
   readonly platforms: ReadonlyArray<string>
+  readonly billingSuspendedAt: string | null
   readonly createdAt: string
 }
 
@@ -81,6 +100,19 @@ export interface AdminBillingEvent {
   readonly receivedAt: string
   readonly processedAt: string | null
   readonly processingError: string | null
+  readonly processingStatus: 'pending' | 'processing' | 'processed' | 'failed' | 'review_required'
+  readonly attemptCount: number
+}
+
+export interface AdminBillingNotification {
+  readonly id: string
+  readonly kind: 'trial_ending' | 'trial_grace' | 'trial_suspended' | 'payment_past_due'
+  readonly status: 'pending' | 'sent' | 'canceled' | 'dead_lettered'
+  readonly attempts: number
+  readonly referenceAt: string
+  readonly sentAt: string | null
+  readonly lastError: string | null
+  readonly createdAt: string
 }
 
 export interface AdminActivityEntry {
@@ -110,6 +142,15 @@ export interface AdminCustomerDetail {
   readonly access: EffectivePlanAccess
   readonly grantHistory: ReadonlyArray<WorkspacePlanGrant>
   readonly billingEvents: ReadonlyArray<AdminBillingEvent>
+  readonly billingNotifications: ReadonlyArray<AdminBillingNotification>
+  readonly billingPeriods: ReadonlyArray<BillingPeriod>
+  readonly foundingOffer: {
+    readonly code: string
+    readonly slotNumber: number
+    readonly status: 'reserved' | 'claimed' | 'expired'
+    readonly reservedUntil: string | null
+    readonly claimedAt: string | null
+  } | null
   readonly recentActivity: ReadonlyArray<AdminActivityEntry>
 }
 
