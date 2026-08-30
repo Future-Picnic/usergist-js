@@ -60,15 +60,36 @@ const requestEvents: ReadonlyArray<readonly [string, string, CoreEventSubjectRol
   ['$request_comment_deleted', 'UserGist Request Comment Deleted', 'affected_user'],
 ]
 
+const answerProperties: Readonly<Record<string, ReadonlyArray<string>>> = {
+  ...ids(
+    'question_id',
+    'question_type',
+    'question_title',
+    'answer_format',
+    'answer_present',
+    'answer_numeric_value',
+    'answer_selection_count',
+    'answer_text_length',
+  ),
+  // These aliases are generated only by the trusted server response paths.
+  // The API delivery boundary removes them from public SDK events before this
+  // normalizer runs. The complete answer_value stays in UserGist; destinations
+  // receive a value only for server-verified structured data.
+  answer_value: ['__usergist_destination_answer_value'],
+  answer_display_value: ['__usergist_destination_answer_display_value'],
+}
+
 export const CORE_INTEGRATION_EVENTS: ReadonlyArray<CoreIntegrationEventDefinition> = [
   { key: '$app_open', name: 'UserGist App Opened', category: 'lifecycle', subjectRole: 'actor', properties: {} },
   { key: '$app_version_changed', name: 'UserGist App Version Changed', category: 'lifecycle', subjectRole: 'actor', properties: { ...ids('old_version', 'new_version') } },
   { key: USER_IDENTIFIED_EVENT_NAME, name: 'UserGist User Identified', category: 'identity', subjectRole: 'actor', required: true, properties: {} },
   { key: '$feedback_prompt_shown', name: 'UserGist Feedback Prompt Shown', category: 'feedback', subjectRole: 'actor', properties: { ...ids('prompt_id') } },
-  { key: '$feedback_response', name: 'UserGist Feedback Response Submitted', category: 'feedback', subjectRole: 'actor', properties: { ...ids('prompt_id', 'dismissed', 'latency_ms') } },
-  { key: '$survey_started', name: 'UserGist Survey Started', category: 'surveys', subjectRole: 'actor', properties: { ...ids('campaign_id', 'attempt_id', 'language', 'source') } },
-  { key: '$survey_completed', name: 'UserGist Survey Completed', category: 'surveys', subjectRole: 'actor', properties: { ...ids('campaign_id', 'attempt_id', 'language', 'source', 'duration_ms') } },
-  { key: '$survey_abandoned', name: 'UserGist Survey Abandoned', category: 'surveys', subjectRole: 'actor', properties: { ...ids('campaign_id', 'attempt_id', 'language', 'source', 'duration_ms') } },
+  { key: '$feedback_response', name: 'UserGist Feedback Response Submitted', category: 'feedback', subjectRole: 'actor', properties: { ...ids('response_id', 'prompt_id', 'prompt_name', 'dismissed', 'latency_ms', 'answer_count', 'feedback_types') } },
+  { key: '$feedback_answer_submitted', name: 'UserGist Feedback Answer Submitted', category: 'feedback', subjectRole: 'actor', properties: { ...ids('response_id', 'prompt_id', 'prompt_name'), ...answerProperties } },
+  { key: '$survey_started', name: 'UserGist Survey Started', category: 'surveys', subjectRole: 'actor', properties: { ...ids('campaign_id', 'survey_name', 'attempt_id', 'language', 'source') } },
+  { key: '$survey_answer_submitted', name: 'UserGist Survey Answer Submitted', category: 'surveys', subjectRole: 'actor', properties: { ...ids('response_id', 'campaign_id', 'survey_name', 'attempt_id', 'language'), ...answerProperties } },
+  { key: '$survey_completed', name: 'UserGist Survey Completed', category: 'surveys', subjectRole: 'actor', properties: { ...ids('campaign_id', 'survey_name', 'attempt_id', 'language', 'source', 'duration_ms') } },
+  { key: '$survey_abandoned', name: 'UserGist Survey Abandoned', category: 'surveys', subjectRole: 'actor', properties: { ...ids('campaign_id', 'survey_name', 'attempt_id', 'language', 'source', 'duration_ms') } },
   { key: '$inapp_shown', name: 'UserGist In-App Message Shown', category: 'inapp', subjectRole: 'actor', properties: { ...ids('message_id') } },
   { key: '$inapp_dismissed', name: 'UserGist In-App Message Dismissed', category: 'inapp', subjectRole: 'actor', properties: { ...ids('message_id', 'dismiss_reason') } },
   { key: '$inapp_auto_dismissed', name: 'UserGist In-App Message Auto-Dismissed', category: 'inapp', subjectRole: 'actor', properties: { ...ids('message_id', 'dismiss_reason') } },
