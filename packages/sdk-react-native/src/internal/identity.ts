@@ -50,6 +50,19 @@ export function generateEventId(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
+export function validateIdentifyTransition(
+  currentExternalId: string | null,
+  pendingExternalId: unknown,
+  nextExternalId: string,
+): 'allowed' | 'already_identified' | 'reset_required' {
+  if (currentExternalId === nextExternalId) return 'already_identified'
+  if (currentExternalId && currentExternalId !== nextExternalId) return 'reset_required'
+  if (typeof pendingExternalId === 'string' && pendingExternalId !== nextExternalId) {
+    return 'reset_required'
+  }
+  return 'allowed'
+}
+
 export interface IdentityManager {
   readonly get: () => IdentityState
   readonly hydrate: () => Promise<IdentityState>

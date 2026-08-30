@@ -18,12 +18,21 @@ export type InAppMessageStatus =
 
 export type InAppMessageMode = 'triggered' | 'scheduled'
 
-export type InAppCtaAction = 'open_url' | 'deep_link' | 'dismiss' | 'custom_event'
+export type JsonAction = Readonly<Record<string, unknown>>
+
+export type InAppCtaAction =
+  | 'open_url'
+  | 'deep_link'
+  | 'dismiss'
+  | 'custom_event'
+  | 'json'
 
 export interface InAppCta {
   readonly label: string
   readonly action: InAppCtaAction
   readonly target?: string
+  /** Host-defined action data dispatched to the app when this CTA is tapped. */
+  readonly actionJson?: JsonAction
 }
 
 // Three-state cooldowns + cross-pillar caps. Each key is optional —

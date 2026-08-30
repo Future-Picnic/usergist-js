@@ -70,6 +70,7 @@ Status legend:
 | Prompt/survey/in-app modal FIFO | full | partial | partial | partial |
 | Request-scoped identify auth + conflict-only identity rotation | full | partial | partial | partial |
 | Reset invalidates active SDK UI + pending survey delivery | full | partial | partial | partial |
+| Tracked JSON actions from push + in-app buttons | full | full | full | full |
 | TLS pinning (`api.usergist.studio`, SPKI) | missing | partial | partial | partial |
 
 ## Implementation notes
@@ -79,6 +80,7 @@ Status legend:
 - **Client-side campaigns** — only payloads explicitly marked `clientSideEligible` may fire without a server instruction. Prompt and survey segment/frequency rules use persisted identify properties and bounded event history. Matching server instructions are deduplicated by `triggerEventId`, with the latest 200 locally rendered campaign/event pairs persisted across relaunches on every SDK.
 - **Modal ownership** — prompt, survey, and in-app campaign surfaces use one FIFO per SDK. A queued surface receives its lifecycle callback only when it actually reaches the screen. Reset drops queued surfaces, closes active SDK UI without inventing a user outcome, and prevents a cleared in-flight survey mutation from being reported as delivered.
 - **Lifecycle consent invariant** — `$app_open` intentionally waits for feedback consent because it is also a local feedback-targeting trigger. It is persisted with the feedback purpose, so granting feedback consent is sufficient to evaluate and deliver it.
+- **JSON actions** — push and in-app taps emit `$push_action_clicked` or `$inapp_cta_clicked` before dispatching the dashboard-authored object to the host callback. SDKs treat the object as data; the host app allowlists action types and owns feature, pricing, and navigation behavior.
 - **Native Requests pillar — drop-in UI on every platform**. Calling `UserGist.openRequestsBoard()` opens a fully-styled board / detail / submit / comments flow without any host-side UI code:
   - **RN**: a single root `<Modal presentationStyle="fullScreen">` mounted inside `<UserGistProvider>` — internal state machine swaps board / detail / submit views (no nested modals). Branding pulled from `getRequestBranding()`.
   - **iOS**: `RequestsBoardHost.swift` presents a `UIHostingController` modally over the topmost view controller.

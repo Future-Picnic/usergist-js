@@ -238,6 +238,7 @@ export const STORAGE_KEYS = {
   instructionCursor: 'instructionCursor',
   seenInstructions: 'seenInstructions',
   localInstructionDedupe: 'localInstructionDedupe',
+  appVersion: 'appVersion',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

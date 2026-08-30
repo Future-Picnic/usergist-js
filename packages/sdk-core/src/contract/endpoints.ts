@@ -22,6 +22,12 @@ import type { SegmentDsl } from '../types/segment-dsl.js'
 import type { AudienceSpec } from '../types/targeting.js'
 import type { PromptResponse, SubmitResponsePayload } from '../types/response.js'
 import type {
+  FeedbackRecipient,
+  InAppRecipient,
+  RecipientList,
+  SurveyRecipient,
+} from '../types/recipient.js'
+import type {
   App,
   CreatedWriteKey,
   RotateWriteKeyRequest,
@@ -37,6 +43,13 @@ import type {
   AcceptWorkspaceInviteResponse,
 } from '../types/workspace.js'
 import type { Consent } from '../types/sdk.js'
+import type {
+  ConnectIntegrationRequest,
+  IntegrationDeliveriesResponse,
+  IntegrationSummary,
+  IntegrationTestResult,
+  UpdateIntegrationRequest,
+} from '../types/integration.js'
 import type {
   AdminWorkspaceSummary,
   BillingCheckoutRequest,
@@ -438,6 +451,16 @@ export const endpoints = {
   'PATCH /v1/apps/:appId': {} as Endpoint<UpdateAppRequest, App>,
   'DELETE /v1/apps/:appId': {} as Endpoint<void, { ok: true }>,
 
+  // ---------- outbound analytics integrations ----------
+  'GET /v1/apps/:appId/integrations': {} as Endpoint<void, ReadonlyArray<IntegrationSummary>>,
+  'PUT /v1/apps/:appId/integrations/:provider': {} as Endpoint<ConnectIntegrationRequest, { integration: IntegrationSummary; test: IntegrationTestResult }>,
+  'PATCH /v1/apps/:appId/integrations/:provider': {} as Endpoint<UpdateIntegrationRequest, IntegrationSummary>,
+  'POST /v1/apps/:appId/integrations/:provider/test': {} as Endpoint<Record<string, never>, IntegrationTestResult>,
+  'POST /v1/apps/:appId/integrations/:provider/pause': {} as Endpoint<Record<string, never>, IntegrationSummary>,
+  'POST /v1/apps/:appId/integrations/:provider/resume': {} as Endpoint<Record<string, never>, IntegrationSummary>,
+  'DELETE /v1/apps/:appId/integrations/:provider': {} as Endpoint<void, { disconnected: true }>,
+  'GET /v1/apps/:appId/integrations/:provider/deliveries': {} as Endpoint<{ cursor?: string; limit?: number }, IntegrationDeliveriesResponse>,
+
   'GET /v1/apps/:appId/brand-settings': {} as Endpoint<void, AppBrandSettings>,
   'POST /v1/apps/:appId/brand-themes': {} as Endpoint<CreateBrandThemeRequest, BrandTheme>,
   'PATCH /v1/apps/:appId/brand-themes/:themeId':
@@ -501,6 +524,10 @@ export const endpoints = {
   'POST /v1/apps/:appId/prompts/:promptId/test-on-device': {} as Endpoint<TestPromptOnDeviceRequest, { dispatched: true }>,
 
   'GET /v1/apps/:appId/prompts/:promptId/responses': {} as Endpoint<ListResponsesQuery, ReadonlyArray<PromptResponse>>,
+  'GET /v1/apps/:appId/prompts/:promptId/recipients': {} as Endpoint<
+    { from?: string; to?: string },
+    RecipientList<FeedbackRecipient>
+  >,
   'GET /v1/apps/:appId/prompts/:promptId/analytics': {} as Endpoint<
     { from?: string; to?: string },
     PromptAnalytics
@@ -749,6 +776,10 @@ export const endpoints = {
     { from?: string; to?: string; page?: number; limit?: number; segmentId?: string; language?: string },
     ReadonlyArray<SurveyResponseRecord>
   >,
+  'GET /v1/apps/:appId/surveys/:sid/recipients': {} as Endpoint<
+    { from?: string; to?: string },
+    RecipientList<SurveyRecipient>
+  >,
   'GET /v1/apps/:appId/surveys/:sid/attempts': {} as Endpoint<
     void,
     ReadonlyArray<{
@@ -799,6 +830,10 @@ export const endpoints = {
   'GET /v1/apps/:appId/inapp-messages/:id/analytics': {} as Endpoint<
     { from?: string; to?: string },
     InAppMessageAnalytics
+  >,
+  'GET /v1/apps/:appId/inapp-messages/:id/recipients': {} as Endpoint<
+    { from?: string; to?: string },
+    RecipientList<InAppRecipient>
   >,
   'GET /v1/sdk/armed-inapp-messages': {} as Endpoint<
     { anonymousId: string; externalId?: string },
