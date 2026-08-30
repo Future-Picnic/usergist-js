@@ -12,6 +12,7 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import org.json.JSONArray
 
 /**
  * Library-supplied FirebaseMessagingService.  Auto-registered via the
@@ -76,18 +77,38 @@ class UserGistFirebaseMessagingService : FirebaseMessagingService() {
       PendingIntent.getActivity(this, 0, it, pendingFlags)
     }
 
-    val notification = NotificationCompat.Builder(this, channelId)
+    val notifId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
+    val builder = NotificationCompat.Builder(this, channelId)
       .setSmallIcon(applicationInfo.icon.takeIf { it != 0 } ?: android.R.drawable.ic_dialog_info)
       .setContentTitle(title)
       .setContentText(body)
       .setAutoCancel(true)
       .setContentIntent(contentIntent)
       .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-      .build()
+
+    val rawActions = data["usergist_actions"]
+    if (!rawActions.isNullOrBlank() && launchIntent != null) {
+      runCatching {
+        val actions = JSONArray(rawActions)
+        for (index in 0 until actions.length()) {
+          val action = actions.optJSONObject(index) ?: continue
+          val label = action.optString("label").takeIf { it.isNotBlank() } ?: continue
+          val actionIntent = Intent(launchIntent).apply {
+            putExtra("usergist_action_identifier", "usergist_action_$index")
+          }
+          val actionPendingIntent = PendingIntent.getActivity(
+            this,
+            notifId * 10 + index + 1,
+            actionIntent,
+            pendingFlags,
+          )
+          builder.addAction(0, label, actionPendingIntent)
+        }
+      }
+    }
 
     val nm = NotificationManagerCompat.from(this)
-    val notifId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
-    nm.notify(notifId, notification)
+    nm.notify(notifId, builder.build())
   }
 
   private fun ensureChannel(ctx: Context): String {

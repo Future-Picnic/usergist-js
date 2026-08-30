@@ -64,7 +64,7 @@ export interface ContextProvider {
   readonly platform: () => SdkPlatform
 }
 
-export function createContextProvider(): ContextProvider {
+export function createContextProvider(appVersion?: string | null): ContextProvider {
   const platform = loadPlatform()
   const os = typeof platform?.OS === 'string' ? platform.OS : undefined
   const osVersion =
@@ -82,6 +82,7 @@ export function createContextProvider(): ContextProvider {
         externalId: externalId ?? null,
         sdkVersion: SDK_VERSION,
         platform: sdkPlatform,
+        ...(appVersion ? { appVersion } : {}),
         ...(os ? { osName: os } : {}),
         ...(osVersion ? { osVersion } : {}),
         ...(locale ? { locale } : {}),

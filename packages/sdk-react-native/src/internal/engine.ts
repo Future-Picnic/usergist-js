@@ -11,7 +11,7 @@ import type {
   ClientPrompt,
   ArmedInAppMessage,
 } from '@usergist/sdk-core/mobile'
-import { APP_OPEN_EVENT_NAME } from '@usergist/sdk-core/mobile'
+import { APP_OPEN_EVENT_NAME, APP_VERSION_CHANGED_EVENT_NAME } from '@usergist/sdk-core/mobile'
 import {
   STORAGE_KEYS,
   createStorageScope,
@@ -121,6 +121,7 @@ export function resolveConfig(config: SdkConfig): ResolvedConfig {
     maxQueueSize: config.maxQueueSize ?? DEFAULTS.maxQueueSize,
     triggerSyncIntervalMs: config.triggerSyncIntervalMs ?? DEFAULTS.triggerSyncIntervalMs,
     debug: config.debug ?? DEFAULTS.debug,
+    appVersion: config.appVersion?.trim() || null,
   }
 }
 
@@ -168,7 +169,7 @@ export function createEngine(config: SdkConfig): Engine {
     consent,
     events,
   })
-  const context = createContextProvider()
+  const context = createContextProvider(resolved.appVersion)
 
   // Ref lets us forward-reference the fully-built engine from the
   // lifecycle handlers (which are only invoked asynchronously).
@@ -384,6 +385,18 @@ export function emitAppOpenWhenConsentReady(engine: Engine): void {
     pendingAppOpenConsent.delete(engine)
   })
   pendingAppOpenConsent.set(engine, unsubscribe)
+}
+
+export async function emitAppVersionChanged(engine: Engine): Promise<void> {
+  const current = engine.config.appVersion
+  if (!current) return
+  const previous = await engine.storage.getJson<string>(STORAGE_KEYS.appVersion)
+  await engine.storage.setJson(STORAGE_KEYS.appVersion, current)
+  if (!previous || previous === current || !engine.consent.allowsAnalytics()) return
+  enqueueAndEvaluate(engine, APP_VERSION_CHANGED_EVENT_NAME, {
+    old_version: previous,
+    new_version: current,
+  })
 }
 
 const pendingAppOpenConsent = new WeakMap<Engine, () => void>()
@@ -856,6 +869,14 @@ export function enqueueAndEvaluate(
     if (engine.queue.size() >= engine.config.flushBatchSize) void flushNow(engine)
     else scheduleFlush(engine)
   })
+}
+
+/** Record an event for immediate on-device matching when the server mutation
+ * has already persisted the canonical event transactionally. */
+export function recordServerBackedEventLocally(engine: Engine, eventName: string): void {
+  const now = Date.now()
+  engine.userState.recordEvent(eventName, now)
+  evaluateLocally(engine, eventName, generateEventId())
 }
 
 function evaluateLocally(engine: Engine, eventName: string, eventId: string): void {

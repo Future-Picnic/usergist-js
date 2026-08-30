@@ -13,6 +13,7 @@ export interface ResolvedConfig {
   readonly maxQueueSize: number
   readonly triggerSyncIntervalMs: number
   readonly debug: boolean
+  readonly appVersion: string | null
 }
 
 export interface IdentityState {

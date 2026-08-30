@@ -1,4 +1,5 @@
 import type { AudienceSpec, TriggerSpec } from './targeting.js'
+import type { JsonAction } from './inapp-message.js'
 
 export type PushDeliveryMode = 'broadcast' | 'scheduled' | 'triggered' | 'transactional'
 
@@ -22,12 +23,14 @@ export type CampaignStatus =
   | 'completed'
   | 'archived'
 
-export type PushActionType = 'open_app' | 'deep_link' | 'url' | 'dismiss'
+export type PushActionType = 'open_app' | 'deep_link' | 'url' | 'dismiss' | 'json'
 
 export interface PushActionButton {
   readonly label: string
   readonly action: PushActionType
   readonly target?: string
+  /** Host-defined action data dispatched to the app when this button is tapped. */
+  readonly actionJson?: JsonAction
 }
 
 export type PushUrgency = 'time_sensitive' | 'normal' | 'low'

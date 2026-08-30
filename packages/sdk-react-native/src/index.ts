@@ -1,5 +1,9 @@
 export { UserGist } from './UserGist.js'
-export type { UserGistStatic } from './UserGist.js'
+export type {
+  IdentifyResult,
+  InitialIdentity,
+  UserGistStatic,
+} from './UserGist.js'
 export { UserGistProvider } from './Provider.js'
 export { Push, parseFcmData, parseIosPayload } from './Push.js'
 export type { PushPermissionStatus, UserGistPushMessage, PushHandlers } from './Push.js'

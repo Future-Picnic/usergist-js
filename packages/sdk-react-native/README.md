@@ -20,21 +20,26 @@ import React from 'react'
 import { AppRegistry } from 'react-native'
 import { UserGist, UserGistProvider } from '@usergist/feedback-react-native'
 
-UserGist.init({
-  writeKey: 'rk_live_xxx',
-  apiUrl: 'https://api.usergist.studio',
-  environment: 'production',
-  debug: __DEV__,
-})
+// Obtain this from your authenticated backend. It exchanges an rtk_ token at
+// POST /v1/apps/:appId/sdk/subject-tokens; never ship rtk_ tokens in the app.
+const identityResult = await UserGist.initAsync(
+  {
+    writeKey: 'rk_live_xxx',
+    apiUrl: 'https://api.usergist.studio',
+    environment: 'production',
+    debug: __DEV__,
+  },
+  {
+    userId: 'user_42',
+    properties: { plan: 'pro' },
+    subjectToken: identifiedSubjectToken,
+  },
+)
 
 const consentSynchronized = await UserGist.setConsent({
   analytics: true,
   feedback: true,
 })
-
-// Obtain this from your authenticated backend. It exchanges an rtk_ token at
-// POST /v1/apps/:appId/sdk/subject-tokens; never ship rtk_ tokens in the app.
-UserGist.identify('user_42', { plan: 'pro' }, identifiedSubjectToken)
 
 function App() {
   return (
@@ -52,7 +57,9 @@ AppRegistry.registerComponent('app', () => App)
 | Method | Description |
 |---|---|
 | `UserGist.init(config)` | Returns synchronously, then hydrates and establishes the anonymous session in the background. |
+| `await UserGist.initAsync(config, initialIdentity?)` | Hydrates and optionally binds a server-proven identity before lifecycle events begin; returns `synced`, `queued`, or `rejected`. |
 | `UserGist.identify(userId, props?, subjectToken)` | Links the anonymous installation using a customer-backend-minted subject token. |
+| `await UserGist.identifyAsync(userId, props?, subjectToken)` | Backward-compatible async identity API returning `synced`, `queued`, or `rejected`. |
 | `UserGist.track(name, props?)` | Enqueues a stable event id and immediately evaluates only server-authorized client-side campaigns; all other decisions remain server-authoritative. |
 | `await UserGist.setConsent({ analytics?, feedback?, push?, survey? })` | Persists and synchronizes the transition, refreshes targeting rules, then resolves with `true`; returns `false` when synchronization fails. |
 | `await UserGist.reset()` | Cancels in-flight, clears queue, rotates anonymous id, wipes caches, and resolves after the new anonymous session is ready. |
@@ -61,7 +68,12 @@ AppRegistry.registerComponent('app', () => App)
 | `UserGist.setDebug(boolean)` | Toggle the debug trace logger at runtime. |
 | `UserGist.setDiagnosticHandler(handler)` | Receive bounded diagnostics without raw user payloads. |
 | `UserGist.getAnonymousId()` | Returns the persisted anonymous id (21-char, URL-safe). |
+| `UserGist.getExternalId()` | Returns the current stable external account ID, or `null`. |
 | `UserGist.onPromptShown(cb)` / `UserGist.onResponse(cb)` | Observe prompt lifecycle. |
+
+Call and await `reset()` before identifying a different account on the same
+installation. Switching directly from one non-null external ID to another is
+rejected so two people cannot be merged accidentally.
 
 ### Encrypted persistence
 
@@ -115,6 +127,33 @@ Push.handleOpened({ data })
 On Android, also disable the bundled `FirebaseMessagingService` when the host owns the FCM service. Set the application manifest placeholder `userGistFirebaseServiceEnabled=false` (or override/remove the library service in the app manifest). Automatic and host-forwarded modes must not both display the same notification.
 
 On iOS, `installDelegateProxy: false` prevents UserGist from intercepting `UIApplicationDelegate` and `UNUserNotificationCenter.delegate`. The host remains responsible for forwarding the APNs token and notification callbacks through `Push`.
+
+### JSON-driven in-app actions
+
+Dashboard-authored in-app CTAs and push action buttons can use the `json`
+action type. The SDK always records the generic button-tap event first, then
+passes the structured object to the host app. Keep business logic in the app
+so the same action can safely select a price, enable a feature, or route into a
+native flow:
+
+```ts
+function executeAction(action: Readonly<Record<string, unknown>>) {
+  if (action.type === 'enable_feature' && typeof action.feature === 'string') {
+    featureStore.enable(action.feature)
+  }
+}
+
+UserGist.setInAppHandlers({
+  onJsonAction: (action) => executeAction(action),
+})
+
+Push.setHandlers({
+  onJsonAction: (action) => executeAction(action),
+})
+```
+
+JSON actions are data, not executable code. Validate supported `type` values
+and fields in the host before changing app state.
 
 ## iOS Notification Service Extension (NSE) — required for true delivery tracking
 

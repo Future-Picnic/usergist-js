@@ -1,8 +1,8 @@
 // UserGist — public singleton facade.
 //
 // Philosophy:
-//  - `init()` returns synchronously, then hydrates storage and establishes the
-//    anonymous subject session in the background.
+//  - `init()` remains synchronous and backwards compatible. `initAsync()` can
+//    bind a server-proven identity before any lifecycle event is emitted.
 //  - All public methods catch their own errors and report via debug. The
 //    SDK never throws across its boundary.
 //  - Track is synchronous for the caller: it enqueues, schedules a flush,
@@ -18,6 +18,8 @@ import type {
   SurveyAttemptSource,
   SurveyCampaignWithFlow,
   SurveySummary,
+  JsonAction,
+  InAppCtaAction,
 } from '@usergist/sdk-core/mobile'
 import {
   REQUEST_COMMENTED_EVENT_NAME,
@@ -29,12 +31,14 @@ import {
   clearAllState,
   createEngine,
   emitAppOpenWhenConsentReady,
+  emitAppVersionChanged,
   ensureHydrated,
   enqueueAndEvaluate,
   flushNow,
   flushMutations,
   pollInstructions,
   refreshTargetingRules,
+  recordServerBackedEventLocally,
   submitResponse,
   type Engine,
 } from './internal/engine.js'
@@ -68,7 +72,7 @@ import {
 import { Push } from './Push.js'
 import type { NotificationPayload } from './native/events.js'
 import { AppState, Platform } from 'react-native'
-import { generateEventId } from './internal/identity.js'
+import { generateEventId, validateIdentifyTransition } from './internal/identity.js'
 import {
   configureStorageAdapter,
   type UserGistStorageAdapter,
@@ -96,19 +100,37 @@ interface SurveyHandlers {
   readonly onAbandon?: (surveyId: string, attemptId: string) => void
 }
 
+export type IdentifyResult = 'synced' | 'queued' | 'rejected'
+
+export interface InitialIdentity {
+  readonly userId: string
+  readonly subjectToken: string
+  readonly properties?: Record<string, EventPropertyValue>
+}
+
 export interface InAppHandlers {
   readonly onShow?: (messageId: string) => void
   readonly onDismiss?: (messageId: string, reason: 'user' | 'auto') => void
   readonly onCtaClick?: (args: {
     readonly messageId: string
-    readonly action: 'open_url' | 'deep_link' | 'dismiss' | 'custom_event'
+    readonly action: InAppCtaAction
     readonly target?: string
+    readonly actionJson?: JsonAction
+    readonly label: string
+    readonly index: number
+  }) => void
+  /** Executes host-defined structured actions after the CTA tap is tracked. */
+  readonly onJsonAction?: (action: JsonAction, context: {
+    readonly source: 'in_app'
+    readonly messageId: string
     readonly label: string
     readonly index: number
   }) => void
 }
 
 let engine: Engine | null = null
+let runtimeStarted = false
+let runtimeStartPromise: Promise<void> | null = null
 let resetPromise: Promise<void> | null = null
 let surveyStore: SurveyStore | null = null
 let surveyHandlers: SurveyHandlers = {}
@@ -133,6 +155,29 @@ function requireEngine(): Engine {
     throw new Error('UserGist.init must be called before using the SDK')
   }
   return engine
+}
+
+function ensureEngine(config: SdkConfig): Engine {
+  if (engine) return engine
+  engine = createEngine(config)
+  surveyStore = createSurveyStore(config.writeKey)
+  return engine
+}
+
+async function startRuntime(e: Engine): Promise<void> {
+  if (runtimeStarted) return
+  if (runtimeStartPromise) return runtimeStartPromise
+  runtimeStarted = true
+  e.lifecycle.start()
+  runtimeStartPromise = (async () => {
+    await refreshTargetingRules(e)
+    await emitAppVersionChanged(e)
+    emitAppOpenWhenConsentReady(e)
+    void pollInstructions(e)
+  })().finally(() => {
+    runtimeStartPromise = null
+  })
+  return runtimeStartPromise
 }
 
 function validateCommentBody(body: unknown): asserts body is string {
@@ -273,24 +318,29 @@ export const UserGist = {
   },
 
   init(config: SdkConfig): void {
+    void UserGist.initAsync(config)
+  },
+
+  async initAsync(
+    config: SdkConfig,
+    initialIdentity?: InitialIdentity,
+  ): Promise<IdentifyResult> {
     try {
-      if (engine) {
-        debugLog('UserGist.init called twice; ignoring')
-        return
+      const e = ensureEngine(config)
+      await ensureHydrated(e)
+      if (initialIdentity) {
+        const result = await UserGist.identifyAsync(
+          initialIdentity.userId,
+          initialIdentity.properties,
+          initialIdentity.subjectToken,
+        )
+        if (result !== 'synced') return result
       }
-      engine = createEngine(config)
-      surveyStore = createSurveyStore(config.writeKey)
-      engine.lifecycle.start()
-      // The server is authoritative for targeting. Emit the lifecycle event
-      // after identity is ready, then poll the durable instruction inbox.
-      const e = engine
-      void ensureHydrated(e).then(async () => {
-        await refreshTargetingRules(e)
-        emitAppOpenWhenConsentReady(e)
-        void pollInstructions(e)
-      })
-    } catch (e) {
-      reportError('init failed', e)
+      await startRuntime(e)
+      return 'synced'
+    } catch (error) {
+      reportError('initAsync failed', error)
+      return 'rejected'
     }
   },
 
@@ -299,36 +349,63 @@ export const UserGist = {
     properties?: Record<string, EventPropertyValue>,
     subjectToken?: string,
   ): void {
+    void UserGist.identifyAsync(userId, properties, subjectToken)
+  },
+
+  async identifyAsync(
+    userId: string,
+    properties?: Record<string, EventPropertyValue>,
+    subjectToken?: string,
+  ): Promise<IdentifyResult> {
     try {
       if (typeof userId !== 'string' || userId.length === 0) {
         reportError('identify requires a userId string')
-        return
+        return 'rejected'
       }
       const e = requireEngine()
-      void (async () => {
-        await ensureHydrated(e)
-        if (!subjectToken || !subjectToken.startsWith('st_')) {
-          reportError('identify requires a server-minted subject token')
-          return
-        }
-        const cleanProps = e.consent.allowsAnalytics() ? asEventProps(properties) : undefined
-        const mutationId = await e.mutations.enqueue('identify', 'essential', {
-          subjectToken,
-          anonymousId: e.identity.get().anonymousId,
-          externalId: userId,
-          ...(cleanProps ? { properties: cleanProps } : {}),
-        }, `identify:${userId}`)
-        const result = await flushMutations(e)
-        if (result.permanentlyRejectedIds.has(mutationId)) {
-          reportError('identify was rejected by the server')
-        } else if (e.mutations.has(mutationId)) {
-          reportError('identify is saved locally and pending retry')
-        } else {
-          void UserGist.rebindPushToken(userId)
-        }
-      })()
+      await ensureHydrated(e)
+      const identity = e.identity.get()
+      const pendingIdentity = e.mutations.peek()
+      const transition = validateIdentifyTransition(
+        identity.externalId,
+        pendingIdentity?.kind === 'identify' ? pendingIdentity.payload.externalId : null,
+        userId,
+      )
+      if (transition === 'reset_required') {
+        reportError('identify rejected: call reset() before switching users')
+        return 'rejected'
+      }
+      const cleanProps = e.consent.allowsAnalytics() ? asEventProps(properties) : undefined
+      if (
+        transition === 'already_identified' &&
+        (!cleanProps || Object.keys(cleanProps).length === 0)
+      ) {
+        return 'synced'
+      }
+      if (!subjectToken || !subjectToken.startsWith('st_')) {
+        reportError('identify requires a server-minted subject token')
+        return 'rejected'
+      }
+      const mutationId = await e.mutations.enqueue('identify', 'essential', {
+        subjectToken,
+        anonymousId: identity.anonymousId,
+        externalId: userId,
+        ...(cleanProps ? { properties: cleanProps } : {}),
+      }, `identify:${userId}`)
+      const result = await flushMutations(e)
+      if (result.permanentlyRejectedIds.has(mutationId)) {
+        reportError('identify was rejected by the server')
+        return 'rejected'
+      }
+      if (e.mutations.has(mutationId)) {
+        debugLog('identify is saved locally and pending retry')
+        return 'queued'
+      }
+      void UserGist.rebindPushToken(userId)
+      return 'synced'
     } catch (err) {
       reportError('identify failed', err)
+      return 'rejected'
     }
   },
 
@@ -439,6 +516,14 @@ export const UserGist = {
     try {
       const id = engine?.identity.get().anonymousId
       return id && id.length > 0 ? id : null
+    } catch {
+      return null
+    }
+  },
+
+  getExternalId(): string | null {
+    try {
+      return engine?.identity.get().externalId ?? null
     } catch {
       return null
     }
@@ -1129,10 +1214,7 @@ export const UserGist = {
             description,
           })
           ensureRequestsCache().upsert(req)
-          enqueueAndEvaluate(e, '$request_submitted', {
-            request_id: req.id,
-            title: req.title,
-          })
+          recordServerBackedEventLocally(e, '$request_submitted')
           requestsHandlers.onSubmit?.(req)
           callback?.(null, req)
         } catch (err) {
@@ -1161,9 +1243,7 @@ export const UserGist = {
           vote,
         })
         cache.commitVote(requestId, result)
-        enqueueAndEvaluate(e, vote ? '$request_upvoted' : '$request_unupvoted', {
-          request_id: requestId,
-        })
+        recordServerBackedEventLocally(e, vote ? '$request_upvoted' : '$request_unupvoted')
         requestsHandlers.onVote?.(result)
       } catch (err) {
         rollback()
@@ -1190,10 +1270,7 @@ export const UserGist = {
           follow,
         })
         cache.commitFollow(requestId, result)
-        enqueueAndEvaluate(e, follow ? '$request_followed' : '$request_unfollowed', {
-          request_id: requestId,
-          source: result.source,
-        })
+        recordServerBackedEventLocally(e, follow ? '$request_followed' : '$request_unfollowed')
         requestsHandlers.onFollow?.(result)
       } catch (err) {
         rollback()
@@ -1319,10 +1396,7 @@ export const UserGist = {
         externalId: id.externalId ?? null,
         body,
       })
-      enqueueAndEvaluate(e, REQUEST_COMMENTED_EVENT_NAME, {
-        request_id: requestId,
-        comment_id: comment.id,
-      })
+      recordServerBackedEventLocally(e, REQUEST_COMMENTED_EVENT_NAME)
       return comment
     } catch (err) {
       reportError('postComment failed', err)
@@ -1348,10 +1422,7 @@ export const UserGist = {
         anonymousId: id.anonymousId,
         body,
       })
-      enqueueAndEvaluate(e, REQUEST_COMMENT_EDITED_EVENT_NAME, {
-        request_id: requestId,
-        comment_id: commentId,
-      })
+      recordServerBackedEventLocally(e, REQUEST_COMMENT_EDITED_EVENT_NAME)
       return comment
     } catch (err) {
       reportError('editComment failed', err)
@@ -1371,10 +1442,7 @@ export const UserGist = {
         commentId,
         anonymousId: id.anonymousId,
       })
-      enqueueAndEvaluate(e, REQUEST_COMMENT_DELETED_EVENT_NAME, {
-        request_id: requestId,
-        comment_id: commentId,
-      })
+      recordServerBackedEventLocally(e, REQUEST_COMMENT_DELETED_EVENT_NAME)
     } catch (err) {
       reportError('deleteComment failed', err)
     }

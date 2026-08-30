@@ -88,7 +88,8 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
         "title" -> body.putString("title", value)
         "body" -> body.putString("body", value)
         "delivery_id" -> body.putString("deliveryId", value)
-        else -> data.putString(normalized, value)
+        "action_identifier" -> body.putString("actionIdentifier", value)
+        else -> data.putString(key, value)
       }
       intent.removeExtra(key)
     }

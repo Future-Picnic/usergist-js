@@ -13,7 +13,12 @@
  *  • Token rebind on identify
  */
 
-import { isSilentPushPayload, type PushChannelDef } from '@usergist/sdk-core/mobile'
+import {
+  isSilentPushPayload,
+  type JsonAction,
+  type PushActionButton,
+  type PushChannelDef,
+} from '@usergist/sdk-core/mobile'
 import { UserGist } from './UserGist.js'
 
 export type PushPermissionStatus =
@@ -33,17 +38,51 @@ export interface UserGistPushMessage {
   readonly body?: string
   readonly imageUrl?: string
   readonly androidChannelId?: string
+  readonly actionButtons: ReadonlyArray<PushActionButton>
 }
 
 export interface PushHandlers {
   readonly onReceive?: (message: UserGistPushMessage, raw: Record<string, unknown>) => void
   readonly onOpen?: (message: UserGistPushMessage) => void
   readonly onAction?: (message: UserGistPushMessage, actionButton: string) => void
+  /** Executes host-defined structured actions after the button tap is tracked. */
+  readonly onJsonAction?: (action: JsonAction, context: {
+    readonly source: 'push'
+    readonly message: UserGistPushMessage
+    readonly actionButton: string
+  }) => void
   readonly onDismiss?: (message: UserGistPushMessage) => void
   readonly onSilent?: (pingId: string) => void
 }
 
 let handlers: PushHandlers = {}
+
+function parseActionButtons(value: unknown): ReadonlyArray<PushActionButton> {
+  let candidate = value
+  if (typeof candidate === 'string') {
+    try {
+      candidate = JSON.parse(candidate) as unknown
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(candidate)) return []
+  return candidate.filter((button): button is PushActionButton => {
+    if (typeof button !== 'object' || button === null) return false
+    const record = button as Record<string, unknown>
+    return typeof record.label === 'string' && typeof record.action === 'string'
+  })
+}
+
+export function jsonActionForButton(
+  buttons: ReadonlyArray<PushActionButton>,
+  actionIdentifier: string,
+): JsonAction | undefined {
+  const indexed = /^usergist_action_(\d+)$/.exec(actionIdentifier)
+  const byIndex = indexed ? buttons[Number(indexed[1])] : undefined
+  const button = byIndex ?? buttons.find((candidate) => candidate.label === actionIdentifier)
+  return button?.action === 'json' ? button.actionJson : undefined
+}
 
 export function parseIosPayload(userInfo: Record<string, unknown>): UserGistPushMessage | null {
   const usergist = userInfo?.['usergist'] as Record<string, unknown> | undefined
@@ -60,6 +99,7 @@ export function parseIosPayload(userInfo: Record<string, unknown>): UserGistPush
     title: alert?.['title'] as string | undefined,
     body: alert?.['body'] as string | undefined,
     imageUrl: extra?.['imageUrl'] as string | undefined,
+    actionButtons: parseActionButtons(usergist['actionButtons']),
   }
 }
 
@@ -78,6 +118,7 @@ export function parseFcmData(
     body: notification?.body ?? data.usergist_body,
     imageUrl: data.usergist_image_url,
     androidChannelId: data.usergist_channel_id,
+    actionButtons: parseActionButtons(data.usergist_actions),
   }
 }
 
@@ -225,7 +266,23 @@ export const Push = {
     if (!msg) return
     if (args.actionIdentifier) {
       emitEvent('$push_action_clicked', msg, { action_button: args.actionIdentifier })
-      handlers.onAction?.(msg, args.actionIdentifier)
+      try {
+        handlers.onAction?.(msg, args.actionIdentifier)
+      } catch {
+        // A host observer cannot prevent the configured action from running.
+      }
+      const actionJson = jsonActionForButton(msg.actionButtons, args.actionIdentifier)
+      if (actionJson) {
+        try {
+          handlers.onJsonAction?.(actionJson, {
+            source: 'push',
+            message: msg,
+            actionButton: args.actionIdentifier,
+          })
+        } catch {
+          // Host action executors must not throw across the SDK boundary.
+        }
+      }
     } else {
       emitEvent('$push_opened', msg)
       handlers.onOpen?.(msg)

@@ -14,6 +14,8 @@ import type {
   ArmedInAppMessage,
   EventPropertyValue,
   InAppCta,
+  InAppCtaAction,
+  JsonAction,
   SurveyAnswerRecord,
   SurveyAttemptSource,
   SurveyCampaignWithFlow,
@@ -30,8 +32,15 @@ function safeInAppHandlers(): {
   onDismiss?: (messageId: string, reason: 'user' | 'auto') => void
   onCtaClick?: (args: {
     messageId: string
-    action: 'open_url' | 'deep_link' | 'dismiss' | 'custom_event'
+    action: InAppCtaAction
     target?: string
+    actionJson?: JsonAction
+    label: string
+    index: number
+  }) => void
+  onJsonAction?: (action: JsonAction, context: {
+    source: 'in_app'
+    messageId: string
     label: string
     index: number
   }) => void
@@ -127,6 +136,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
             promptReleaseRef.current = release
             currentRef.current = p
             setPayload(p)
+            safeTrack('$feedback_prompt_shown', { prompt_id: p.prompt.id })
             bus.emit('promptShown', p)
           })
         })
@@ -273,7 +283,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       reason === 'auto'
         ? INAPP_AUTO_DISMISSED_EVENT_NAME
         : INAPP_DISMISSED_EVENT_NAME,
-      { message_id: m.messageId },
+      { message_id: m.messageId, dismiss_reason: reason },
     )
     safeInAppHandlers().onDismiss?.(m.messageId, reason)
   }
@@ -287,13 +297,18 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       cta_action: cta.action,
       cta_label: cta.label,
     })
-    safeInAppHandlers().onCtaClick?.({
-      messageId: m.messageId,
-      action: cta.action,
-      target: cta.target,
-      label: cta.label,
-      index,
-    })
+    try {
+      safeInAppHandlers().onCtaClick?.({
+        messageId: m.messageId,
+        action: cta.action,
+        target: cta.target,
+        actionJson: cta.actionJson,
+        label: cta.label,
+        index,
+      })
+    } catch {
+      // Host callbacks cannot interrupt SDK action dispatch or cleanup.
+    }
     if (cta.action === 'custom_event' && cta.target) {
       safeTrack(cta.target, {
         message_id: m.messageId,
@@ -302,6 +317,17 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       })
     } else if ((cta.action === 'open_url' || cta.action === 'deep_link') && cta.target) {
       void Linking.openURL(cta.target).catch(() => undefined)
+    } else if (cta.action === 'json' && cta.actionJson) {
+      try {
+        safeInAppHandlers().onJsonAction?.(cta.actionJson, {
+          source: 'in_app',
+          messageId: m.messageId,
+          label: cta.label,
+          index,
+        })
+      } catch {
+        // Host action executors are isolated from the SDK UI lifecycle.
+      }
     }
     // CTA tap implicitly closes the message.
     setInAppMessage(null)
