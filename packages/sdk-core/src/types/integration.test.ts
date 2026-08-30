@@ -53,6 +53,58 @@ describe('outbound integration event catalog', () => {
     })).toEqual({ new_status: 'shipped' })
   })
 
+  it('exports normalized structured answer details under readable property names', () => {
+    const answer = getCoreIntegrationEvent('$survey_answer_submitted')!
+    expect(sanitizeCoreIntegrationProperties(answer, {
+      campaign_id: 'campaign-1',
+      survey_name: 'Activation survey',
+      question_id: 'rating',
+      question_type: 'rating',
+      question_title: 'How useful was onboarding?',
+      answer_format: 'number',
+      answer_present: true,
+      answer_value: 'raw value stays internal',
+      answer_display_value: 'raw display stays internal',
+      answer_numeric_value: 5,
+      __usergist_destination_answer_value: 5,
+      __usergist_destination_answer_display_value: '5 — Very useful',
+    })).toEqual({
+      campaign_id: 'campaign-1',
+      survey_name: 'Activation survey',
+      question_id: 'rating',
+      question_type: 'rating',
+      question_title: 'How useful was onboarding?',
+      answer_format: 'number',
+      answer_present: true,
+      answer_numeric_value: 5,
+      answer_value: 5,
+      answer_display_value: '5 — Very useful',
+    })
+  })
+
+  it('does not export raw free-text answers', () => {
+    const answer = getCoreIntegrationEvent('$feedback_answer_submitted')!
+    expect(sanitizeCoreIntegrationProperties(answer, {
+      prompt_id: 'prompt-1',
+      question_id: 'comment',
+      question_type: 'short_text',
+      question_title: 'Tell us more',
+      answer_format: 'text',
+      answer_present: true,
+      answer_value: 'private free text',
+      answer_display_value: 'private free text',
+      answer_text_length: 17,
+    })).toEqual({
+      prompt_id: 'prompt-1',
+      question_id: 'comment',
+      question_type: 'short_text',
+      question_title: 'Tell us more',
+      answer_format: 'text',
+      answer_present: true,
+      answer_text_length: 17,
+    })
+  })
+
   it('normalizes the SDK push action button into the provider action ID', () => {
     const push = getCoreIntegrationEvent('$push_action_clicked')!
     expect(sanitizeCoreIntegrationProperties(push, {
