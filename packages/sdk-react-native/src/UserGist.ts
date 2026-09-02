@@ -78,6 +78,7 @@ import {
   type UserGistStorageAdapter,
 } from './internal/storage.js'
 import { surveyCompletionOutcome } from './internal/survey-completion.js'
+import { USERGIST_SDK_VERSION } from './internal/context.js'
 
 type PromptShownCb = (p: ShowPromptPayload) => void
 type ResponseCb = (r: ResponseEmission) => void
@@ -622,7 +623,7 @@ export const UserGist = {
         language: undefined,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         appVersion: undefined,
-        sdkVersion: 'rn-0.1.0',
+        sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
         optIn: true,
       })
       e.lastPushToken = token
@@ -1017,7 +1018,7 @@ export const UserGist = {
         externalId: id.externalId ?? null,
         source,
         ...(language ? { language } : {}),
-        sdkVersion: 'rn-0.1.0',
+        sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
       })
       await surveyStore?.upsert({
         surveyId,

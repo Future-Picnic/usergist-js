@@ -49,8 +49,11 @@ import {
 } from './instruction-dedupe.js'
 
 const ENVIRONMENT_API_URLS = {
-  production: 'https://api.usergist.studio',
-  staging: 'https://api.staging.usergist.studio',
+  production: 'https://api.usergist.com',
+  // `environment` describes the customer's app data, not a UserGist
+  // deployment tier. Production and staging apps therefore use the same
+  // public edge; their write keys and app ids keep data isolated.
+  staging: 'https://api.usergist.com',
   development: 'http://localhost:28743',
 } as const
 

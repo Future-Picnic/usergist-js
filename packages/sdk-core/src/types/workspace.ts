@@ -84,6 +84,40 @@ export interface CreatedWriteKey extends WriteKey {
   readonly plaintext: string // only returned on creation
 }
 
+export type ApiTokenScope = 'sdk:subjects' | 'push.transactional'
+
+/**
+ * Metadata for a workspace-scoped server credential. The plaintext secret is
+ * deliberately absent and is only returned by the create endpoint.
+ */
+export interface ApiToken {
+  readonly id: string
+  readonly workspaceId: string
+  readonly name: string
+  readonly tokenPrefix: string
+  readonly scopes: ReadonlyArray<ApiTokenScope>
+  readonly expiresAt: string
+  readonly revokedAt: string | null
+  readonly lastUsedAt: string | null
+  readonly createdAt: string
+}
+
+export interface CreatedApiToken extends ApiToken {
+  /** One-time server secret. Never ship this value inside a client app. */
+  readonly plaintext: string
+}
+
+export interface CreateApiTokenRequest {
+  readonly name: string
+  readonly scopes: ReadonlyArray<ApiTokenScope>
+  readonly expiresInDays?: number
+}
+
+/** App plus its first environment-specific write key, returned atomically. */
+export interface CreatedApp extends App {
+  readonly writeKey: CreatedWriteKey
+}
+
 /**
  * Request body for `POST /v1/apps/:appId/write-keys/:keyId/rotate`. The grace
  * window is how long the old key keeps authenticating before the API starts

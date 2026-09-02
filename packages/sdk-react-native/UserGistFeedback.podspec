@@ -7,11 +7,11 @@ Pod::Spec.new do |s|
   s.version          = package['version']
   s.summary          = package['description']
   s.description      = package['description']
-  s.homepage         = 'https://github.com/FuturePicnic/usergist'
-  s.license          = { :type => 'MIT' }
-  s.authors          = { 'userGist' => 'engineering@usergist.studio' }
+  s.homepage         = 'https://github.com/Future-Picnic/usergist-js'
+  s.license          = { :type => 'MIT', :file => 'LICENSE' }
+  s.authors          = { 'userGist' => 'engineering@usergist.com' }
   s.platforms        = { :ios => '13.0' }
-  s.source           = { :git => 'https://github.com/FuturePicnic/usergist.git', :tag => "v#{s.version}" }
+  s.source           = { :git => 'https://github.com/Future-Picnic/usergist-js.git', :tag => "v#{s.version}" }
 
   s.requires_arc     = true
   s.swift_version    = '5.7'

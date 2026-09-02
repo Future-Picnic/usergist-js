@@ -29,6 +29,10 @@ import type {
 } from '../types/recipient.js'
 import type {
   App,
+  ApiToken,
+  CreatedApiToken,
+  CreatedApp,
+  CreateApiTokenRequest,
   CreatedWriteKey,
   RotateWriteKeyRequest,
   RotateWriteKeyResponse,
@@ -176,6 +180,7 @@ export interface CreateAppRequest {
   readonly name: string
   readonly slug?: string
   readonly platforms: App['platforms']
+  readonly environment?: WriteKey['environment']
 }
 
 export interface UpdateAppRequest {
@@ -446,10 +451,17 @@ export const endpoints = {
   >,
 
   'GET /v1/workspaces/:wid/apps': {} as Endpoint<void, ReadonlyArray<App>>,
-  'POST /v1/workspaces/:wid/apps': {} as Endpoint<CreateAppRequest, App>,
+  'POST /v1/workspaces/:wid/apps': {} as Endpoint<CreateAppRequest, CreatedApp>,
+  'GET /v1/workspaces/:wid/api-tokens': {} as Endpoint<void, ReadonlyArray<ApiToken>>,
+  'POST /v1/workspaces/:wid/api-tokens': {} as Endpoint<CreateApiTokenRequest, CreatedApiToken>,
+  'DELETE /v1/workspaces/:wid/api-tokens/:tokenId': {} as Endpoint<void, { revoked: true }>,
   'GET /v1/apps/:appId': {} as Endpoint<void, App>,
   'PATCH /v1/apps/:appId': {} as Endpoint<UpdateAppRequest, App>,
   'DELETE /v1/apps/:appId': {} as Endpoint<void, { ok: true }>,
+  'POST /v1/apps/:appId/sdk/subject-tokens': {} as Endpoint<
+    { externalId: string },
+    SdkSessionResponse
+  >,
 
   // ---------- outbound analytics integrations ----------
   'GET /v1/apps/:appId/integrations': {} as Endpoint<void, ReadonlyArray<IntegrationSummary>>,

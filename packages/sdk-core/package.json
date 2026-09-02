@@ -2,6 +2,22 @@
   "name": "@usergist/sdk-core",
   "version": "0.1.0",
   "description": "Shared types and utilities across the userGist feedback platform",
+  "license": "MIT",
+  "homepage": "https://usergist.com/docs/sdks/core",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Future-Picnic/usergist-js.git",
+    "directory": "packages/sdk-core"
+  },
+  "bugs": {
+    "url": "https://github.com/Future-Picnic/usergist-js/issues"
+  },
+  "keywords": [
+    "usergist",
+    "mobile-sdk",
+    "targeting",
+    "surveys"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -20,7 +36,7 @@
     "./package.json": "./package.json"
   },
   "sideEffects": false,
-  "files": ["dist", "mobile.js", "README.md"],
+  "files": ["dist", "mobile.js", "README.md", "CHANGELOG.md", "LICENSE"],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -30,6 +46,9 @@
   },
   "dependencies": {
     "zod": "^3.23.8"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "tsup": "^8.3.0",
