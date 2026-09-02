@@ -1,17 +1,22 @@
 # @usergist/feedback-react-native
 
-Launch-supported userGist SDK for React Native and the behavioral reference for
-the iOS, Android, and Flutter packages. Production use still requires the
-repository launch checklist: backend deployment, provider configuration,
-real-device push validation, and release-build verification.
+Production userGist SDK for React Native and the behavioral reference for the
+iOS, Android, and Flutter packages. Use the dashboard's SDK setup flow to
+verify authentication and ingestion; push releases additionally require APNs
+or FCM configuration and physical-device validation.
 
 ## Install
 
 ```bash
-pnpm add @usergist/feedback-react-native @react-native-async-storage/async-storage
+npm install @usergist/feedback-react-native \
+  @react-native-async-storage/async-storage \
+  react-native-safe-area-context
+cd ios && pod install
 ```
 
-`@react-native-async-storage/async-storage` is a peer dependency. Without it the SDK runs with an in-memory store — events won't survive relaunches.
+AsyncStorage and `react-native-safe-area-context` are peer dependencies.
+Without AsyncStorage the SDK runs with an in-memory store, so queued events do
+not survive a relaunch.
 
 ## Quick start
 
@@ -25,7 +30,7 @@ import { UserGist, UserGistProvider } from '@usergist/feedback-react-native'
 const identityResult = await UserGist.initAsync(
   {
     writeKey: 'rk_live_xxx',
-    apiUrl: 'https://api.usergist.studio',
+    apiUrl: 'https://api.usergist.com',
     environment: 'production',
     debug: __DEV__,
   },
@@ -98,7 +103,7 @@ can wrap the host application's Keychain/Keystore-backed storage.
 
 ## Architecture
 
-See DEV_PRD §6. The SDK is a singleton that orchestrates:
+The SDK is a singleton that orchestrates:
 `Storage · Subject session · Consent · Durable queues · Transport · Instruction inbox · Armed campaigns · Persistent user state · Modal UI · Lifecycle · Debug`.
 
 AsyncStorage is bounded but not encrypted. Use `setStorageAdapter` when all SDK
@@ -176,7 +181,7 @@ notification" — `delivered_at` only fills when the user actually taps.
 3. **Configure the NSE target's Info.plist** (or write to the App Group's
    `UserDefaults` from the main app — preferred, supports rotation):
    - `UserGistWriteKey` — required; same write key the main SDK uses.
-   - `UserGistApiUrl` — optional; defaults to `https://api.usergist.studio`.
+   - `UserGistApiUrl` — optional; defaults to `https://api.usergist.com`.
    - `UserGistAppGroup` — optional; App Group id shared with main app.
    - `UserGistAnonymousId` — populated by main SDK at init via App Group.
 4. **Add `pod 'UserGistFeedbackExtension'`** to the NSE target stanza in your
@@ -209,13 +214,18 @@ host-forwarded mode, call `Push.appDidBecomeActive()` from your foreground hook 
 server's reachability worker knows this device is alive — skips the next
 silent-ping cycle for this user (saves provider quota + battery).
 
-## Notes / deferred items
+## Compatibility and privacy decisions
 
-- **gzip**: RN does not ship zlib. Bodies are plain JSON for v0; gzip will move to a tiny native module.
-- **sessionId**: not auto-generated yet; callers may pass their own in `properties` (not in the typed public surface — use a follow-up version if required).
-- **Device model**: not read yet; `react-native-device-info` can be added later.
-- **nanoid**: the spec calls for nanoid, but we inline a 21-char URL-safe generator to avoid the `react-native-get-random-values` polyfill requirement. The output is nanoid-compatible.
+- Transport bodies use plain JSON so the SDK does not add a native compression dependency.
+- Device model is not collected by default. Send an approved, non-sensitive
+  property if your product genuinely needs model-level analysis.
+- Anonymous IDs use a dependency-free, cryptographically random 21-character
+  URL-safe generator compatible with nanoid identifiers.
 
 ## Testing hooks
 
 `UserGist.__internal_state()` exposes `{ config, identity, consent, queueSize, triggerCount, frequencyCaps, traces }`. Unstable; do not rely on in production code.
+
+## License
+
+MIT

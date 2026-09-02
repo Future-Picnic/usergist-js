@@ -44,6 +44,8 @@
     "db:migrate": "pnpm --filter @usergist/api db:migrate",
     "db:seed": "pnpm --filter @usergist/api db:seed",
     "parity": "tsx tools/check-parity.ts && tsx tools/check-demo-parity.ts",
+    "sdk:check-version": "tsx tools/check-sdk-version.ts",
+    "sdk:set-version": "tsx tools/set-sdk-version.ts",
     "parity:demos": "tsx tools/check-demo-parity.ts"
   },
   "packageManager": "pnpm@9.0.0",

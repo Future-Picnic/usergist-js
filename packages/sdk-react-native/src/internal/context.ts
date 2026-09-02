@@ -4,7 +4,7 @@
 
 import type { IngestContext, SdkPlatform } from '@usergist/sdk-core/mobile'
 
-const SDK_VERSION = '0.1.0'
+export const USERGIST_SDK_VERSION = '0.1.0'
 
 type PlatformLike = {
   readonly OS?: string
@@ -74,13 +74,13 @@ export function createContextProvider(appVersion?: string | null): ContextProvid
   const timezone = deviceTimezone()
 
   return {
-    sdkVersion: () => SDK_VERSION,
+    sdkVersion: () => USERGIST_SDK_VERSION,
     platform: () => sdkPlatform,
     build({ anonymousId, externalId }) {
       const ctx: IngestContext = {
         anonymousId,
         externalId: externalId ?? null,
-        sdkVersion: SDK_VERSION,
+        sdkVersion: USERGIST_SDK_VERSION,
         platform: sdkPlatform,
         ...(appVersion ? { appVersion } : {}),
         ...(os ? { osName: os } : {}),

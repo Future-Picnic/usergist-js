@@ -33,6 +33,7 @@ import type {
   GetRequestsResult as RequestsListResponse,
 } from '@usergist/sdk-core/mobile'
 import { reportError, debugLog } from './debug.js'
+import { USERGIST_SDK_VERSION } from './context.js'
 
 const MAX_ATTEMPTS = 5
 const BASE_DELAY_MS = 1000
@@ -359,7 +360,7 @@ export function createTransport(cfg: TransportConfig): Transport {
               Authorization: `Bearer ${cfg.writeKey}`,
               'Content-Type': 'application/json',
               Accept: 'application/json',
-              'X-UserGist-SDK-Version': 'rn-0.1.0',
+              'X-UserGist-SDK-Version': `rn-${USERGIST_SDK_VERSION}`,
               ...(requestSubjectToken
                 ? { 'X-UserGist-Subject-Token': requestSubjectToken }
                 : {}),

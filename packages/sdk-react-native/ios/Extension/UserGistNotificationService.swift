@@ -28,7 +28,7 @@ import UserNotifications
 ///
 /// **Configuration (Info.plist of the NSE target, or shared App Group):**
 ///   • `UserGistWriteKey`       — required; write key the main SDK uses.
-///   • `UserGistApiUrl`         — optional; defaults to https://api.usergist.studio.
+///   • `UserGistApiUrl`         — optional; defaults to https://api.usergist.com.
 ///   • `UserGistAppGroup`       — optional; App Group id shared with main app.
 ///   • `UserGistAnonymousId`    — optional; written by main SDK at init for
 ///                              silent-ack scoping.
@@ -237,7 +237,7 @@ enum UserGistNSEConfig {
   static var writeKey: String? { return readString(key: "UserGistWriteKey") }
   static var anonymousId: String? { return readString(key: "UserGistAnonymousId") }
   static var apiUrl: URL? {
-    let raw = readString(key: "UserGistApiUrl") ?? "https://api.usergist.studio"
+    let raw = readString(key: "UserGistApiUrl") ?? "https://api.usergist.com"
     return URL(string: raw)
   }
 

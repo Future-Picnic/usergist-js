@@ -1,10 +1,9 @@
 # SDK Parity Matrix
 
-Single source of truth for what each UserGist SDK ships. React Native is the
-behavioral reference and the only launch-supported SDK. Native iOS, native
-Android, and Flutter now implement the authenticated subject-session, durable
-delivery, campaign, and native survey protocols; they remain experimental until
-platform release and physical-device push gates pass.
+Single source of truth for what each production UserGist SDK ships. React
+Native remains the behavioral reference; native iOS, native Android, and
+Flutter implement the same authenticated subject-session, durable delivery,
+campaign, feature-request, and survey protocols with platform-native push APIs.
 
 Status legend:
 - **full** — implemented + tested + at parity with the React Native reference.
@@ -14,64 +13,64 @@ Status legend:
 
 | API surface | React Native (reference) | iOS | Android | Flutter |
 |---|---|---|---|---|
-| `init(writeKey, options)` | full | partial | partial | partial |
-| `identify(externalId, props, subjectToken)` | full | partial | partial | partial |
-| `track(name, properties)` | full | partial | partial | partial |
-| `setConsent({ analytics, feedback, push, survey })` | full | partial | partial | partial |
-| `reset()` | full | partial | partial | partial |
-| `flush()` | full | partial | partial | partial |
-| `setDebug(enabled)` | full | partial | partial | partial |
-| `setDiagnosticHandler(handler)` | full | partial | partial | partial |
+| `init(...)` / `initAsync(...)` | full | full | full | full |
+| `identify(...)` / `identifyAsync(...)` | full | full | full | full |
+| `track(name, properties)` | full | full | full | full |
+| `setConsent({ analytics, feedback, push, survey })` | full | full | full | full |
+| `reset()` | full | full | full | full |
+| `flush()` | full | full | full | full |
+| `setDebug(enabled)` | full | full | full | full |
+| `setDiagnosticHandler(handler)` | full | full | full | full |
 | `setStorageAdapter(adapter)` | full | missing | missing | missing |
-| `setThemeOverrides(theme)` | full | partial | partial | partial |
-| `getAnonymousId()` | full | partial | partial | partial |
-| `onPromptShown` / `onResponse` | full | partial | partial | partial |
-| `onPushEvent(cb)` | full | partial | partial | partial |
-| Push: `registerPushToken` / `invalidatePushToken` | full | partial | partial | partial |
-| Push: `rebindPushToken` | full | partial | partial | partial |
+| `setThemeOverrides(theme)` | full | full | full | full |
+| `getAnonymousId()` / `getExternalId()` | full | full | full | full |
+| `onPromptShown` / `onResponse` | full | full | full | full |
+| `onPushEvent(cb)` | full | full | full | full |
+| Push: `registerPushToken` / `invalidatePushToken` | full | full | full | full |
+| Push: `rebindPushToken` | full | full | full | full |
 | Push: `enablePush` / `disablePush` | full | missing | missing | missing |
-| Push: `getPushPermissionStatus` | full | partial | missing | missing |
+| Push: `getPushPermissionStatus` | full | full | missing | missing |
 | Push: `setPushBadgeCount` | full | missing | missing | missing |
 | Push: `getInitialPushNotification` | full | missing | missing | missing |
-| Push: `pushBeacon` / `pushAckSilent` | full | partial | partial | partial |
-| Push: `pushAppOpen` / `pushFetchChannels` / `pushSetChannelSubscription` | full | partial | partial | partial |
-| `setInAppHandlers({...})` | full | partial | partial | partial |
-| **Surveys** — `getAvailableSurveys()` | full | partial | partial | partial |
-| **Surveys** — `openSurvey(surveyId)` | full | partial | partial | partial |
-| **Surveys** — `setSurveyHandlers({...})` | full | partial | partial | partial |
-| **Surveys** — `handleSurveyDeepLink(uri)` | full | partial | partial | partial |
-| Save-and-resume across relaunches (surveys) | full | partial | partial | partial |
-| Branching evaluator (sdk-core `nextQuestionId`) | full | partial | partial | partial |
-| **Requests** — `openRequestsBoard()` | full | partial | partial | partial |
-| **Requests** — `openRequestDetail(requestId)` | full | partial | partial | partial |
-| **Requests** — `submitRequest(...)` | full | partial | partial | partial |
-| **Requests** — `getRequests(options)` | full | partial | partial | partial |
-| **Requests** — `getRequest(requestId)` | full | partial | partial | partial |
-| **Requests** — `voteOnRequest(requestId, vote)` | full | partial | partial | partial |
-| **Requests** — `followRequest(requestId, follow)` | full | partial | partial | partial |
-| **Requests** — `getComments(requestId)` | full | partial | partial | partial |
-| **Requests** — `postComment(requestId, body)` | full | partial | partial | partial |
-| **Requests** — `editComment(requestId, commentId, body)` | full | partial | partial | partial |
-| **Requests** — `deleteComment(requestId, commentId)` | full | partial | partial | partial |
-| **Requests** — `getRequestBranding()` | full | partial | partial | partial |
-| **Requests** — `setRequestsHandlers({...})` | full | partial | partial | partial |
-| Optimistic vote/follow rollback | full | partial | partial | partial |
-| Search-as-you-type (300ms debounce) | full | partial | partial | partial |
-| Persisted-queue schema versioning | full | partial | partial | partial |
-| Secure storage (identity + consent + push token) | full | partial | partial | partial |
-| Authenticated anonymous subject session + protected header | full | partial | partial | partial |
-| Durable identify / feedback / survey mutation queue | full | partial | partial | partial |
-| Durable instruction inbox (cursor + dedupe + ack) | full | partial | partial | partial |
-| Stable event ids + mixed-identity batch isolation | full | partial | partial | partial |
-| 21-character URL-safe anonymous ids on install/reset | full | partial | partial | partial |
-| Persisted identify properties + bounded event history | full | partial | partial | partial |
-| Armed prompt/survey/in-app caches + `clientSideEligible` gate | full | partial | partial | partial |
-| Consent-aware `$app_open` / `$identify` lifecycle events | full | partial | partial | partial |
-| Prompt/survey/in-app modal FIFO | full | partial | partial | partial |
-| Request-scoped identify auth + conflict-only identity rotation | full | partial | partial | partial |
-| Reset invalidates active SDK UI + pending survey delivery | full | partial | partial | partial |
+| Push: `pushBeacon` / `pushAckSilent` | full | full | full | full |
+| Push: `pushAppOpen` / `pushFetchChannels` / `pushSetChannelSubscription` | full | full | full | full |
+| `setInAppHandlers({...})` | full | full | full | full |
+| **Surveys** — `getAvailableSurveys()` | full | full | full | full |
+| **Surveys** — `openSurvey(surveyId)` | full | full | full | full |
+| **Surveys** — `setSurveyHandlers({...})` | full | full | full | full |
+| **Surveys** — `handleSurveyDeepLink(uri)` | full | full | full | full |
+| Save-and-resume across relaunches (surveys) | full | full | full | full |
+| Branching evaluator (sdk-core `nextQuestionId`) | full | full | full | full |
+| **Requests** — `openRequestsBoard()` | full | full | full | full |
+| **Requests** — `openRequestDetail(requestId)` | full | full | full | full |
+| **Requests** — `submitRequest(...)` | full | full | full | full |
+| **Requests** — `getRequests(options)` | full | full | full | full |
+| **Requests** — `getRequest(requestId)` | full | full | full | full |
+| **Requests** — `voteOnRequest(requestId, vote)` | full | full | full | full |
+| **Requests** — `followRequest(requestId, follow)` | full | full | full | full |
+| **Requests** — `getComments(requestId)` | full | full | full | full |
+| **Requests** — `postComment(requestId, body)` | full | full | full | full |
+| **Requests** — `editComment(requestId, commentId, body)` | full | full | full | full |
+| **Requests** — `deleteComment(requestId, commentId)` | full | full | full | full |
+| **Requests** — `getRequestBranding()` | full | full | full | full |
+| **Requests** — `setRequestsHandlers({...})` | full | full | full | full |
+| Optimistic vote/follow rollback | full | full | full | full |
+| Search-as-you-type (300ms debounce) | full | full | full | full |
+| Persisted-queue schema versioning | full | full | full | full |
+| Secure storage (identity + consent + push token) | full | full | full | full |
+| Authenticated anonymous subject session + protected header | full | full | full | full |
+| Durable identify / feedback / survey mutation queue | full | full | full | full |
+| Durable instruction inbox (cursor + dedupe + ack) | full | full | full | full |
+| Stable event ids + mixed-identity batch isolation | full | full | full | full |
+| 21-character URL-safe anonymous ids on install/reset | full | full | full | full |
+| Persisted identify properties + bounded event history | full | full | full | full |
+| Armed prompt/survey/in-app caches + `clientSideEligible` gate | full | full | full | full |
+| Consent-aware `$app_open` / `$identify` lifecycle events | full | full | full | full |
+| Prompt/survey/in-app modal FIFO | full | full | full | full |
+| Request-scoped identify auth + conflict-only identity rotation | full | full | full | full |
+| Reset invalidates active SDK UI + pending survey delivery | full | full | full | full |
 | Tracked JSON actions from push + in-app buttons | full | full | full | full |
-| TLS pinning (`api.usergist.studio`, SPKI) | missing | partial | partial | partial |
+| TLS pinning (`api.usergist.com`, SPKI) | missing | partial | partial | partial |
 
 ## Implementation notes
 
@@ -90,7 +89,7 @@ Status legend:
 - **Search-as-you-type** uses a 300ms debounce + sequence-number guard so stale in-flight requests are dropped. Identical semantics on all four platforms.
 - **Persisted-queue schema versioning**: iOS uses a wrapped JSON envelope (`{version, events}`); Android & Flutter use a `{"version":1}` header line followed by NDJSON events. All three legacy-migrate bare-array snapshots on hydrate.
 - **Secure storage**: React Native accepts a host-supplied asynchronous encrypted storage adapter before `init()`; otherwise ordinary state uses AsyncStorage while subject credentials and pending mutations use bundled Keychain/EncryptedSharedPreferences bridges. iOS uses Keychain (`kSecAttrAccessibleAfterFirstUnlock`), Android `EncryptedSharedPreferences`, and Flutter `flutter_secure_storage`. Credential-bearing state never falls back to plaintext; legacy plaintext credentials are usable only after successful secure migration.
-- **Transport security**: React Native currently relies on platform HTTPS trust and does not implement application-level SPKI pinning. The experimental native SDK implementations have pinning code, but production pin provisioning and rotation have not been release-verified.
+- **Transport security**: React Native currently relies on platform HTTPS trust and does not implement application-level SPKI pinning. Native SDK implementations support pinning, but production pin provisioning and rotation still require an operational runbook and live-certificate validation.
 
 ## CI guard (active)
 
@@ -102,10 +101,10 @@ Status legend:
 
 The `--allow` escape hatch remains available for an intentionally staged React Native row, but production merges must not use it.
 
-## Out-of-band follow-ups
+## Operational release gates
 
-These items block promotion of the experimental SDKs to launch-supported status:
+These items require registry or physical-device access and cannot be completed by source-only CI:
 
-- **Native release verification** — publish/package checks, consumer-app release builds, and a runnable iOS SwiftPM XCTest scheme remain required before promotion.
+- **Registry activation** — configure npm/pub.dev trusted publishers, a Maven Central namespace and signing identity, and the public SwiftPM mirror; then run each tag-driven release workflow and install the resulting artifact into a clean consumer app.
 - **Push configuration and devices** — configure real APNs/FCM credentials and validate delivery, opens, actions, silent acks, permission transitions, and token rotation on physical iOS and Android devices. High-level automatic enable/disable, badge, and initial-notification helpers are still missing outside React Native as shown above.
 - **Cert-pin material** — production pin SHA-256 values must be set in the host app's environment (`USERGIST_TLS_PIN_LEAF`, `USERGIST_TLS_PIN_BACKUP`) before shipping. Empty pins fall back to system trust.
