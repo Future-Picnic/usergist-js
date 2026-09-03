@@ -1,8 +1,10 @@
 # SDK release operations
 
-UserGist ships the JavaScript, iOS, Android, and Flutter SDKs as one release
-train. `packages/SDK_VERSION` is the canonical version and CI rejects drift in
-package metadata or runtime headers.
+UserGist normally ships the JavaScript, iOS, Android, and Flutter SDKs as one
+release train. `packages/SDK_VERSION` is the canonical train version, while an
+SDK-specific `SDK_VERSION` file may record a registry-only patch that must not
+rewrite an existing public tag. CI rejects drift in package metadata or runtime
+headers.
 
 ## One-time registry activation
 
@@ -25,7 +27,7 @@ These control-plane and legal actions cannot be encoded as repository changes:
    publisher, then configure pub.dev automated publishing for
    `Future-Picnic/usergist-flutter`, workflow `publish.yml`, tag pattern
    `v{{version}}`, and GitHub environment `pub.dev`.
-4. Verify the `studio.usergist` namespace in Maven Central, generate a Central
+4. Verify the `com.usergist` namespace in Maven Central, generate a Central
    Portal user token, and provision a dedicated OpenPGP signing subkey. Store
    `CENTRAL_TOKEN_USERNAME`, `CENTRAL_TOKEN_PASSWORD`, `GPG_PRIVATE_KEY`, and
    `GPG_PRIVATE_KEY_PASSWORD` as encrypted GitHub Actions repository secrets.
@@ -92,7 +94,7 @@ existing tag resolves to the exact filtered commit before continuing.
 - Install both npm archives into a clean React Native consumer and build iOS
   and Android release variants.
 - Resolve the public SwiftPM tag in a clean Xcode project and archive it.
-- Resolve `studio.usergist:feedback:X.Y.Z` from Maven Central in a clean Gradle
+- Resolve `com.usergist:feedback:X.Y.Z` from Maven Central in a clean Gradle
   project and assemble a minified release.
 - Resolve `usergist_feedback:X.Y.Z` from pub.dev in a clean Flutter project and
   build iOS and Android release variants.
