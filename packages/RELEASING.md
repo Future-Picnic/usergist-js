@@ -84,6 +84,8 @@ GitHub Actions are pinned to immutable commit SHAs and Dependabot proposes
 reviewed updates. The Flutter workflow likewise mirrors the exact reviewed
 source and `vX.Y.Z` tag; that tag triggers the public mirror's `publish.yml`
 workflow, which publishes through pub.dev's short-lived OIDC authentication.
+Release retries never rewrite a public tag: the mirror step verifies that an
+existing tag resolves to the exact filtered commit before continuing.
 
 ## Post-release verification
 
