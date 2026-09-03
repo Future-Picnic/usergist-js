@@ -20,10 +20,11 @@ These control-plane and legal actions cannot be encoded as repository changes:
    disabled, set publishing access to require 2FA and disallow tokens, and
    delete the bootstrap secret and token. Subsequent releases are staged by
    CI and must be reviewed and approved by a maintainer using 2FA.
-3. Publish `usergist_feedback` once from an authenticated workstation, create
-   or join the verified `usergist.com` publisher, then configure pub.dev
-   automated publishing for `sdk-release-flutter.yml` and the tag pattern
-   `sdk-flutter-v{{version}}`.
+3. Publish `usergist_feedback` once from the public `v0.1.0` source tag on an
+   authenticated workstation, create or join the verified `usergist.com`
+   publisher, then configure pub.dev automated publishing for
+   `Future-Picnic/usergist-flutter`, workflow `publish.yml`, tag pattern
+   `v{{version}}`, and GitHub environment `pub.dev`.
 4. Verify the `studio.usergist` namespace in Maven Central, generate a Central
    Portal user token, and provision a dedicated OpenPGP signing subkey. Store
    `CENTRAL_TOKEN_USERNAME`, `CENTRAL_TOKEN_PASSWORD`, `GPG_PRIVATE_KEY`, and
@@ -80,7 +81,9 @@ mirrors the exact reviewed source and `vX.Y.Z` tag first; the public mirror's
 publishing. A maintainer reviews the staged archives and approves the core
 package first, followed by the React Native package, using 2FA. Third-party
 GitHub Actions are pinned to immutable commit SHAs and Dependabot proposes
-reviewed updates.
+reviewed updates. The Flutter workflow likewise mirrors the exact reviewed
+source and `vX.Y.Z` tag; that tag triggers the public mirror's `publish.yml`
+workflow, which publishes through pub.dev's short-lived OIDC authentication.
 
 ## Post-release verification
 
