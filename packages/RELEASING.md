@@ -6,6 +6,11 @@ SDK-specific `SDK_VERSION` file may record a registry-only patch that must not
 rewrite an existing public tag. CI rejects drift in package metadata or runtime
 headers.
 
+The private monorepo is the development source of truth. The public SDK
+repositories are release mirrors, not day-to-day development repositories;
+release workflows replace their reviewed source only after a version tag is
+created.
+
 ## One-time registry activation
 
 These control-plane and legal actions cannot be encoded as repository changes:
@@ -54,14 +59,30 @@ release credentials into a protected environment on a plan that supports
 private-repository environments and require an independent reviewer with
 self-review disabled.
 
+## Development validation
+
+The complete cross-platform matrix is intentionally **manual** while UserGist
+is under active development. Ordinary pull requests and pushes to `main` do not
+start it or consume its hosted-runner budget.
+
+- During day-to-day work, run the relevant package checks locally.
+- Before a coordinated SDK release or after a shared protocol change, open
+  **Actions → SDK full validation (manual) → Run workflow**, select the exact
+  candidate branch, and enter the reason.
+- The CLI equivalent is
+  `gh workflow run sdk-ci.yml --ref <candidate-branch> -f reason="<reason>"`.
+- Tag-driven release workflows independently revalidate the SDK they are about
+  to publish. A failed check stops before the public mirror or registry changes.
+
 ## Release train
 
 1. Update every SDK's `CHANGELOG.md` with customer-visible changes.
 2. Run `pnpm sdk:set-version X.Y.Z`, then `pnpm install --lockfile-only`.
-3. Run the complete SDK quality workflow locally where toolchains are
-   available, open a pull request, and wait for `SDK quality gates` to pass.
+3. Run the affected SDK checks locally, then open and review a pull request.
 4. Merge the exact reviewed commit to `main`.
-5. Create annotated tags on that same commit:
+5. Intentionally run **SDK full validation (manual)** on `main` and wait for all
+   five jobs to pass.
+6. Create annotated tags on that same commit:
 
    ```sh
    git tag -a sdk-js-vX.Y.Z -m "JavaScript SDK X.Y.Z"
@@ -70,7 +91,7 @@ self-review disabled.
    git tag -a sdk-flutter-vX.Y.Z -m "Flutter SDK X.Y.Z"
    git push origin sdk-js-vX.Y.Z sdk-ios-vX.Y.Z sdk-android-vX.Y.Z sdk-flutter-vX.Y.Z
    ```
-6. For JavaScript releases, open npm's **Staged Packages** view after
+7. For JavaScript releases, open npm's **Staged Packages** view after
    `publish.yml` succeeds. Verify both package names, versions, source commit,
    and provenance, then approve `@usergist/sdk-core` first and
    `@usergist/feedback-react-native` second using the maintainer security key.

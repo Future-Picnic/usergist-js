@@ -91,9 +91,13 @@ Status legend:
 - **Secure storage**: React Native accepts a host-supplied asynchronous encrypted storage adapter before `init()`; otherwise ordinary state uses AsyncStorage while subject credentials and pending mutations use bundled Keychain/EncryptedSharedPreferences bridges. iOS uses Keychain (`kSecAttrAccessibleAfterFirstUnlock`), Android `EncryptedSharedPreferences`, and Flutter `flutter_secure_storage`. Credential-bearing state never falls back to plaintext; legacy plaintext credentials are usable only after successful secure migration.
 - **Transport security**: React Native currently relies on platform HTTPS trust and does not implement application-level SPKI pinning. Native SDK implementations support pinning, but production pin provisioning and rotation still require an operational runbook and live-certificate validation.
 
-## CI guard (active)
+## Validation guard
 
-`tools/check-parity.ts` runs on every PR (`pnpm parity`). The script:
+`tools/check-parity.ts` runs locally with `pnpm parity`, inside the intentional
+**SDK full validation (manual)** workflow, and again in every tag-driven SDK
+release before the public mirror or registry is changed. It does not run on
+ordinary pull requests or pushes to `main` during active development. The
+script:
 
 1. Asserts that every public method on the RN reference (`packages/sdk-react-native/src/UserGist.ts`) appears as a row in this file.
 2. Requires React Native launch features to remain `full` (the explicitly optional TLS-pinning capability may be `missing`) and validates every status value.
