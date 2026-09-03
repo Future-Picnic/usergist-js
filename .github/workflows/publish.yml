@@ -1,4 +1,4 @@
-name: Publish npm packages
+name: Stage npm packages
 
 on:
   push:
@@ -79,19 +79,15 @@ jobs:
           tar -tzf "$rn_archive" > "$RUNNER_TEMP/rn-files.txt"
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/core-files.txt"
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/rn-files.txt"
-      - name: Publish core package
+      - name: Stage core package for 2FA approval
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
         run: |
           archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-sdk-core-*.tgz' -print -quit)
           test -n "$archive"
-          npm publish "$archive" --access public --provenance
-      - name: Publish React Native package
+          npm stage publish "$archive" --access public --provenance
+      - name: Stage React Native package for 2FA approval
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
         run: |
           archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
           test -n "$archive"
-          npm publish "$archive" --access public --provenance
+          npm stage publish "$archive" --access public --provenance

@@ -16,8 +16,10 @@ These control-plane and legal actions cannot be encoded as repository changes:
    provenance. Bootstrap it with a one-day granular token limited to the
    `@usergist` scope, stored as `NPM_BOOTSTRAP_TOKEN` only in that public
    repository. Then configure both packages' npm trusted publishers for
-   `Future-Picnic/usergist-js` and `publish.yml`, set publishing access to
-   require 2FA and disallow tokens, and delete the bootstrap secret and token.
+   `Future-Picnic/usergist-js` and `publish.yml` with direct `npm publish`
+   disabled, set publishing access to require 2FA and disallow tokens, and
+   delete the bootstrap secret and token. Subsequent releases are staged by
+   CI and must be reviewed and approved by a maintainer using 2FA.
 3. Publish `usergist_feedback` once from an authenticated workstation, create
    or join the verified `usergist.com` publisher, then configure pub.dev
    automated publishing for `sdk-release-flutter.yml` and the tag pattern
@@ -65,13 +67,20 @@ self-review disabled.
    git tag -a sdk-flutter-vX.Y.Z -m "Flutter SDK X.Y.Z"
    git push origin sdk-js-vX.Y.Z sdk-ios-vX.Y.Z sdk-android-vX.Y.Z sdk-flutter-vX.Y.Z
    ```
+6. For JavaScript releases, open npm's **Staged Packages** view after
+   `publish.yml` succeeds. Verify both package names, versions, source commit,
+   and provenance, then approve `@usergist/sdk-core` first and
+   `@usergist/feedback-react-native` second using the maintainer security key.
+   Reject either staged package if any release detail differs.
 
 Each workflow verifies that its tag, package metadata, runtime SDK header, and
 shared release-train version match before publishing. The JavaScript workflow
 mirrors the exact reviewed source and `vX.Y.Z` tag first; the public mirror's
-`publish.yml` workflow builds and publishes both npm packages through trusted
-publishing. Third-party GitHub Actions are pinned to immutable commit SHAs and
-Dependabot proposes reviewed updates.
+`publish.yml` workflow builds and stages both npm packages through trusted
+publishing. A maintainer reviews the staged archives and approves the core
+package first, followed by the React Native package, using 2FA. Third-party
+GitHub Actions are pinned to immutable commit SHAs and Dependabot proposes
+reviewed updates.
 
 ## Post-release verification
 

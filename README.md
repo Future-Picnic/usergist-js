@@ -23,9 +23,9 @@ native push configuration.
 ## Release integrity
 
 This repository is the public, versioned source mirror for the JavaScript SDK
-release train. Each npm release is built by GitHub Actions from the matching
-`vX.Y.Z` tag. npm provenance links the published package to that public source
-and workflow.
+release train. Each npm release is built and staged by GitHub Actions from the
+matching `vX.Y.Z` tag, then reviewed and approved by a maintainer using 2FA.
+npm provenance links the published package to that public source and workflow.
 
 Development changes are reviewed in the main UserGist product repository and
 mirrored here automatically. Please use this repository's issue tracker for
