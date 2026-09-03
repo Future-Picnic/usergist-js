@@ -101,10 +101,20 @@ Status legend:
 
 The `--allow` escape hatch remains available for an intentionally staged React Native row, but production merges must not use it.
 
-## Operational release gates
+## Operational release status
 
-These items require registry or physical-device access and cannot be completed by source-only CI:
-
-- **Registry activation** — configure npm/pub.dev trusted publishers, a Maven Central namespace and signing identity, and the public SwiftPM mirror; then run each tag-driven release workflow and install the resulting artifact into a clean consumer app.
-- **Push configuration and devices** — configure real APNs/FCM credentials and validate delivery, opens, actions, silent acks, permission transitions, and token rotation on physical iOS and Android devices. High-level automatic enable/disable, badge, and initial-notification helpers are still missing outside React Native as shown above.
-- **Cert-pin material** — production pin SHA-256 values must be set in the host app's environment (`USERGIST_TLS_PIN_LEAF`, `USERGIST_TLS_PIN_BACKUP`) before shipping. Empty pins fall back to system trust.
+- **Public registries — complete.** React Native and core are on npm, Android is
+  on Maven Central, Flutter is on pub.dev, and iOS is available from the public
+  SwiftPM mirror. The published artifacts have passed clean-consumer installs.
+- **Provider push validation — complete.** The APNs and FCM delivery paths have
+  been validated end to end on physical iOS and Android devices. High-level
+  automatic enable/disable, badge, and initial-notification helpers remain
+  platform-specific as shown above.
+- **Customer push onboarding — per app.** Each integrating app must configure
+  its own APNs/FCM credentials, identifiers, permissions, and callback plumbing,
+  then validate its own signed build on physical devices. Those customer-owned
+  checks do not mean the userGist provider path is unvalidated.
+- **Cert-pin material — host decision.** Set production pin SHA-256 values in
+  the host app's environment (`USERGIST_TLS_PIN_LEAF`,
+  `USERGIST_TLS_PIN_BACKUP`) when its threat model requires pinning. Empty pins
+  fall back to system trust.
