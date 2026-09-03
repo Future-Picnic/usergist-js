@@ -1,0 +1,97 @@
+name: Publish npm packages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.14.0
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@12.0.2
+      - run: pnpm install --frozen-lockfile
+      - name: Verify release versions
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+
+          const tag = process.env.RELEASE_TAG ?? ''
+          if (!/^v\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.-]+)?$/.test(tag)) {
+            throw new Error(`Invalid JavaScript SDK release tag: ${tag}`)
+          }
+
+          const expected = tag.slice(1)
+          const versionFile = fs.readFileSync('packages/SDK_VERSION', 'utf8').trim()
+          const core = JSON.parse(fs.readFileSync('packages/sdk-core/package.json', 'utf8'))
+          const reactNative = JSON.parse(fs.readFileSync('packages/sdk-react-native/package.json', 'utf8'))
+
+          for (const [name, actual] of [
+            ['packages/SDK_VERSION', versionFile],
+            ['@usergist/sdk-core', core.version],
+            ['@usergist/feedback-react-native', reactNative.version],
+          ]) {
+            if (actual !== expected) {
+              throw new Error(`${name} is ${actual}; expected ${expected}`)
+            }
+          }
+          NODE
+      - name: Require approved public-package licenses
+        run: test -f packages/sdk-core/LICENSE && test -f packages/sdk-react-native/LICENSE
+      - run: pnpm --filter @usergist/sdk-core test
+      - run: pnpm --filter @usergist/sdk-core build
+      - run: pnpm --filter @usergist/feedback-react-native test
+      - run: pnpm --filter @usergist/feedback-react-native build
+      - name: Build and inspect immutable package archives
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/usergist-packs"
+          (cd packages/sdk-core && pnpm pack --pack-destination "$RUNNER_TEMP/usergist-packs")
+          (cd packages/sdk-react-native && pnpm pack --pack-destination "$RUNNER_TEMP/usergist-packs")
+          core_archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-sdk-core-*.tgz' -print -quit)
+          rn_archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
+          test -n "$core_archive"
+          test -n "$rn_archive"
+          tar -xOf "$rn_archive" package/package.json > "$RUNNER_TEMP/rn-package.json"
+          node -e "const p=require(process.argv[1]); if(p.dependencies['@usergist/sdk-core'] !== '^'+p.version) process.exit(1)" "$RUNNER_TEMP/rn-package.json"
+          tar -tzf "$core_archive" > "$RUNNER_TEMP/core-files.txt"
+          tar -tzf "$rn_archive" > "$RUNNER_TEMP/rn-files.txt"
+          grep -qx 'package/dist/index.js' "$RUNNER_TEMP/core-files.txt"
+          grep -qx 'package/dist/index.js' "$RUNNER_TEMP/rn-files.txt"
+      - name: Publish core package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-sdk-core-*.tgz' -print -quit)
+          test -n "$archive"
+          npm publish "$archive" --access public --provenance
+      - name: Publish React Native package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
+          test -n "$archive"
+          npm publish "$archive" --access public --provenance

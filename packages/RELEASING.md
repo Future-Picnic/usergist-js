@@ -11,9 +11,13 @@ These control-plane and legal actions cannot be encoded as repository changes:
 1. The approved SDK license is MIT. Keep the `LICENSE` file, package metadata,
    CocoaPods metadata, and Android POM declaration aligned across every SDK.
 2. Reserve `@usergist/sdk-core` and `@usergist/feedback-react-native` on npm.
-   Bootstrap the first release with a short-lived granular automation token,
-   then configure npm trusted publishers for `sdk-release-js.yml` and delete
-   the bootstrap token.
+   The first JavaScript release is built and published from the public
+   `Future-Picnic/usergist-js` mirror so its npm artifacts have public
+   provenance. Bootstrap it with a one-day granular token limited to the
+   `@usergist` scope, stored as `NPM_BOOTSTRAP_TOKEN` only in that public
+   repository. Then configure both packages' npm trusted publishers for
+   `Future-Picnic/usergist-js` and `publish.yml`, set publishing access to
+   require 2FA and disallow tokens, and delete the bootstrap secret and token.
 3. Publish `usergist_feedback` once from an authenticated workstation, create
    or join the verified `usergist.com` publisher, then configure pub.dev
    automated publishing for `sdk-release-flutter.yml` and the tag pattern
@@ -63,9 +67,11 @@ self-review disabled.
    ```
 
 Each workflow verifies that its tag, package metadata, runtime SDK header, and
-shared release-train version match before publishing. Third-party GitHub
-Actions are pinned to immutable commit SHAs and Dependabot proposes reviewed
-updates.
+shared release-train version match before publishing. The JavaScript workflow
+mirrors the exact reviewed source and `vX.Y.Z` tag first; the public mirror's
+`publish.yml` workflow builds and publishes both npm packages through trusted
+publishing. Third-party GitHub Actions are pinned to immutable commit SHAs and
+Dependabot proposes reviewed updates.
 
 ## Post-release verification
 
