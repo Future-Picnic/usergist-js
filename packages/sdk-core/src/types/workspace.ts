@@ -5,6 +5,7 @@ export interface Workspace {
   readonly name: string
   readonly slug: string
   readonly region: string
+  readonly timezone: string
   readonly createdAt: string
   readonly updatedAt: string
 }

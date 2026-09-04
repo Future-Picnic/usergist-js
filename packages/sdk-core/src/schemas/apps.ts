@@ -1,5 +1,13 @@
 import { z } from 'zod'
 import { emailSchema, slugSchema } from './primitives.js'
+import { isValidIanaTimeZone } from '../timezone.js'
+
+export const workspaceTimezoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine(isValidIanaTimeZone, 'Enter a valid IANA timezone')
 
 export const platformSchema = z.enum(['ios', 'android', 'react-native', 'flutter'])
 
@@ -40,9 +48,20 @@ export const createApiTokenSchema = z.object({
 })
 
 export const createWorkspaceSchema = z.object({
-  name: z.string().min(1).max(120),
+  name: z.string().trim().min(1).max(120),
   slug: slugSchema.optional(),
+  timezone: workspaceTimezoneSchema.default('UTC'),
 })
+
+export const updateWorkspaceSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    timezone: workspaceTimezoneSchema.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one field is required',
+  })
 
 export const inviteMemberSchema = z.object({
   email: emailSchema,
@@ -59,5 +78,6 @@ export type CreateWriteKeyBody = z.infer<typeof createWriteKeySchema>
 export type RotateWriteKeyBody = z.infer<typeof rotateWriteKeySchema>
 export type CreateApiTokenBody = z.infer<typeof createApiTokenSchema>
 export type CreateWorkspaceBody = z.infer<typeof createWorkspaceSchema>
+export type UpdateWorkspaceBody = z.infer<typeof updateWorkspaceSchema>
 export type InviteMemberBody = z.infer<typeof inviteMemberSchema>
 export type AcceptWorkspaceInviteBody = z.infer<typeof acceptWorkspaceInviteSchema>

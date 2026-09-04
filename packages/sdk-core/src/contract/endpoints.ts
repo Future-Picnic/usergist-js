@@ -162,11 +162,21 @@ import type {
 // dashboard side. The API exposes only /v1/me to surface the locally
 // mapped user + workspace state.
 
+export interface UpdateCurrentUserRequest {
+  readonly name?: string
+}
+
 // ---------- workspaces ----------
 
 export interface CreateWorkspaceRequest {
   readonly name: string
   readonly slug?: string
+  readonly timezone?: string
+}
+
+export interface UpdateWorkspaceRequest {
+  readonly name?: string
+  readonly timezone?: string
 }
 
 export interface InviteMemberRequest {
@@ -438,9 +448,11 @@ export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
 
 export const endpoints = {
   'GET /v1/me': {} as Endpoint<void, { user: User; workspaces: ReadonlyArray<WorkspaceWithRole> }>,
+  'PATCH /v1/me': {} as Endpoint<UpdateCurrentUserRequest, User>,
 
   'GET /v1/workspaces': {} as Endpoint<void, ReadonlyArray<Workspace>>,
   'POST /v1/workspaces': {} as Endpoint<CreateWorkspaceRequest, Workspace>,
+  'PATCH /v1/workspaces/:wid': {} as Endpoint<UpdateWorkspaceRequest, Workspace>,
   'GET /v1/workspaces/:wid/members': {} as Endpoint<void, ReadonlyArray<WorkspaceMember>>,
   'GET /v1/workspaces/:wid/invites': {} as Endpoint<void, ReadonlyArray<WorkspaceInvite>>,
   'POST /v1/workspaces/:wid/invites': {} as Endpoint<InviteMemberRequest, { queued: true }>,
