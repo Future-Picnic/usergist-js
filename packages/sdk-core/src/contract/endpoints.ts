@@ -45,6 +45,10 @@ import type {
   WriteKey,
   AcceptWorkspaceInviteRequest,
   AcceptWorkspaceInviteResponse,
+  AppOnboardingStatus,
+  DeferCurrentUserOnboardingRequest,
+  OnboardingGoal,
+  UpdateAppOnboardingRequest,
 } from '../types/workspace.js'
 import type { Consent } from '../types/sdk.js'
 import type {
@@ -69,15 +73,23 @@ import type {
 } from '../types/billing.js'
 import type {
   AdminActivityEntry,
+  AdminDashboardUserListRequest,
+  AdminDashboardUserListResponse,
+  AdminDeletionJob,
   AdminCustomerDetail,
   AdminCustomerListRequest,
   AdminCustomerListResponse,
   AdminSession,
+  DeleteAdminDashboardUserRequest,
+  DeleteAdminWorkspaceRequest,
   CreateWorkspacePlanGrantRequest,
   EffectivePlanAccess,
   ExtendWorkspacePlanGrantRequest,
   RevokeWorkspacePlanGrantRequest,
   WorkspacePlanGrant,
+  GlobalFeatureFlag,
+  ProductFeatureFlags,
+  UpdateGlobalFeatureFlagRequest,
 } from '../types/admin.js'
 import type {
   Campaign,
@@ -191,6 +203,7 @@ export interface CreateAppRequest {
   readonly slug?: string
   readonly platforms: App['platforms']
   readonly environment?: WriteKey['environment']
+  readonly onboardingGoal?: OnboardingGoal
 }
 
 export interface UpdateAppRequest {
@@ -449,6 +462,8 @@ export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
 export const endpoints = {
   'GET /v1/me': {} as Endpoint<void, { user: User; workspaces: ReadonlyArray<WorkspaceWithRole> }>,
   'PATCH /v1/me': {} as Endpoint<UpdateCurrentUserRequest, User>,
+  'PATCH /v1/me/onboarding': {} as Endpoint<DeferCurrentUserOnboardingRequest, User>,
+  'GET /v1/features': {} as Endpoint<void, ProductFeatureFlags>,
 
   'GET /v1/workspaces': {} as Endpoint<void, ReadonlyArray<Workspace>>,
   'POST /v1/workspaces': {} as Endpoint<CreateWorkspaceRequest, Workspace>,
@@ -470,6 +485,8 @@ export const endpoints = {
   'GET /v1/apps/:appId': {} as Endpoint<void, App>,
   'PATCH /v1/apps/:appId': {} as Endpoint<UpdateAppRequest, App>,
   'DELETE /v1/apps/:appId': {} as Endpoint<void, { ok: true }>,
+  'GET /v1/apps/:appId/onboarding': {} as Endpoint<void, AppOnboardingStatus>,
+  'PATCH /v1/apps/:appId/onboarding': {} as Endpoint<UpdateAppOnboardingRequest, AppOnboardingStatus>,
   'POST /v1/apps/:appId/sdk/subject-tokens': {} as Endpoint<
     { externalId: string },
     SdkSessionResponse
@@ -987,11 +1004,33 @@ export const endpoints = {
 
   // ---------- super admin ----------
   'GET /v1/admin/session': {} as Endpoint<void, AdminSession>,
+  'GET /v1/admin/feature-flags': {} as Endpoint<void, ReadonlyArray<GlobalFeatureFlag>>,
+  'PATCH /v1/admin/feature-flags/:key': {} as Endpoint<
+    UpdateGlobalFeatureFlagRequest,
+    GlobalFeatureFlag
+  >,
   'GET /v1/admin/customers': {} as Endpoint<
     AdminCustomerListRequest,
     AdminCustomerListResponse
   >,
   'GET /v1/admin/customers/:workspaceId': {} as Endpoint<void, AdminCustomerDetail>,
+  'POST /v1/admin/customers/:workspaceId/permanent-deletion': {} as Endpoint<
+    DeleteAdminWorkspaceRequest,
+    { job: AdminDeletionJob }
+  >,
+  'GET /v1/admin/dashboard-users': {} as Endpoint<
+    AdminDashboardUserListRequest,
+    AdminDashboardUserListResponse
+  >,
+  'POST /v1/admin/dashboard-users/:userId/permanent-deletion': {} as Endpoint<
+    DeleteAdminDashboardUserRequest,
+    { job: AdminDeletionJob }
+  >,
+  'GET /v1/admin/deletion-jobs/:jobId': {} as Endpoint<void, { job: AdminDeletionJob }>,
+  'POST /v1/admin/deletion-jobs/:jobId/retry': {} as Endpoint<
+    Record<string, never>,
+    { job: AdminDeletionJob }
+  >,
   'POST /v1/admin/customers/:workspaceId/billing-events/:eventId/replay': {} as Endpoint<
     Record<string, never>,
     { replayed: true }

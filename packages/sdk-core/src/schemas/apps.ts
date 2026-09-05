@@ -13,6 +13,11 @@ export const platformSchema = z.enum(['ios', 'android', 'react-native', 'flutter
 
 export const writeKeyEnvironmentSchema = z.enum(['production', 'staging', 'development'])
 
+export const onboardingGoalSchema = z.enum(['feedback', 'survey', 'inapp', 'push', 'requests'])
+export const onboardingStatusSchema = z.enum(['in_progress', 'deferred', 'completed'])
+export const onboardingStepSchema = z.enum(['connect', 'verify', 'experience', 'push', 'launch'])
+export const onboardingPushChoiceSchema = z.enum(['pending', 'configured', 'skipped'])
+
 export const apiTokenScopeSchema = z.enum(['sdk:subjects', 'push.transactional'])
 
 export const createAppSchema = z.object({
@@ -20,6 +25,33 @@ export const createAppSchema = z.object({
   slug: slugSchema.optional(),
   platforms: z.array(platformSchema).min(1).max(8),
   environment: writeKeyEnvironmentSchema.default('production'),
+  onboardingGoal: onboardingGoalSchema.optional(),
+})
+
+export const updateOnboardingSchema = z
+  .object({
+    action: z.enum([
+      'resume',
+      'defer',
+      'create_first_feedback',
+      'first_feedback_completed',
+      'push_configured',
+      'push_skipped',
+      'complete',
+    ]).optional(),
+    step: onboardingStepSchema.optional(),
+    question: z.string().trim().min(1).max(500).optional(),
+  })
+  .refine((value) => Boolean(value.action || value.step), {
+    message: 'Provide an onboarding action or step',
+  })
+  .refine(
+    (value) => value.action !== 'create_first_feedback' || Boolean(value.question),
+    { message: 'Provide a question for the first feedback experience' },
+  )
+
+export const deferCurrentUserOnboardingSchema = z.object({
+  action: z.literal('defer'),
 })
 
 export const updateAppSchema = z
@@ -73,6 +105,7 @@ export const acceptWorkspaceInviteSchema = z.object({
 })
 
 export type CreateAppBody = z.infer<typeof createAppSchema>
+export type UpdateOnboardingBody = z.infer<typeof updateOnboardingSchema>
 export type UpdateAppBody = z.infer<typeof updateAppSchema>
 export type CreateWriteKeyBody = z.infer<typeof createWriteKeySchema>
 export type RotateWriteKeyBody = z.infer<typeof rotateWriteKeySchema>

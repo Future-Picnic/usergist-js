@@ -46,7 +46,12 @@
     "parity": "tsx tools/check-parity.ts && tsx tools/check-demo-parity.ts",
     "sdk:check-version": "tsx tools/check-sdk-version.ts",
     "sdk:set-version": "tsx tools/set-sdk-version.ts",
-    "parity:demos": "tsx tools/check-demo-parity.ts"
+    "parity:demos": "tsx tools/check-demo-parity.ts",
+    "onboarding:lab:new": "node tools/onboarding-lab/create.mjs",
+    "onboarding:lab:fresh:react-native": "node tools/onboarding-lab/fresh-react-native.mjs",
+    "onboarding:lab:reset": "node tools/onboarding-lab/reset.mjs",
+    "onboarding:lab:verify": "node tools/onboarding-lab/verify.mjs",
+    "onboarding:lab:test": "node --test tools/onboarding-lab/*.test.mjs"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {
