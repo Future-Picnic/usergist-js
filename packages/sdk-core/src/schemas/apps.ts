@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { webAppConfigSchema } from './web.js'
 import { emailSchema, slugSchema } from './primitives.js'
 import { isValidIanaTimeZone } from '../timezone.js'
 
@@ -9,7 +10,7 @@ export const workspaceTimezoneSchema = z
   .max(64)
   .refine(isValidIanaTimeZone, 'Enter a valid IANA timezone')
 
-export const platformSchema = z.enum(['ios', 'android', 'react-native', 'flutter'])
+export const platformSchema = z.enum(['ios', 'android', 'react-native', 'flutter', 'web'])
 
 export const writeKeyEnvironmentSchema = z.enum(['production', 'staging', 'development'])
 
@@ -26,6 +27,7 @@ export const createAppSchema = z.object({
   platforms: z.array(platformSchema).min(1).max(8),
   environment: writeKeyEnvironmentSchema.default('production'),
   onboardingGoal: onboardingGoalSchema.optional(),
+  webConfig: webAppConfigSchema.optional(),
 })
 
 export const updateOnboardingSchema = z
@@ -60,6 +62,7 @@ export const updateAppSchema = z
     platforms: z.array(platformSchema).min(1).max(8).optional(),
     piiAllowList: z.array(z.string().min(1).max(120)).max(128).optional(),
     lifecycleEventsEnabled: z.boolean().optional(),
+    webConfig: webAppConfigSchema.optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'At least one field is required' })
 

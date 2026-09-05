@@ -47,6 +47,8 @@ export interface InAppFrequency {
 }
 
 export interface InAppMessage {
+  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly id: string
   readonly appId: string
   readonly name: string
@@ -88,6 +90,8 @@ export interface InAppMessage {
 }
 
 export interface CreateInAppMessageRequest {
+  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly name: string
   readonly audienceSegmentId?: string | null
   readonly audience?: AudienceSpec
@@ -139,6 +143,8 @@ export interface InAppMessageAnalytics {
 // doesn't need (audit columns, segment id) and leaves what the renderer
 // uses.
 export interface ArmedInAppMessage {
+  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly messageId: string
   readonly eventName: string
   /** True only when the SDK can make the same targeting decision locally. */

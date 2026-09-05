@@ -45,12 +45,14 @@ jobs:
           const expected = tag.slice(1)
           const versionFile = fs.readFileSync('packages/SDK_VERSION', 'utf8').trim()
           const core = JSON.parse(fs.readFileSync('packages/sdk-core/package.json', 'utf8'))
+          const web = JSON.parse(fs.readFileSync('packages/sdk-web/package.json', 'utf8'))
           const reactNative = JSON.parse(fs.readFileSync('packages/sdk-react-native/package.json', 'utf8'))
 
           for (const [name, actual] of [
             ['packages/SDK_VERSION', versionFile],
             ['@usergist/sdk-core', core.version],
             ['@usergist/feedback-react-native', reactNative.version],
+            ['@usergist/feedback-web', web.version],
           ]) {
             if (actual !== expected) {
               throw new Error(`${name} is ${actual}; expected ${expected}`)
@@ -58,9 +60,11 @@ jobs:
           }
           NODE
       - name: Require approved public-package licenses
-        run: test -f packages/sdk-core/LICENSE && test -f packages/sdk-react-native/LICENSE
+        run: test -f packages/sdk-core/LICENSE && test -f packages/sdk-react-native/LICENSE && test -f packages/sdk-web/LICENSE
       - run: pnpm --filter @usergist/sdk-core test
       - run: pnpm --filter @usergist/sdk-core build
+      - run: pnpm --filter @usergist/feedback-web build
+      - run: pnpm --filter @usergist/feedback-web test
       - run: pnpm --filter @usergist/feedback-react-native test
       - run: pnpm --filter @usergist/feedback-react-native build
       - name: Build and inspect immutable package archives
@@ -68,6 +72,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/usergist-packs"
           (cd packages/sdk-core && pnpm pack --pack-destination "$RUNNER_TEMP/usergist-packs")
+          (cd packages/sdk-web && pnpm pack --pack-destination "$RUNNER_TEMP/usergist-packs")
           (cd packages/sdk-react-native && pnpm pack --pack-destination "$RUNNER_TEMP/usergist-packs")
           core_archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-sdk-core-*.tgz' -print -quit)
           rn_archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
@@ -89,5 +94,11 @@ jobs:
         shell: bash
         run: |
           archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
+          test -n "$archive"
+          npm stage publish "$archive" --access public --provenance
+      - name: Stage Web package for 2FA approval
+        shell: bash
+        run: |
+          archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-web-*.tgz' -print -quit)
           test -n "$archive"
           npm stage publish "$archive" --access public --provenance

@@ -130,3 +130,11 @@ existing tag resolves to the exact filtered commit before continuing.
 
 Registry releases are immutable. Fixes always use a new SemVer version; never
 overwrite or force-move a published tag.
+
+## Web SDK and delivery protocol 2
+
+The JS source mirror now includes `packages/sdk-web`. Build `@usergist/sdk-core` before `@usergist/feedback-web`; publish core before web because web consumes its public client entry. Run `pnpm verify:web`, API web migration/authorization tests, `pnpm sdk:check-version`, the dashboard typecheck, and native adapter checks before release. Validate both the ESM package and the standalone browser script. The optional React entry must import the root package singleton.
+
+Apply `0041_web_support.sql` before deploying the API and workers, then deploy the dashboard and release the SDKs. Existing campaigns retain their configured native platforms. Web is enabled explicitly per app and per campaign. Deploy coordinated-delivery native adapters before enabling mixed native/Web campaigns. Version 1 native inboxes cannot consume protocol 2 instructions. Do not backfill Web into existing campaigns.
+
+The private `@usergist/demo-web` workspace package must never be published. Its development token helper is disabled in production. Production website origins and management credentials must be configured by the app owner; the demo does not provision them automatically.

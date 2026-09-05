@@ -5,6 +5,7 @@ messages, feature requests, analytics, and push engagement to applications.
 
 | Package | Purpose |
 | --- | --- |
+| `@usergist/feedback-web` | Framework-independent SDK for desktop and mobile browsers |
 | [`@usergist/feedback-react-native`](https://www.npmjs.com/package/@usergist/feedback-react-native) | Production React Native SDK and native iOS/Android bridges |
 | [`@usergist/sdk-core`](https://www.npmjs.com/package/@usergist/sdk-core) | Shared contracts, schemas, and mobile-safe targeting utilities |
 

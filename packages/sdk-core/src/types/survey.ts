@@ -211,6 +211,8 @@ export type SurveyAttemptSource =
   | 'test'
 
 export interface SurveyCampaign {
+  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly id: string
   readonly appId: string
   readonly name: string
@@ -377,6 +379,8 @@ export interface SurveyTemplate {
 // ---------- Create / update requests ----------
 
 export interface CreateSurveyRequest {
+  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly name: string
   readonly mode: SurveyDeliveryMode
   readonly flow: SurveyFlow
@@ -397,6 +401,8 @@ export interface CreateSurveyRequest {
 }
 
 export interface UpdateSurveyRequest extends Partial<CreateSurveyRequest> {
+  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly status?: SurveyCampaign['status']
 }
 

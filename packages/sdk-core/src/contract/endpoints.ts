@@ -199,6 +199,7 @@ export interface InviteMemberRequest {
 // ---------- apps ----------
 
 export interface CreateAppRequest {
+  readonly webConfig?: App['webConfig']
   readonly name: string
   readonly slug?: string
   readonly platforms: App['platforms']
@@ -207,6 +208,7 @@ export interface CreateAppRequest {
 }
 
 export interface UpdateAppRequest {
+  readonly webConfig?: App['webConfig']
   readonly name?: string
   readonly platforms?: App['platforms']
   readonly piiAllowList?: ReadonlyArray<string>
@@ -341,6 +343,8 @@ export interface CreatePromptRequest {
   readonly triggerEventName: string
   readonly segmentId?: string | null
   readonly questions: ReadonlyArray<Question>
+  readonly deliveryPlatforms?: ReadonlyArray<import('../types/web.js').DeliveryPlatform>
+  readonly webPresentation?: import('../types/web.js').WebPresentation | null
   readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
   readonly frequency?: FrequencyCaps
@@ -354,6 +358,8 @@ export interface UpdatePromptRequest {
   readonly triggerEventName?: string
   readonly segmentId?: string | null
   readonly questions?: ReadonlyArray<Question>
+  readonly deliveryPlatforms?: ReadonlyArray<import('../types/web.js').DeliveryPlatform>
+  readonly webPresentation?: import('../types/web.js').WebPresentation | null
   readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
   readonly frequency?: FrequencyCaps
@@ -440,6 +446,35 @@ export interface SdkIdentifyPayload {
   readonly properties?: Record<string, string | number | boolean | null>
 }
 
+export interface RegisterSdkClientRequest {
+  readonly anonymousId:string
+  readonly instanceId:string
+  readonly platform:import('../types/web.js').DeliveryPlatform
+  readonly sdkVersion:string
+  readonly protocolVersion:2
+  readonly screenName?:string|null
+}
+export interface SdkDeliveryInstruction {
+  readonly id:number
+  readonly type:string
+  readonly payload:Readonly<Record<string,unknown>>
+  readonly emittedAt:string
+  readonly expiresAt:string
+}
+export interface AuthorizePresentationRequest {
+  readonly clientId:string
+  readonly pillar:'feedback'|'survey'|'inapp'
+  readonly campaignId:string
+  readonly idempotencyKey:string
+  readonly instructionId?:number
+  readonly screenName?:string
+}
+export type AuthorizePresentationResponse = {
+  readonly status:'authorized'
+  readonly presentationId:string
+  readonly content:Prompt|import('../types/survey.js').SurveyCampaignWithFlow|import('../types/inapp-message.js').InAppMessage
+}|{readonly status:'unavailable'|'consent_required'}
+
 // ---------- GDPR ----------
 
 export interface GdprDeleteRequest {
@@ -460,6 +495,11 @@ export interface GdprExportRequest {
 export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
 
 export const endpoints = {
+  'POST /v1/sdk/clients': {} as Endpoint<RegisterSdkClientRequest,{clientId:string;protocolVersion:2}>,
+  'POST /v1/sdk/clients/:id/end': {} as Endpoint<Record<string,never>,{ok:true}>,
+  'GET /v1/sdk/clients/:id/instructions': {} as Endpoint<void,{instructions:ReadonlyArray<SdkDeliveryInstruction>}>,
+  'POST /v1/sdk/presentations/authorize': {} as Endpoint<AuthorizePresentationRequest,AuthorizePresentationResponse>,
+  'POST /v1/sdk/presentations/:id/receipt': {} as Endpoint<{clientId:string;event:'shown'|'dismissed'|'completed'|'cta_clicked'},{recorded:boolean}>,
   'GET /v1/me': {} as Endpoint<void, { user: User; workspaces: ReadonlyArray<WorkspaceWithRole> }>,
   'PATCH /v1/me': {} as Endpoint<UpdateCurrentUserRequest, User>,
   'PATCH /v1/me/onboarding': {} as Endpoint<DeferCurrentUserOnboardingRequest, User>,

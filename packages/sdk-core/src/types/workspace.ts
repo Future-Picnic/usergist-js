@@ -63,7 +63,8 @@ export interface App {
   readonly workspaceId: string
   readonly name: string
   readonly slug: string
-  readonly platforms: ReadonlyArray<'ios' | 'android' | 'react-native' | 'flutter'>
+  readonly platforms: ReadonlyArray<'ios' | 'android' | 'react-native' | 'flutter' | 'web'>
+  readonly webConfig?: import('./web.js').WebAppConfig
   readonly piiAllowList: ReadonlyArray<string>
   readonly lifecycleEventsEnabled: boolean
   readonly billingSuspendedAt: string | null
