@@ -17,12 +17,12 @@ These control-plane and legal actions cannot be encoded as repository changes:
 
 1. The approved SDK license is MIT. Keep the `LICENSE` file, package metadata,
    CocoaPods metadata, and Android POM declaration aligned across every SDK.
-2. Reserve `@usergist/sdk-core` and `@usergist/feedback-react-native` on npm.
+2. Reserve `@usergist/sdk-core`, `@usergist/feedback-react-native` and `@usergist/feedback-web` on npm.
    The first JavaScript release is built and published from the public
    `Future-Picnic/usergist-js` mirror so its npm artifacts have public
    provenance. Bootstrap it with a one-day granular token limited to the
    `@usergist` scope, stored as `NPM_BOOTSTRAP_TOKEN` only in that public
-   repository. Then configure both packages' npm trusted publishers for
+   repository. Then configure all three packages' npm trusted publishers for
    `Future-Picnic/usergist-js` and `publish.yml` with direct `npm publish`
    disabled, set publishing access to require 2FA and disallow tokens, and
    delete the bootstrap secret and token. Subsequent releases are staged by
@@ -92,17 +92,17 @@ start it or consume its hosted-runner budget.
    git push origin sdk-js-vX.Y.Z sdk-ios-vX.Y.Z sdk-android-vX.Y.Z sdk-flutter-vX.Y.Z
    ```
 7. For JavaScript releases, open npm's **Staged Packages** view after
-   `publish.yml` succeeds. Verify both package names, versions, source commit,
+   `publish.yml` succeeds. Verify all three package names, versions, source commit,
    and provenance, then approve `@usergist/sdk-core` first and
-   `@usergist/feedback-react-native` second using the maintainer security key.
-   Reject either staged package if any release detail differs.
+   `@usergist/feedback-react-native` and `@usergist/feedback-web` afterward using the maintainer security key.
+   Reject any staged package if any release detail differs.
 
 Each workflow verifies that its tag, package metadata, runtime SDK header, and
 shared release-train version match before publishing. The JavaScript workflow
 mirrors the exact reviewed source and `vX.Y.Z` tag first; the public mirror's
-`publish.yml` workflow builds and stages both npm packages through trusted
+`publish.yml` workflow builds and stages all three npm packages through trusted
 publishing. A maintainer reviews the staged archives and approves the core
-package first, followed by the React Native package, using 2FA. Third-party
+package first, followed by the React Native and Web packages, using 2FA. Third-party
 GitHub Actions are pinned to immutable commit SHAs and Dependabot proposes
 reviewed updates. The Flutter workflow likewise mirrors the exact reviewed
 source and `vX.Y.Z` tag; that tag triggers the public mirror's `publish.yml`
@@ -112,8 +112,9 @@ existing tag resolves to the exact filtered commit before continuing.
 
 ## Post-release verification
 
-- Install both npm archives into a clean React Native consumer and build iOS
+- Install the core and React Native npm archives into a clean React Native consumer and build iOS
   and Android release variants.
+- Install the core and Web archives into a clean browser consumer; verify ESM, the optional React entry and the standalone script with exact origin configuration and explicit activation.
 - Resolve the public SwiftPM tag in a clean Xcode project and archive it.
 - Resolve `com.usergist:feedback:X.Y.Z` from Maven Central in a clean Gradle
   project and assemble a minified release.
@@ -135,6 +136,6 @@ overwrite or force-move a published tag.
 
 The JS source mirror now includes `packages/sdk-web`. Build `@usergist/sdk-core` before `@usergist/feedback-web`; publish core before web because web consumes its public client entry. Run `pnpm verify:web`, API web migration/authorization tests, `pnpm sdk:check-version`, the dashboard typecheck, and native adapter checks before release. Validate both the ESM package and the standalone browser script. The optional React entry must import the root package singleton.
 
-Apply `0041_web_support.sql` before deploying the API and workers, then deploy the dashboard and release the SDKs. Existing campaigns retain their configured native platforms. Web is enabled explicitly per app and per campaign. Deploy coordinated-delivery native adapters before enabling mixed native/Web campaigns. Version 1 native inboxes cannot consume protocol 2 instructions. Do not backfill Web into existing campaigns.
+Apply `0041_web_support.sql` before deploying the API and workers, then deploy the dashboard and release the SDKs. Existing campaigns retain their configured native platforms. Web is enabled explicitly per app and per campaign. Deploy coordinated-delivery native adapters before enabling mixed native/Web campaigns. Version 1 native inboxes cannot consume protocol 2 instructions. Legacy web-envelope compatibility is not a substitute for upgrading all workers and native adapters. Do not backfill Web into existing campaigns.
 
 The private `@usergist/demo-web` workspace package must never be published. Its development token helper is disabled in production. Production website origins and management credentials must be configured by the app owner; the demo does not provision them automatically.
