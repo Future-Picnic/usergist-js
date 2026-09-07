@@ -511,6 +511,7 @@ export const endpoints = {
   'PATCH /v1/apps/:appId/requests/portal-visibility': {} as Endpoint<{ ids: readonly string[]; visible: boolean }, { updated: number }>,
   'GET /v1/portal/:portalSlug': {} as Endpoint<void, Portal.PublicPortal>,
   'GET /v1/portal/:portalSlug/apps/:appSlug/requests': {} as Endpoint<Portal.PortalRequestQuery, Portal.PortalRequestList>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/requests/counts': {} as Endpoint<void, Portal.PortalRequestCounts>,
   'GET /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId': {} as Endpoint<void, Portal.PortalRequest>,
   'POST /v1/portal/:portalSlug/auth/start': {} as Endpoint<Portal.PortalAuthStart, { sent: true; retryAfter: number }>,
   'POST /v1/portal/:portalSlug/auth/verify': {} as Endpoint<Portal.PortalAuthVerify, Portal.PortalSession & { sessionToken: string }>,

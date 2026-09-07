@@ -46,6 +46,7 @@ export interface PortalRequestList {
   page: number
   hasMore: boolean
 }
+export type PortalRequestCounts = { all: number } & Partial<Record<RequestStatus, number>>
 export interface PortalRequestQuery {
   q?: string
   status?: RequestStatus
