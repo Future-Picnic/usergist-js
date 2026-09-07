@@ -1,13 +1,9 @@
-// TurboModule spec for the UserGist push native module.
-//
-// React Native's codegen consumes this file and generates the native
-// scaffolding that lets the new architecture (Bridgeless / Fabric)
-// resolve our module without going through the legacy bridge.
-//
-// At runtime, `src/native/push-bridge.ts` first tries
-// `TurboModuleRegistry.getEnforcing<Spec>('UserGistPush')` and falls back
-// to `NativeModules.UserGistPush` so the package works in both
-// architectures (RN 0.72 → 0.79+).
+// Typed runtime lookup for the UserGist native bridge, not a codegen input.
+// Both native implementations ship their own bridge registration and do not
+// implement generated spec classes. Do not advertise this file through
+// codegenConfig unless the native implementations are migrated as well.
+// `src/native/push-bridge.ts` falls back to NativeModules.UserGistPush when
+// this optional TurboModuleRegistry lookup returns null.
 
 import type { TurboModule } from 'react-native'
 import { TurboModuleRegistry } from 'react-native'

@@ -1,6 +1,6 @@
 {
   "name": "@usergist/feedback-react-native",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "userGist feedback + push SDK for React Native (self-contained, no Firebase/OneSignal/WonderPush required)",
   "license": "MIT",
   "homepage": "https://usergist.com/docs/sdks/react-native",
@@ -57,7 +57,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "prepack": "pnpm run build",
-    "pack:check": "pnpm publish --dry-run --no-git-checks"
+    "pack:check": "node scripts/check-package.mjs"
   },
   "peerDependencies": {
     "@react-native-async-storage/async-storage": ">=1.19",
@@ -78,13 +78,5 @@
     "react-native-safe-area-context": "^4",
     "vitest": "^2.1.0",
     "typescript": "^5.5.4"
-  },
-  "codegenConfig": {
-    "name": "RNUserGistPushSpec",
-    "type": "modules",
-    "jsSrcsDir": "src",
-    "android": {
-      "javaPackageName": "studio.usergist.feedback"
-    }
   }
 }

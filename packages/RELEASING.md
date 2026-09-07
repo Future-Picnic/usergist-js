@@ -102,3 +102,13 @@ reviewed updates.
 
 Registry releases are immutable. Fixes always use a new SemVer version; never
 overwrite or force-move a published tag.
+
+## React Native packaging patch 0.1.1
+
+This isolated release starts from the published JavaScript 0.1.0 source. Only
+React Native advances to 0.1.1; its SDK_VERSION file and runtime header record
+the patch, while core remains 0.1.0. The public rn-v0.1.1 tag runs publish.yml,
+validates the packed native bridge, and stages only the React Native package.
+The web SDK is not included. Maintainer 2FA approval is still required on npm.
+The reviewed private release branch remains the source of truth; the public
+mirror receives identical SDK files and a sanitized release commit.
