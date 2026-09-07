@@ -38,3 +38,5 @@ export type {
   SdkIngestResponse,
   SdkSessionResponse,
 } from './contract/endpoints.js'
+
+export * from './types/web.js'

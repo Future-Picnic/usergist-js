@@ -696,7 +696,7 @@ async function performInstructionPoll(engine: Engine): Promise<void> {
       STORAGE_KEYS.seenInstructions,
     )) ?? []
     const seenSet = new Set(seen)
-    const result = await engine.transport.instructions(after)
+    const result = await engine.transport.instructions(after, { anonymousId: engine.identity.get().anonymousId, platform: engine.context.platform(), sdkVersion: engine.context.sdkVersion() })
     if (result.instructions.length === 0) return
 
     const handledIds: number[] = []

@@ -45,6 +45,10 @@ import type {
   WriteKey,
   AcceptWorkspaceInviteRequest,
   AcceptWorkspaceInviteResponse,
+  AppOnboardingStatus,
+  DeferCurrentUserOnboardingRequest,
+  OnboardingGoal,
+  UpdateAppOnboardingRequest,
 } from '../types/workspace.js'
 import type { Consent } from '../types/sdk.js'
 import type {
@@ -69,15 +73,23 @@ import type {
 } from '../types/billing.js'
 import type {
   AdminActivityEntry,
+  AdminDashboardUserListRequest,
+  AdminDashboardUserListResponse,
+  AdminDeletionJob,
   AdminCustomerDetail,
   AdminCustomerListRequest,
   AdminCustomerListResponse,
   AdminSession,
+  DeleteAdminDashboardUserRequest,
+  DeleteAdminWorkspaceRequest,
   CreateWorkspacePlanGrantRequest,
   EffectivePlanAccess,
   ExtendWorkspacePlanGrantRequest,
   RevokeWorkspacePlanGrantRequest,
   WorkspacePlanGrant,
+  GlobalFeatureFlag,
+  ProductFeatureFlags,
+  UpdateGlobalFeatureFlagRequest,
 } from '../types/admin.js'
 import type {
   Campaign,
@@ -162,11 +174,21 @@ import type {
 // dashboard side. The API exposes only /v1/me to surface the locally
 // mapped user + workspace state.
 
+export interface UpdateCurrentUserRequest {
+  readonly name?: string
+}
+
 // ---------- workspaces ----------
 
 export interface CreateWorkspaceRequest {
   readonly name: string
   readonly slug?: string
+  readonly timezone?: string
+}
+
+export interface UpdateWorkspaceRequest {
+  readonly name?: string
+  readonly timezone?: string
 }
 
 export interface InviteMemberRequest {
@@ -177,13 +199,16 @@ export interface InviteMemberRequest {
 // ---------- apps ----------
 
 export interface CreateAppRequest {
+  readonly webConfig?: App['webConfig']
   readonly name: string
   readonly slug?: string
   readonly platforms: App['platforms']
   readonly environment?: WriteKey['environment']
+  readonly onboardingGoal?: OnboardingGoal
 }
 
 export interface UpdateAppRequest {
+  readonly webConfig?: App['webConfig']
   readonly name?: string
   readonly platforms?: App['platforms']
   readonly piiAllowList?: ReadonlyArray<string>
@@ -318,6 +343,8 @@ export interface CreatePromptRequest {
   readonly triggerEventName: string
   readonly segmentId?: string | null
   readonly questions: ReadonlyArray<Question>
+  readonly deliveryPlatforms?: ReadonlyArray<import('../types/web.js').DeliveryPlatform>
+  readonly webPresentation?: import('../types/web.js').WebPresentation | null
   readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
   readonly frequency?: FrequencyCaps
@@ -331,6 +358,8 @@ export interface UpdatePromptRequest {
   readonly triggerEventName?: string
   readonly segmentId?: string | null
   readonly questions?: ReadonlyArray<Question>
+  readonly deliveryPlatforms?: ReadonlyArray<import('../types/web.js').DeliveryPlatform>
+  readonly webPresentation?: import('../types/web.js').WebPresentation | null
   readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
   readonly frequency?: FrequencyCaps
@@ -417,6 +446,35 @@ export interface SdkIdentifyPayload {
   readonly properties?: Record<string, string | number | boolean | null>
 }
 
+export interface RegisterSdkClientRequest {
+  readonly anonymousId:string
+  readonly instanceId:string
+  readonly platform:import('../types/web.js').DeliveryPlatform
+  readonly sdkVersion:string
+  readonly protocolVersion:2
+  readonly screenName?:string|null
+}
+export interface SdkDeliveryInstruction {
+  readonly id:number
+  readonly type:string
+  readonly payload:Readonly<Record<string,unknown>>
+  readonly emittedAt:string
+  readonly expiresAt:string
+}
+export interface AuthorizePresentationRequest {
+  readonly clientId:string
+  readonly pillar:'feedback'|'survey'|'inapp'
+  readonly campaignId:string
+  readonly idempotencyKey:string
+  readonly instructionId?:number
+  readonly screenName?:string
+}
+export type AuthorizePresentationResponse = {
+  readonly status:'authorized'
+  readonly presentationId:string
+  readonly content:Prompt|import('../types/survey.js').SurveyCampaignWithFlow|import('../types/inapp-message.js').InAppMessage
+}|{readonly status:'unavailable'|'consent_required'}
+
 // ---------- GDPR ----------
 
 export interface GdprDeleteRequest {
@@ -437,10 +495,19 @@ export interface GdprExportRequest {
 export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
 
 export const endpoints = {
+  'POST /v1/sdk/clients': {} as Endpoint<RegisterSdkClientRequest,{clientId:string;protocolVersion:2}>,
+  'POST /v1/sdk/clients/:id/end': {} as Endpoint<Record<string,never>,{ok:true}>,
+  'GET /v1/sdk/clients/:id/instructions': {} as Endpoint<void,{instructions:ReadonlyArray<SdkDeliveryInstruction>}>,
+  'POST /v1/sdk/presentations/authorize': {} as Endpoint<AuthorizePresentationRequest,AuthorizePresentationResponse>,
+  'POST /v1/sdk/presentations/:id/receipt': {} as Endpoint<{clientId:string;event:'shown'|'dismissed'|'completed'|'cta_clicked'},{recorded:boolean}>,
   'GET /v1/me': {} as Endpoint<void, { user: User; workspaces: ReadonlyArray<WorkspaceWithRole> }>,
+  'PATCH /v1/me': {} as Endpoint<UpdateCurrentUserRequest, User>,
+  'PATCH /v1/me/onboarding': {} as Endpoint<DeferCurrentUserOnboardingRequest, User>,
+  'GET /v1/features': {} as Endpoint<void, ProductFeatureFlags>,
 
   'GET /v1/workspaces': {} as Endpoint<void, ReadonlyArray<Workspace>>,
   'POST /v1/workspaces': {} as Endpoint<CreateWorkspaceRequest, Workspace>,
+  'PATCH /v1/workspaces/:wid': {} as Endpoint<UpdateWorkspaceRequest, Workspace>,
   'GET /v1/workspaces/:wid/members': {} as Endpoint<void, ReadonlyArray<WorkspaceMember>>,
   'GET /v1/workspaces/:wid/invites': {} as Endpoint<void, ReadonlyArray<WorkspaceInvite>>,
   'POST /v1/workspaces/:wid/invites': {} as Endpoint<InviteMemberRequest, { queued: true }>,
@@ -458,6 +525,8 @@ export const endpoints = {
   'GET /v1/apps/:appId': {} as Endpoint<void, App>,
   'PATCH /v1/apps/:appId': {} as Endpoint<UpdateAppRequest, App>,
   'DELETE /v1/apps/:appId': {} as Endpoint<void, { ok: true }>,
+  'GET /v1/apps/:appId/onboarding': {} as Endpoint<void, AppOnboardingStatus>,
+  'PATCH /v1/apps/:appId/onboarding': {} as Endpoint<UpdateAppOnboardingRequest, AppOnboardingStatus>,
   'POST /v1/apps/:appId/sdk/subject-tokens': {} as Endpoint<
     { externalId: string },
     SdkSessionResponse
@@ -975,11 +1044,33 @@ export const endpoints = {
 
   // ---------- super admin ----------
   'GET /v1/admin/session': {} as Endpoint<void, AdminSession>,
+  'GET /v1/admin/feature-flags': {} as Endpoint<void, ReadonlyArray<GlobalFeatureFlag>>,
+  'PATCH /v1/admin/feature-flags/:key': {} as Endpoint<
+    UpdateGlobalFeatureFlagRequest,
+    GlobalFeatureFlag
+  >,
   'GET /v1/admin/customers': {} as Endpoint<
     AdminCustomerListRequest,
     AdminCustomerListResponse
   >,
   'GET /v1/admin/customers/:workspaceId': {} as Endpoint<void, AdminCustomerDetail>,
+  'POST /v1/admin/customers/:workspaceId/permanent-deletion': {} as Endpoint<
+    DeleteAdminWorkspaceRequest,
+    { job: AdminDeletionJob }
+  >,
+  'GET /v1/admin/dashboard-users': {} as Endpoint<
+    AdminDashboardUserListRequest,
+    AdminDashboardUserListResponse
+  >,
+  'POST /v1/admin/dashboard-users/:userId/permanent-deletion': {} as Endpoint<
+    DeleteAdminDashboardUserRequest,
+    { job: AdminDeletionJob }
+  >,
+  'GET /v1/admin/deletion-jobs/:jobId': {} as Endpoint<void, { job: AdminDeletionJob }>,
+  'POST /v1/admin/deletion-jobs/:jobId/retry': {} as Endpoint<
+    Record<string, never>,
+    { job: AdminDeletionJob }
+  >,
   'POST /v1/admin/customers/:workspaceId/billing-events/:eventId/replay': {} as Endpoint<
     Record<string, never>,
     { replayed: true }
