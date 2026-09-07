@@ -23,9 +23,12 @@ function errorMessage(error: unknown) {
 }
 export async function showRequestBoard(
   client: RequestClient,
-  renderer: WebRenderer
+  renderer: WebRenderer,
+  canPresent: () => boolean = () => true
 ) {
+  if (!canPresent()) return
   const branding = await client.getRequestBranding()
+  if (!canPresent()) return
   renderer.setTheme({ colors: { primary: branding.accentColor ?? undefined } })
   const surface = renderer.frame(
     'requests',
@@ -58,7 +61,7 @@ export async function showRequestBoard(
     sort.append(option)
   }
   const create = renderer.button('Share an idea', () =>
-    showSubmit(client, renderer)
+    showSubmit(client, renderer, canPresent)
   )
   toolbar.append(search, sort, create)
   content.append(toolbar)
@@ -89,7 +92,7 @@ export async function showRequestBoard(
           )
         )
         button.onclick = () => {
-          void showRequestDetail(client, renderer, item.id)
+          void showRequestDetail(client, renderer, item.id, canPresent)
         }
         list.append(button)
       }
@@ -108,7 +111,7 @@ export async function showRequestBoard(
               const button = el('button', 'ug-list-item')
               button.append(el('strong', '', item.title))
               button.onclick = () => {
-                void showRequestDetail(client, renderer, item.id)
+                void showRequestDetail(client, renderer, item.id, canPresent)
               }
               list.insertBefore(button, more)
             }
@@ -149,7 +152,8 @@ export async function showRequestBoard(
   }
   await load()
 }
-function showSubmit(client: RequestClient, renderer: WebRenderer) {
+function showSubmit(client: RequestClient, renderer: WebRenderer, canPresent: () => boolean) {
+  if (!canPresent()) return
   const surface = renderer.frame('requests', 'Share an idea')
   const content = el('div', 'ug-content')
   renderer.header(
@@ -185,7 +189,7 @@ function showSubmit(client: RequestClient, renderer: WebRenderer) {
         error.setAttribute('role', 'status')
         return
       }
-      await showRequestDetail(client, renderer, request.id)
+      if (surface.isConnected) await showRequestDetail(client, renderer, request.id, canPresent)
     } catch (e) {
       error.textContent = errorMessage(e)
       send.disabled = false
@@ -195,7 +199,7 @@ function showSubmit(client: RequestClient, renderer: WebRenderer) {
     renderer.button(
       'Back',
       () => {
-        void showRequestBoard(client, renderer)
+        void showRequestBoard(client, renderer, canPresent)
       },
       true
     ),
@@ -206,8 +210,10 @@ function showSubmit(client: RequestClient, renderer: WebRenderer) {
 export async function showRequestDetail(
   client: RequestClient,
   renderer: WebRenderer,
-  id: string
+  id: string,
+  canPresent: () => boolean = () => true
 ) {
+  if (!canPresent()) return
   const surface = renderer.frame('requests', 'Request details', {
     size: 'wide',
   })
@@ -225,7 +231,7 @@ export async function showRequestDetail(
       renderer.button(
         'All requests',
         () => {
-          void showRequestBoard(client, renderer)
+          void showRequestBoard(client, renderer, canPresent)
         },
         true
       )
@@ -319,7 +325,7 @@ export async function showRequestDetail(
                 error.textContent = queuedMessage
                 return
               }
-              await showRequestDetail(client, renderer, id)
+              if (surface.isConnected) await showRequestDetail(client, renderer, id, canPresent)
             } catch (e) {
               error.textContent = errorMessage(e)
               save.disabled = false
@@ -338,7 +344,7 @@ export async function showRequestDetail(
                 error.textContent = queuedMessage
                 return
               }
-              await showRequestDetail(client, renderer, id)
+              if (surface.isConnected) await showRequestDetail(client, renderer, id, canPresent)
             } catch (e) {
               error.textContent = errorMessage(e)
               remove.disabled = false
@@ -362,7 +368,7 @@ export async function showRequestDetail(
           error.textContent = queuedMessage
           return
         }
-        await showRequestDetail(client, renderer, id)
+        if (surface.isConnected) await showRequestDetail(client, renderer, id, canPresent)
       } catch (e) {
         error.textContent = errorMessage(e)
         send.disabled = false
@@ -375,7 +381,7 @@ export async function showRequestDetail(
       renderer.button(
         'Try again',
         () => {
-          void showRequestDetail(client, renderer, id)
+          void showRequestDetail(client, renderer, id, canPresent)
         },
         true
       )

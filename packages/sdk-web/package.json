@@ -1,6 +1,6 @@
 {
   "name": "@usergist/feedback-web",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "UserGist feedback, surveys, in-app messages and feature requests for websites",
   "license": "MIT",
   "type": "module",
@@ -75,7 +75,8 @@
     "tsup": "^8.3.0",
     "typescript": "^5.5.4",
     "vitest": "^2.1.0",
-    "@usergist/sdk-core": "workspace:^"
+    "@usergist/sdk-core": "workspace:^",
+    "fake-indexeddb": "6.2.2"
   },
   "publishConfig": {
     "access": "public"
