@@ -168,3 +168,14 @@ A maintainer can instead download the verified archive and run an authenticated
 publisher for `Future-Picnic/usergist-js`, workflow `publish.yml`, with staging
 only and maintainer 2FA before future releases. Subsequent `web-v*` releases
 use `npm stage publish --provenance`. Keep bootstrap credentials out of source.
+
+## Web lifecycle patch 0.1.1
+
+Web uses `packages/sdk-web/SDK_VERSION` for this independent patch; the shared
+train remains 0.1.0. `sdk:check-version` validates its manifest/runtime against
+that override, and `sdk:set-version` includes it when advancing the full train.
+The patch fixes overlapping identification, anonymous-storage retirement after
+identification, consent changes during request-board loading, and consent
+version ordering. Its lifecycle regressions exercise persistent IndexedDB,
+reloads, interrupted identification, nested board navigation, and clock changes.
+Run `pnpm verify:web` and the packed-consumer check before tagging `web-v0.1.1`.

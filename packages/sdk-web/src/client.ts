@@ -25,7 +25,7 @@ import type {
   RequestMutationResult,
 } from './types.js'
 
-const VERSION = '0.1.0'
+const VERSION = '0.1.1'
 const PII = new Set(['email', 'phone', 'ssn', 'tax_id'])
 export class WebSdkError extends Error {
   constructor(
@@ -80,7 +80,16 @@ export class UserGistClient {
     string,
     { delivered?: boolean; result?: unknown; error?: unknown }
   >()
-  private activating?: Promise<IdentifyResult>
+  private activating?: {
+    userId: string
+    generation: number
+    promise: Promise<IdentifyResult>
+  }
+  private previousAnonymousStorage?: {
+    store?: WebStore
+    credentialKey?: string
+    instanceKey?: string
+  }
   private generation = 0
   private requests = new Set<AbortController>()
   private renderer?: WebRenderer
@@ -268,14 +277,21 @@ export class UserGistClient {
     properties?: Properties,
     subjectToken?: string
   ): Promise<IdentifyResult> {
-    if (this.activating) return this.activating
-    return (this.activating = this.activate(
-      userId,
-      properties,
-      subjectToken
-    ).finally(() => {
-      this.activating = undefined
-    }))
+    const generation = this.generation
+    const pending = this.activating
+    if (pending?.generation === generation) {
+      if (pending.userId === userId) return pending.promise
+      return pending.promise.then(() =>
+        generation === this.generation
+          ? this.identify(userId, properties, subjectToken)
+          : 'rejected'
+      )
+    }
+    const promise = this.activate(userId, properties, subjectToken).finally(() => {
+      if (this.activating?.promise === promise) this.activating = undefined
+    })
+    this.activating = { userId, generation, promise }
+    return promise
   }
   async startAnonymous(): Promise<IdentifyResult> {
     if (!this.config?.allowAnonymous) {
@@ -309,6 +325,13 @@ export class UserGistClient {
       }
     }
     if (!userId && !this.config.allowAnonymous) return 'rejected'
+    if (userId && this.state === 'active-anonymous') {
+      this.previousAnonymousStorage = {
+        store: this.store,
+        credentialKey: this.credentialKey,
+        instanceKey: this.instanceKey,
+      }
+    }
     const generation = this.generation
     const previousQueue = this.externalId === null ? [...this.queue] : []
     const assertCurrent = () => {
@@ -387,6 +410,12 @@ export class UserGistClient {
           [...savedQueue, ...previousQueue].map((work) => [work.id, work])
         ).values(),
       ].filter((work) => Date.now() - work.createdAt < 7 * 86400000)
+      // Persist transferred work before retiring the now-revoked anonymous
+      // credential and alias, including across a subsequent page reload.
+      await this.persist()
+      assertCurrent()
+      if (userId) await this.clearPreviousAnonymousStorage()
+      assertCurrent()
       this.state = userId ? 'active-identified' : 'active-anonymous'
       this.consentDirty = true
       await this.sendConsent()
@@ -454,7 +483,7 @@ export class UserGistClient {
   }
   async setConsent(consent: Consent): Promise<boolean> {
     this.consent = { ...this.consent, ...consent, push: false }
-    this.consentVersion = Date.now()
+    this.consentVersion = Math.max(Date.now(), this.consentVersion + 1)
     this.consentDirty = true
     this.queue = this.queue.filter(
       (work) => this.consent[work.purpose] === true
@@ -1111,6 +1140,8 @@ export class UserGistClient {
     const blocked = this.check('feedback')
     if (blocked) return blocked
     const generation = this.generation
+    const canPresent = () =>
+      generation === this.generation && this.active && this.consent.feedback === true
     this.opening = true
     try {
       const { showRequestBoard, showRequestDetail } = await import(
@@ -1122,11 +1153,11 @@ export class UserGistClient {
         !this.consent.feedback
       )
         return { status: 'inactive' }
-      if (id) await showRequestDetail(this, this.getRenderer(), id)
-      else await showRequestBoard(this, this.getRenderer())
-      return generation === this.generation
-        ? { status: 'opened' }
-        : { status: 'inactive' }
+      if (id) await showRequestDetail(this, this.getRenderer(), id, canPresent)
+      else await showRequestBoard(this, this.getRenderer(), canPresent)
+      if (generation !== this.generation || !this.active) return { status: 'inactive' }
+      if (!this.consent.feedback) return { status: 'consent_required' }
+      return { status: 'opened' }
     } catch (error) {
       this.diagnostic(
         'requests_failed',
@@ -1228,6 +1259,20 @@ export class UserGistClient {
       this.resetWork = undefined
     }))
   }
+  private async clearPreviousAnonymousStorage() {
+    const previous = this.previousAnonymousStorage
+    if (!previous) return
+    await previous.store?.set('queue', [])
+    await previous.store?.set('alias', undefined)
+    for (const key of [previous.credentialKey, previous.instanceKey]) {
+      if (key) {
+        try {
+          sessionStorage.removeItem(key)
+        } catch {}
+      }
+    }
+    if (this.previousAnonymousStorage === previous) this.previousAnonymousStorage = undefined
+  }
   private async performReset(broadcast = true): Promise<void> {
     const clientId = this.clientId
     this.generation++
@@ -1255,6 +1300,7 @@ export class UserGistClient {
     await this.writes
     await this.store?.set('queue', [])
     await this.store?.set('alias', undefined)
+    await this.clearPreviousAnonymousStorage()
     if (this.credentialKey)
       try {
         sessionStorage.removeItem(this.credentialKey)
