@@ -21,6 +21,7 @@ export interface GlobalFeatureFlag {
 }
 
 export interface ProductFeatureFlags {
+  readonly portalContent: boolean
   readonly onboardingFinishLater: boolean
 }
 

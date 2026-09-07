@@ -15,3 +15,4 @@ export * from './primitives.js'
 
 export * from './web.js'
 export * from './portal.js'
+export * from './portal-content.js'
