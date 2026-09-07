@@ -52,8 +52,10 @@ jobs:
           const reactNative = JSON.parse(fs.readFileSync('packages/sdk-react-native/package.json', 'utf8'))
 
           for (const [name, actual] of [
-            ['packages/SDK_VERSION', reactNativeOnly ? expected : versionFile],
-            ['@usergist/sdk-core', reactNativeOnly ? expected : core.version],
+            ...(reactNativeOnly ? [] : [
+              ['packages/SDK_VERSION', versionFile],
+              ['@usergist/sdk-core', core.version],
+            ]),
             ['@usergist/feedback-react-native', reactNative.version],
           ]) {
             if (actual !== expected) {
