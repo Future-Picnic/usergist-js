@@ -34,6 +34,16 @@ describe('SDK administration schemas', () => {
     expect(() => updateOnboardingSchema.parse({})).toThrow()
   })
 
+  it('accepts a draft portal during app creation and rejects unsafe public addresses', () => {
+    const input = { name: 'Choro', platforms: ['web'], portal: { appSlug: 'choro', company: { displayName: 'Ritmus', slug: 'ritmus' } } }
+    expect(createAppSchema.parse(input).portal).toEqual(input.portal)
+    expect(createAppSchema.parse({ ...input, portal: { appSlug: 'choro' } }).portal).toEqual({ appSlug: 'choro' })
+    for (const slug of ['api', 'ab', '-company', 'company/other', 'company.example.com']) {
+      expect(createAppSchema.safeParse({ ...input, portal: { ...input.portal, appSlug: slug } }).success).toBe(false)
+      expect(createAppSchema.safeParse({ ...input, portal: { ...input.portal, company: { displayName: 'Ritmus', slug } } }).success).toBe(false)
+    }
+  })
+
   it('issues least-privilege server keys with a bounded lifetime', () => {
     const parsed = createApiTokenSchema.parse({
       name: 'Production identity exchange',

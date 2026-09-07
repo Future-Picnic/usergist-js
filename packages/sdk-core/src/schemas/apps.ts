@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { webAppConfigSchema } from './web.js'
 import { emailSchema, slugSchema } from './primitives.js'
 import { isValidIanaTimeZone } from '../timezone.js'
+import { portalSlugSchema } from './portal.js'
 
 export const workspaceTimezoneSchema = z
   .string()
@@ -27,6 +28,11 @@ export const createAppSchema = z.object({
   platforms: z.array(platformSchema).min(1).max(8),
   environment: writeKeyEnvironmentSchema.default('production'),
   onboardingGoal: onboardingGoalSchema.optional(),
+  setupMode: z.enum(['sdk', 'portal']).optional(),
+  portal: z.object({
+    appSlug: portalSlugSchema,
+    company: z.object({ displayName: z.string().trim().min(1).max(100), slug: portalSlugSchema }).strict().optional(),
+  }).strict().optional(),
   webConfig: webAppConfigSchema.optional(),
 })
 

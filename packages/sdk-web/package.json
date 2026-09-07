@@ -37,7 +37,7 @@
     "./dist/usergist.global.js"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsup --config tsup.react.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "pack:check": "pnpm publish --dry-run --no-git-checks"

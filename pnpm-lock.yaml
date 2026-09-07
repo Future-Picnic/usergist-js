@@ -578,6 +578,9 @@ importers:
       '@usergist/sdk-core':
         specifier: workspace:*
         version: link:../../packages/sdk-core
+      '@usergist/web-ui':
+        specifier: workspace:*
+        version: link:../../packages/web-ui
       next:
         specifier: ^15.0.0
         version: 15.5.15(@opentelemetry/api@1.9.1)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
