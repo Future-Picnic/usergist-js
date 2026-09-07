@@ -1,10 +1,12 @@
-name: Stage npm packages
+name: Prepare and publish npm packages
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
       - "rn-v*"
+      - "web-v*"
 
 permissions:
   contents: read
@@ -16,6 +18,7 @@ concurrency:
 
 jobs:
   publish:
+    if: "!startsWith(github.ref_name, 'web-v')"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -55,6 +58,7 @@ jobs:
             ...(reactNativeOnly ? [] : [
               ['packages/SDK_VERSION', versionFile],
               ['@usergist/sdk-core', core.version],
+              ['@usergist/feedback-web', JSON.parse(fs.readFileSync('packages/sdk-web/package.json', 'utf8')).version],
             ]),
             ['@usergist/feedback-react-native', reactNative.version],
           ]) {
@@ -75,8 +79,15 @@ jobs:
           NODE
       - name: Require approved public-package licenses
         run: test -f packages/sdk-core/LICENSE && test -f packages/sdk-react-native/LICENSE
+      - name: Require approved Web package license
+        if: steps.versions.outputs.react_native_only != 'true'
+        run: test -f packages/sdk-web/LICENSE
       - run: pnpm --filter @usergist/sdk-core test
       - run: pnpm --filter @usergist/sdk-core build
+      - run: pnpm --filter @usergist/feedback-web build
+        if: steps.versions.outputs.react_native_only != 'true'
+      - run: pnpm --filter @usergist/feedback-web test
+        if: steps.versions.outputs.react_native_only != 'true'
       - run: pnpm --filter @usergist/feedback-react-native typecheck
       - run: pnpm --filter @usergist/feedback-react-native test
       - run: pnpm --filter @usergist/feedback-react-native build
@@ -97,6 +108,9 @@ jobs:
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/core-files.txt"
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/rn-files.txt"
           node packages/sdk-react-native/scripts/check-package.mjs "$rn_archive"
+      - name: Build Web package archive
+        if: steps.versions.outputs.react_native_only != 'true'
+        run: pnpm --dir packages/sdk-web pack --pack-destination "$RUNNER_TEMP/usergist-packs"
       - name: Stage core package for 2FA approval
         if: steps.versions.outputs.react_native_only != 'true'
         shell: bash
@@ -110,3 +124,83 @@ jobs:
           archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
           test -n "$archive"
           npm stage publish "$archive" --access public --provenance
+      - name: Stage Web package for 2FA approval
+        if: steps.versions.outputs.react_native_only != 'true'
+        shell: bash
+        run: |
+          archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-web-*.tgz' -print -quit)
+          test -n "$archive"
+          npm stage publish "$archive" --access public --provenance
+
+  web:
+    if: startsWith(github.ref_name, 'web-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@12.0.2
+      - run: pnpm install --frozen-lockfile
+      - name: Verify Web release version and license
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+          const manifest = JSON.parse(fs.readFileSync('packages/sdk-web/package.json', 'utf8'))
+          if (process.env.RELEASE_TAG !== `web-v${manifest.version}`) throw new Error('Web tag/version mismatch')
+          const runtime = fs.readFileSync('packages/sdk-web/src/client.ts', 'utf8')
+          if (!runtime.includes(`VERSION = '${manifest.version}'`)) throw new Error('Web runtime version mismatch')
+          if (manifest.license !== 'MIT' || !fs.existsSync('packages/sdk-web/LICENSE')) throw new Error('Missing MIT license')
+          NODE
+      - run: pnpm --filter @usergist/sdk-core test
+      - run: pnpm --filter @usergist/sdk-core build
+      - run: pnpm --filter @usergist/feedback-web build
+      - run: pnpm --filter @usergist/feedback-web typecheck
+      - run: pnpm --filter @usergist/feedback-web test
+      - name: Pack and test the immutable Web archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/usergist-web-packs"
+          pnpm --dir packages/sdk-web pack --pack-destination "$RUNNER_TEMP/usergist-web-packs"
+          archive=$(find "$RUNNER_TEMP/usergist-web-packs" -name '*.tgz' -print -quit)
+          node packages/sdk-web/scripts/check-package.mjs "$archive"
+          (cd "$RUNNER_TEMP/usergist-web-packs" && sha256sum *.tgz > SHA256SUMS)
+      - name: Retain the verified release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: usergist-web-${{ github.ref_name }}
+          path: ${{ runner.temp }}/usergist-web-packs/
+          if-no-files-found: error
+      - name: Check whether npm has the Web package
+        id: registry
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const response = await fetch('https://registry.npmjs.org/@usergist%2ffeedback-web')
+          if (response.status !== 200 && response.status !== 404) throw new Error(`Registry returned ${response.status}`)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `exists=${response.status === 200}\n`)
+          NODE
+      - name: Stage Web update for maintainer 2FA approval
+        if: steps.registry.outputs.exists == 'true'
+        run: |
+          archive=$(find "$RUNNER_TEMP/usergist-web-packs" -name '*.tgz' -print -quit)
+          npm stage publish "$archive" --access public --provenance
+      - name: Bootstrap the first Web publication
+        if: steps.registry.outputs.exists != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::warning::Web archive is verified but NOT published. First publication requires maintainer npm authentication."
+            echo "Web package is **not published**. Download the verified archive for an authenticated npm publish, or configure the documented one-time NPM_BOOTSTRAP_TOKEN and rerun this job. npm cannot stage a brand-new package." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          archive=$(find "$RUNNER_TEMP/usergist-web-packs" -name '*.tgz' -print -quit)
+          npm publish "$archive" --access public --provenance

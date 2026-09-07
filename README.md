@@ -5,10 +5,22 @@ messages, feature requests, analytics, and push engagement to applications.
 
 | Package | Purpose |
 | --- | --- |
+| [`@usergist/feedback-web`](https://www.npmjs.com/package/@usergist/feedback-web) | Framework-independent SDK for desktop and mobile browsers |
 | [`@usergist/feedback-react-native`](https://www.npmjs.com/package/@usergist/feedback-react-native) | Production React Native SDK and native iOS/Android bridges |
 | [`@usergist/sdk-core`](https://www.npmjs.com/package/@usergist/sdk-core) | Shared contracts, schemas, and mobile-safe targeting utilities |
 
 ## Install
+
+For websites:
+
+```sh
+npm install @usergist/feedback-web
+```
+
+See the [Web SDK guide](packages/sdk-web/README.md) for plain JavaScript, React,
+anonymous and identified users, consent, and standalone script integration.
+
+For React Native:
 
 ```sh
 npm install @usergist/feedback-react-native \
@@ -24,7 +36,9 @@ native push configuration.
 
 This repository is the public, versioned source mirror for the JavaScript SDK
 release train. Each npm release is built and staged by GitHub Actions from the
-matching `vX.Y.Z` tag, then reviewed and approved by a maintainer using 2FA.
+matching release tag (`vX.Y.Z`, `rn-vX.Y.Z`, or `web-vX.Y.Z`), then reviewed
+and approved by a maintainer using 2FA. Brand-new npm packages require an
+authenticated first publication before staged releases can be enabled.
 npm provenance links the published package to that public source and workflow.
 
 Development changes are reviewed in the main UserGist product repository and

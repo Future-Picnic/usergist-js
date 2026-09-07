@@ -207,7 +207,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(@types/node@20.19.39)(terser@5.46.1)
+        version: 2.1.9(@types/node@20.19.39)(happy-dom@20.0.11)(terser@5.46.1)
 
   apps/dashboard:
     dependencies:
@@ -256,6 +256,9 @@ importers:
       '@usergist/feedback-react-native':
         specifier: workspace:^
         version: link:../../packages/sdk-react-native
+      '@usergist/feedback-web':
+        specifier: workspace:^
+        version: link:../../packages/sdk-web
       '@usergist/sdk-core':
         specifier: workspace:*
         version: link:../../packages/sdk-core
@@ -338,6 +341,9 @@ importers:
       tailwindcss:
         specifier: ^3.4.13
         version: 3.4.19(tsx@4.21.0)(yaml@2.8.3)
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
@@ -432,6 +438,46 @@ importers:
       react-test-renderer:
         specifier: 18.2.0
         version: 18.2.0(react@18.2.0)
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
+  apps/demo-web:
+    dependencies:
+      '@usergist/feedback-web':
+        specifier: workspace:^
+        version: link:../../packages/sdk-web
+      '@usergist/sdk-core':
+        specifier: workspace:^
+        version: link:../../packages/sdk-core
+      lucide-react:
+        specifier: ^0.453.0
+        version: 0.453.0(react@18.3.1)
+      next:
+        specifier: ^15.0.0
+        version: 15.5.15(@opentelemetry/api@1.9.1)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.60.0
+        version: 1.60.0
+      '@types/node':
+        specifier: ^20.16.11
+        version: 20.19.39
+      '@types/react':
+        specifier: ^18.3.11
+        version: 18.3.28
+      '@types/react-dom':
+        specifier: ^18.3.0
+        version: 18.3.7(@types/react@18.3.28)
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
@@ -532,6 +578,9 @@ importers:
       '@usergist/sdk-core':
         specifier: workspace:*
         version: link:../../packages/sdk-core
+      '@usergist/web-ui':
+        specifier: workspace:*
+        version: link:../../packages/web-ui
       next:
         specifier: ^15.0.0
         version: 15.5.15(@opentelemetry/api@1.9.1)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -575,7 +624,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(@types/node@20.19.39)(terser@5.46.1)
+        version: 2.1.9(@types/node@20.19.39)(happy-dom@20.0.11)(terser@5.46.1)
 
   packages/sdk-react-native:
     dependencies:
@@ -603,7 +652,31 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(@types/node@20.19.39)(terser@5.46.1)
+        version: 2.1.9(@types/node@20.19.39)(happy-dom@20.0.11)(terser@5.46.1)
+
+  packages/sdk-web:
+    devDependencies:
+      '@usergist/sdk-core':
+        specifier: workspace:^
+        version: link:../sdk-core
+      '@types/react':
+        specifier: ^18.3.3
+        version: 18.3.28
+      happy-dom:
+        specifier: 20.0.11
+        version: 20.0.11
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.10)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.3)
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.39)(happy-dom@20.0.11)(terser@5.46.1)
 
   packages/web-ui:
     dependencies:
@@ -4366,6 +4439,9 @@ packages:
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
 
+  '@types/whatwg-mimetype@3.0.2':
+    resolution: {integrity: sha512-c2AKvDT8ToxLIOUlN51gTiHXflsfIFisS4pO7pDPoKouJCESkhZnEy623gwP9laCy5lnLDAw1vAzu2vM2YLOrA==}
+
   '@types/yargs-parser@21.0.3':
     resolution: {integrity: sha512-I4q9QU9MQv4oEOz4tAHJtNz1cwuLxn2F3xcc2iV5WdqLPpUnj30aUuxt1mAxYTG+oe8CZMV/+6rU4S4gRDzqtQ==}
 
@@ -6101,6 +6177,10 @@ packages:
 
   graphemer@1.4.0:
     resolution: {integrity: sha512-EtKwoO6kxCL9WO5xipiHTZlSzBm7WLT627TqC/uVRd0HKmq8NXyebnNYxDoBi7wt8eTWrUrKXCOVaFq9x1kgag==}
+
+  happy-dom@20.0.11:
+    resolution: {integrity: sha512-QsCdAUHAmiDeKeaNojb1OHOPF7NjcWPBR7obdu3NwH2a/oyQaLg5d0aaCy/9My6CdPChYF07dvz5chaXBGaD4g==}
+    engines: {node: '>=20.0.0'}
 
   has-bigints@1.1.0:
     resolution: {integrity: sha512-R3pbpkcIqv2Pm3dUwgjclDRVmWpTJW2DcMzcIhEXEx1oh/CEMObMm3KLmRJOdvhM7o4uQBnwr8pzRK2sJWIqfg==}
@@ -8924,6 +9004,10 @@ packages:
 
   whatwg-fetch@3.6.20:
     resolution: {integrity: sha512-EqhiFU6daOA8kpjOWTL0olhVOF3i7OrFzSYiGsEMB8GcXS+RrzauAERX65xMeNWVqxA6HXH2m69Z9LaKKdisfg==}
+
+  whatwg-mimetype@3.0.0:
+    resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}
+    engines: {node: '>=12'}
 
   whatwg-url-without-unicode@8.0.0-3:
     resolution: {integrity: sha512-HoKuzZrUlgpz35YO27XgD28uh/WJH4B0+3ttFqRo//lmq+9T/mIOJ6kqmINI9HpUpz1imRC/nR/lxKpJiv0uig==}
@@ -13876,6 +13960,8 @@ snapshots:
 
   '@types/unist@3.0.3': {}
 
+  '@types/whatwg-mimetype@3.0.2': {}
+
   '@types/yargs-parser@21.0.3': {}
 
   '@types/yargs@15.0.20':
@@ -15899,6 +15985,12 @@ snapshots:
   graceful-fs@4.2.11: {}
 
   graphemer@1.4.0: {}
+
+  happy-dom@20.0.11:
+    dependencies:
+      '@types/node': 20.19.39
+      '@types/whatwg-mimetype': 3.0.2
+      whatwg-mimetype: 3.0.0
 
   has-bigints@1.1.0: {}
 
@@ -19517,7 +19609,7 @@ snapshots:
       fsevents: 2.3.3
       terser: 5.46.1
 
-  vitest@2.1.9(@types/node@20.19.39)(terser@5.46.1):
+  vitest@2.1.9(@types/node@20.19.39)(happy-dom@20.0.11)(terser@5.46.1):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@20.19.39)(terser@5.46.1))
@@ -19541,6 +19633,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 20.19.39
+      happy-dom: 20.0.11
     transitivePeerDependencies:
       - less
       - lightningcss
@@ -19571,6 +19664,8 @@ snapshots:
   webidl-conversions@5.0.0: {}
 
   whatwg-fetch@3.6.20: {}
+
+  whatwg-mimetype@3.0.0: {}
 
   whatwg-url-without-unicode@8.0.0-3:
     dependencies:

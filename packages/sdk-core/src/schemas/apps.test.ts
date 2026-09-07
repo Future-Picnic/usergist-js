@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createApiTokenSchema, createAppSchema } from './apps.js'
+import { createApiTokenSchema, createAppSchema, updateOnboardingSchema } from './apps.js'
 
 describe('SDK administration schemas', () => {
   it('defaults a new app to a production write key', () => {
@@ -8,6 +8,40 @@ describe('SDK administration schemas', () => {
       platforms: ['ios', 'android'],
     })
     expect(parsed.environment).toBe('production')
+  })
+
+  it('accepts an onboarding goal without requiring it for existing clients', () => {
+    expect(createAppSchema.parse({
+      name: 'Acme Mobile',
+      platforms: ['react-native'],
+      onboardingGoal: 'feedback',
+    }).onboardingGoal).toBe('feedback')
+    expect(createAppSchema.parse({ name: 'Legacy client', platforms: ['ios'] }).onboardingGoal).toBeUndefined()
+  })
+
+  it('requires a meaningful onboarding update', () => {
+    expect(updateOnboardingSchema.parse({ step: 'verify' })).toEqual({ step: 'verify' })
+    expect(updateOnboardingSchema.parse({ step: 'experience' })).toEqual({ step: 'experience' })
+    expect(updateOnboardingSchema.parse({ action: 'push_skipped' })).toEqual({ action: 'push_skipped' })
+    expect(updateOnboardingSchema.parse({
+      action: 'create_first_feedback',
+      question: 'How is your experience so far?',
+    })).toEqual({
+      action: 'create_first_feedback',
+      question: 'How is your experience so far?',
+    })
+    expect(() => updateOnboardingSchema.parse({ action: 'create_first_feedback' })).toThrow()
+    expect(() => updateOnboardingSchema.parse({})).toThrow()
+  })
+
+  it('accepts a draft portal during app creation and rejects unsafe public addresses', () => {
+    const input = { name: 'Choro', platforms: ['web'], portal: { appSlug: 'choro', company: { displayName: 'Ritmus', slug: 'ritmus' } } }
+    expect(createAppSchema.parse(input).portal).toEqual(input.portal)
+    expect(createAppSchema.parse({ ...input, portal: { appSlug: 'choro' } }).portal).toEqual({ appSlug: 'choro' })
+    for (const slug of ['api', 'ab', '-company', 'company/other', 'company.example.com']) {
+      expect(createAppSchema.safeParse({ ...input, portal: { ...input.portal, appSlug: slug } }).success).toBe(false)
+      expect(createAppSchema.safeParse({ ...input, portal: { ...input.portal, company: { displayName: 'Ritmus', slug } } }).success).toBe(false)
+    }
   })
 
   it('issues least-privilege server keys with a bounded lifetime', () => {

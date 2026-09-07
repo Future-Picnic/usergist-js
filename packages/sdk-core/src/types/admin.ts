@@ -10,6 +10,24 @@ import type { WorkspaceRole } from './workspace.js'
 
 export type AdminGrantStatus = 'active' | 'expired' | 'revoked'
 
+export type GlobalFeatureFlagKey = 'onboarding_finish_later'
+
+export interface GlobalFeatureFlag {
+  readonly key: GlobalFeatureFlagKey
+  readonly enabled: boolean
+  readonly description: string
+  readonly updatedAt: string
+  readonly updatedBy: string | null
+}
+
+export interface ProductFeatureFlags {
+  readonly onboardingFinishLater: boolean
+}
+
+export interface UpdateGlobalFeatureFlagRequest {
+  readonly enabled: boolean
+}
+
 export interface WorkspacePlanGrant {
   readonly id: string
   readonly workspaceId: string
@@ -53,6 +71,54 @@ export interface AdminSession {
     readonly email: string
     readonly name: string | null
   }
+}
+
+export type AdminDeletionKind = 'workspace' | 'dashboard_user'
+export type AdminDeletionStatus = 'queued' | 'running' | 'failed' | 'completed'
+
+export interface AdminDeletionJob {
+  readonly id: string
+  readonly kind: AdminDeletionKind
+  readonly targetId: string
+  readonly targetLabel: string
+  readonly status: AdminDeletionStatus
+  readonly attempts: number
+  readonly error: string | null
+  readonly requestedByEmail: string | null
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly completedAt: string | null
+}
+
+export interface DeleteAdminWorkspaceRequest {
+  readonly confirmationName: string
+}
+
+export interface DeleteAdminDashboardUserRequest {
+  readonly confirmationEmail: string
+}
+
+export interface AdminDashboardUserSummary {
+  readonly userId: string
+  readonly email: string
+  readonly name: string | null
+  readonly workosUserId: string | null
+  readonly isSuperAdmin: boolean
+  readonly deletionPending: boolean
+  readonly ownedWorkspaceCount: number
+  readonly membershipCount: number
+  readonly createdAt: string
+}
+
+export interface AdminDashboardUserListRequest {
+  readonly search?: string
+  readonly cursor?: string
+  readonly limit?: number
+}
+
+export interface AdminDashboardUserListResponse {
+  readonly users: ReadonlyArray<AdminDashboardUserSummary>
+  readonly nextCursor: string | null
 }
 
 export interface AdminCustomerSummary {

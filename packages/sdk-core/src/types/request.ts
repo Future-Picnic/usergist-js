@@ -71,6 +71,11 @@ export interface RequestSummary {
   readonly statusChangedAt: string
   readonly viewerHasUpvoted: boolean
   readonly viewerIsFollowing: boolean
+  /** Dashboard-only publication metadata. Omitted from SDK responses. */
+  readonly portalVisible?: boolean
+  readonly source?: 'sdk' | 'portal'
+  readonly hidden?: boolean
+  readonly devResponse?: string | null
 }
 
 /** Search-as-you-type result; the SDK shows up to 5. */
@@ -139,6 +144,9 @@ export interface RequestDetail extends Request {
   readonly submitterAnonymousId: string
   readonly submitterExternalId: string | null
   readonly hidden: boolean
+  readonly portalVisible?: boolean
+  readonly source?: 'sdk' | 'portal'
+  readonly portalVisitorEmail?: string | null
 }
 
 export interface RequestUpvoterSegmentBreakdown {

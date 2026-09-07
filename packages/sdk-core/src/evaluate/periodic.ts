@@ -67,7 +67,10 @@ function startCandidate(
 ): Date {
   const localNow = wallClock(now, tz)
   const target = new Date(localNow)
-  target.setHours(schedule.hourLocal, schedule.minuteLocal, 0, 0)
+  // `wallClock` is an artificial UTC-backed view of the target timezone.
+  // Always use UTC accessors so this calculation cannot inherit the host's
+  // timezone (the browser for previews, or the server for delivery).
+  target.setUTCHours(schedule.hourLocal, schedule.minuteLocal, 0, 0)
   return localToUtc(target, tz)
 }
 
@@ -92,9 +95,9 @@ function walkForward(
 function matchesFrequency(local: Date, schedule: PeriodicSchedule): boolean {
   if (schedule.frequency === 'daily') return true
   if (schedule.frequency === 'weekly') {
-    return schedule.weekday === undefined || local.getDay() === schedule.weekday
+    return schedule.weekday === undefined || local.getUTCDay() === schedule.weekday
   }
-  return schedule.dayOfMonth === undefined || local.getDate() === schedule.dayOfMonth
+  return schedule.dayOfMonth === undefined || local.getUTCDate() === schedule.dayOfMonth
 }
 
 function step(
@@ -108,26 +111,26 @@ function step(
   }
   // Monthly: jump to the next month at the same dayOfMonth (or last day if shorter).
   const next = new Date(cursorLocal)
-  next.setMonth(next.getMonth() + 1)
+  next.setUTCMonth(next.getUTCMonth() + 1)
   if (schedule.dayOfMonth !== undefined) {
-    const lastDay = lastDayOfMonth(next.getFullYear(), next.getMonth())
-    next.setDate(Math.min(schedule.dayOfMonth, lastDay))
+    const lastDay = lastDayOfMonth(next.getUTCFullYear(), next.getUTCMonth())
+    next.setUTCDate(Math.min(schedule.dayOfMonth, lastDay))
   }
-  next.setHours(schedule.hourLocal, schedule.minuteLocal, 0, 0)
+  next.setUTCHours(schedule.hourLocal, schedule.minuteLocal, 0, 0)
   return localToUtc(next, tz)
 }
 
 function addDays(d: Date, days: number): Date {
   const next = new Date(d.getTime())
-  next.setDate(next.getDate() + days)
+  next.setUTCDate(next.getUTCDate() + days)
   return next
 }
 
 function lastDayOfMonth(year: number, monthIndex: number): number {
-  return new Date(year, monthIndex + 1, 0).getDate()
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate()
 }
 
-/** Returns the Date adjusted so its `getX()` methods read in `tz`'s wall clock. */
+/** Returns a UTC-backed Date whose `getUTCX()` methods read in `tz`'s wall clock. */
 function wallClock(d: Date, tz: string): Date {
   const offsetMin = tzOffsetMinutes(d, tz)
   return new Date(d.getTime() + offsetMin * 60_000)

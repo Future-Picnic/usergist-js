@@ -33,10 +33,21 @@
       "import": "./dist/mobile.js",
       "require": "./dist/mobile.cjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js",
+      "require": "./dist/client.cjs"
+    }
   },
   "sideEffects": false,
-  "files": ["dist", "mobile.js", "README.md", "CHANGELOG.md", "LICENSE"],
+  "files": [
+    "dist",
+    "mobile.js",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
