@@ -971,6 +971,9 @@ export const endpoints = {
     {} as Endpoint<UpdateRequestSettingsRequest, RequestSettings>,
   'GET /v1/apps/:appId/request-settings/slug-available':
     {} as Endpoint<{ slug: string }, { available: boolean }>,
+  /** Multipart `file` field; the processed logo URL is saved into branding.logoUrl. */
+  'POST /v1/apps/:appId/request-settings/logo': {} as Endpoint<{ file: Blob }, RequestSettings>,
+  'DELETE /v1/apps/:appId/request-settings/logo': {} as Endpoint<void, RequestSettings>,
   'POST /v1/apps/:appId/requests/seed-segments': {} as Endpoint<void, { created: number }>,
 
   // ---------- feature requests — SDK (write-key) ----------
