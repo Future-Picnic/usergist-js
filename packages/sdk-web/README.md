@@ -10,6 +10,10 @@ Enable **Web** in UserGist app settings and add each exact website origin. Produ
 npm install @usergist/feedback-web
 ```
 
+The package includes its shared browser helpers and TypeScript definitions. No
+separate core SDK is required. React is optional and only used by the `/react`
+entry point.
+
 ```ts
 import { createUserGist } from '@usergist/feedback-web'
 
