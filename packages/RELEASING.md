@@ -139,3 +139,13 @@ The JS source mirror now includes `packages/sdk-web`. Build `@usergist/sdk-core`
 Apply `0041_web_support.sql` before deploying the API and workers, then deploy the dashboard and release the SDKs. Existing campaigns retain their configured native platforms. Web is enabled explicitly per app and per campaign. Deploy coordinated-delivery native adapters before enabling mixed native/Web campaigns. Version 1 native inboxes cannot consume protocol 2 instructions. Legacy web-envelope compatibility is not a substitute for upgrading all workers and native adapters. Do not backfill Web into existing campaigns.
 
 The private `@usergist/demo-web` workspace package must never be published. Its development token helper is disabled in production. Production website origins and management credentials must be configured by the app owner; the demo does not provision them automatically.
+
+## React Native packaging patch 0.1.1
+
+This isolated release starts from the published JavaScript 0.1.0 source. Only
+React Native advances to 0.1.1; its SDK_VERSION file and runtime header record
+the patch, while core remains 0.1.0. The public rn-v0.1.1 tag runs publish.yml,
+validates the packed native bridge, and stages only the React Native package.
+The web SDK is not included. Maintainer 2FA approval is still required on npm.
+The reviewed private release branch remains the source of truth; the public
+mirror receives identical SDK files and a sanitized release commit.

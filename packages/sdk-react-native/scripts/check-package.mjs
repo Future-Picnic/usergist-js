@@ -27,7 +27,8 @@ execFileSync('tar', ['-xzf', archive, '--strip-components=1', '-C', installedRoo
 
 const manifest = JSON.parse(readFileSync(join(installedRoot, 'package.json'), 'utf8'))
 assert.equal(manifest.name, '@usergist/feedback-react-native')
-assert.equal(manifest.dependencies['@usergist/sdk-core'], `^${manifest.version}`)
+const coreManifest = JSON.parse(readFileSync(join(packageRoot, '../sdk-core/package.json'), 'utf8'))
+assert.equal(manifest.dependencies['@usergist/sdk-core'], `^${coreManifest.version}`)
 for (const file of [
   'dist/index.js',
   'dist/NativeUserGistPush.js',

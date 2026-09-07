@@ -3,10 +3,11 @@
 All notable changes to `@usergist/feedback-react-native` are documented here.
 Releases use [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.1
 
-- Remove an unused codegen declaration that referenced unpublished sources and caused native build setup to fail. The shipped iOS and Android bridges remain autolinked without an app-local workaround.
-- Verify native bridge files and React Native codegen discovery against the packed npm archive before release.
+- Remove the unused codegen declaration referencing unpublished sources, fixing native build setup without app-local CocoaPods workarounds.
+- Preserve the shipped iOS and Android native bridges and the existing core dependency.
+- Validate native bridge files and React Native codegen discovery against the release archive.
 
 ## 0.1.0
 
