@@ -47,3 +47,4 @@ export * from './contract/endpoints.js'
 export * as schemas from './schemas/index.js'
 
 export * from './types/web.js'
+export * from './types/portal.js'

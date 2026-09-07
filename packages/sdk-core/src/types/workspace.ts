@@ -59,6 +59,7 @@ export interface User {
 }
 
 export interface App {
+  readonly setupMode?: 'sdk' | 'portal'
   readonly id: string
   readonly workspaceId: string
   readonly name: string

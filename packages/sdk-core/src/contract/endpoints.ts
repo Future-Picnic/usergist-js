@@ -18,6 +18,7 @@ import type {
   PromptStatus,
 } from '../types/prompt.js'
 import type { Segment } from '../types/segment.js'
+import type * as Portal from '../types/portal.js'
 import type { SegmentDsl } from '../types/segment-dsl.js'
 import type { AudienceSpec } from '../types/targeting.js'
 import type { PromptResponse, SubmitResponsePayload } from '../types/response.js'
@@ -199,6 +200,8 @@ export interface InviteMemberRequest {
 // ---------- apps ----------
 
 export interface CreateAppRequest {
+  readonly setupMode?: 'sdk' | 'portal'
+  readonly portal?: Portal.CreateAppPortal
   readonly webConfig?: App['webConfig']
   readonly name: string
   readonly slug?: string
@@ -248,6 +251,7 @@ export interface CreateSegmentRequest {
 }
 
 export interface AppUserSummary {
+  readonly origin?: 'sdk' | 'portal'
   readonly subjectId: string
   readonly anonymousId: string
   readonly anonymousIds: ReadonlyArray<string>
@@ -263,6 +267,7 @@ export interface AppUserSummary {
 }
 
 export interface AppUserDetail {
+  readonly origin?: 'sdk' | 'portal'
   readonly subjectId: string
   readonly anonymousId: string
   readonly anonymousIds: ReadonlyArray<string>
@@ -495,6 +500,24 @@ export interface GdprExportRequest {
 export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
 
 export const endpoints = {
+  'GET /v1/workspaces/:wid/portal': {} as Endpoint<void, Portal.PortalSettings>,
+  'PUT /v1/workspaces/:wid/portal': {} as Endpoint<Portal.UpdatePortalRequest, Portal.PortalSettings>,
+  'GET /v1/workspaces/:wid/portal/slug-available': {} as Endpoint<{ slug: string }, { available: boolean }>,
+  'PUT /v1/workspaces/:wid/portal/apps/:appId': {} as Endpoint<Portal.UpdatePortalAppRequest, Portal.PortalSettings>,
+  'POST /v1/workspaces/:wid/portal/publish': {} as Endpoint<void, Portal.PortalSettings>,
+  'POST /v1/workspaces/:wid/portal/unpublish': {} as Endpoint<void, Portal.PortalSettings>,
+  'GET /v1/workspaces/:wid/portal/preview/:appId': {} as Endpoint<Portal.PortalRequestQuery, Portal.PortalRequestList>,
+  'PATCH /v1/apps/:appId/requests/portal-visibility': {} as Endpoint<{ ids: readonly string[]; visible: boolean }, { updated: number }>,
+  'GET /v1/portal/:portalSlug': {} as Endpoint<void, Portal.PublicPortal>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/requests': {} as Endpoint<Portal.PortalRequestQuery, Portal.PortalRequestList>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId': {} as Endpoint<void, Portal.PortalRequest>,
+  'POST /v1/portal/:portalSlug/auth/start': {} as Endpoint<Portal.PortalAuthStart, { sent: true; retryAfter: number }>,
+  'POST /v1/portal/:portalSlug/auth/verify': {} as Endpoint<Portal.PortalAuthVerify, Portal.PortalSession & { sessionToken: string }>,
+  'GET /v1/portal/:portalSlug/session': {} as Endpoint<void, Portal.PortalSession | null>,
+  'DELETE /v1/portal/:portalSlug/session': {} as Endpoint<void, { signedOut: true }>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/votes': {} as Endpoint<{ ids: string }, { votedIds: string[] }>,
+  'POST /v1/portal/:portalSlug/apps/:appSlug/requests': {} as Endpoint<Portal.PortalSubmission, Portal.PortalRequest>,
+  'PUT /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId/vote': {} as Endpoint<Portal.PortalVote, { upvoted: boolean; upvoteCount: number }>,
   'POST /v1/sdk/clients': {} as Endpoint<RegisterSdkClientRequest,{clientId:string;protocolVersion:2}>,
   'POST /v1/sdk/clients/:id/end': {} as Endpoint<Record<string,never>,{ok:true}>,
   'GET /v1/sdk/clients/:id/instructions': {} as Endpoint<void,{instructions:ReadonlyArray<SdkDeliveryInstruction>}>,
