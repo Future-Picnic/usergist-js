@@ -1,3 +1,4 @@
+import type * as Content from '../types/portal-content.js'
 // ============================================================
 // API contract — every endpoint path, method, request, response.
 // The API implements this; clients (dashboard, SDKs) consume it.
@@ -1166,6 +1167,43 @@ export const endpoints = {
   >,
   'GET /v1/public/roadmap/:slug/r/:requestId': {} as Endpoint<void, RequestPublicDetail>,
   'GET /v1/public/roadmap/:slug/branding': {} as Endpoint<void, RequestPublicBranding>,
+
+  'GET /v1/apps/:appId/help/articles': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.PortalDocument>>,
+  'POST /v1/apps/:appId/help/articles': {} as Endpoint<Content.CreateDocument, Content.PortalDocument>,
+  'GET /v1/apps/:appId/help/articles/:documentId': {} as Endpoint<void, Content.PortalDocument>,
+  'PUT /v1/apps/:appId/help/articles/:documentId': {} as Endpoint<Content.SaveDocument, Content.PortalDocument>,
+  'POST /v1/apps/:appId/help/articles/:documentId/lifecycle': {} as Endpoint<Content.ContentAction, Content.PortalDocument>,
+  'GET /v1/apps/:appId/changelog': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.PortalDocument>>,
+  'POST /v1/apps/:appId/changelog': {} as Endpoint<Content.CreateDocument, Content.PortalDocument>,
+  'GET /v1/apps/:appId/changelog/:documentId': {} as Endpoint<void, Content.PortalDocument>,
+  'PUT /v1/apps/:appId/changelog/:documentId': {} as Endpoint<Content.SaveDocument, Content.PortalDocument>,
+  'POST /v1/apps/:appId/changelog/:documentId/lifecycle': {} as Endpoint<Content.ContentAction, Content.PortalDocument>,
+  'GET /v1/apps/:appId/help/collections': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.HelpCollection>>,
+  'POST /v1/apps/:appId/help/collections': {} as Endpoint<Content.CreateCollection, Content.HelpCollection>,
+  'PATCH /v1/apps/:appId/help/collections/:collectionId': {} as Endpoint<Content.UpdateCollection, Content.HelpCollection>,
+  'POST /v1/apps/:appId/help/collections/:collectionId/position': {} as Endpoint<Content.ReorderContent, { updated: boolean }>,
+  'POST /v1/apps/:appId/help/articles/:documentId/position': {} as Endpoint<Content.ReorderContent, { updated: boolean }>,
+  'GET /v1/apps/:appId/roadmap': {} as Endpoint<Content.RoadmapQuery, Content.ContentPage<Content.RoadmapCard>>,
+  'POST /v1/apps/:appId/roadmap': {} as Endpoint<Content.CreateRoadmapItem, Content.RoadmapItem>,
+  'GET /v1/apps/:appId/roadmap/:itemId': {} as Endpoint<void, Content.RoadmapItem>,
+  'PUT /v1/apps/:appId/roadmap/:itemId': {} as Endpoint<Content.SaveRoadmapItem, Content.RoadmapItem>,
+  'POST /v1/apps/:appId/roadmap/:itemId/status': {} as Endpoint<Content.MoveRoadmapItem, Content.RoadmapItem>,
+  'POST /v1/apps/:appId/roadmap/:itemId/lifecycle': {} as Endpoint<Content.ContentAction, Content.RoadmapItem>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/help/collections': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.HelpCollection>>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/help/collections/:collectionId': {} as Endpoint<void, Content.HelpCollection>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/help/articles': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.PublicDocumentSummary>>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/help/articles/:documentId': {} as Endpoint<void, Content.PublicPortalDocument>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/changelog': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.PublicDocumentSummary>>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/changelog/:documentId': {} as Endpoint<void, Content.PublicPortalDocument>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/roadmap': {} as Endpoint<Content.RoadmapQuery, Content.ContentPage<Content.RoadmapCard>>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/roadmap/:itemId': {} as Endpoint<void, Content.PublicRoadmapItem>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId/changelog': {} as Endpoint<Content.ContentPageQuery, Content.ContentPage<Content.PublicDocumentSummary>>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/roadmap/:itemId/changelog': {} as Endpoint<Content.ContentPageQuery, Content.ContentPage<Content.PublicDocumentSummary>>,
+  'GET /v1/apps/:appId/portal-content/link-targets': {} as Endpoint<Content.ContentLinkQuery, Content.ContentPage<Content.ContentLinkTarget>>,
+  // Binary routes use multipart/stream transports, not the JSON client helper.
+  'POST /v1/apps/:appId/portal-content/assets/:kind/:documentId': {} as Endpoint<Content.PortalAssetUpload, Content.PortalAsset>,
+  'GET /v1/apps/:appId/portal-content/assets/:assetId': {} as Endpoint<void, Blob>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/assets/:assetId': {} as Endpoint<void, Blob>,
 } as const
 
 export type EndpointKey = keyof typeof endpoints

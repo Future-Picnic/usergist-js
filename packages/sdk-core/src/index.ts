@@ -48,3 +48,4 @@ export * as schemas from './schemas/index.js'
 
 export * from './types/web.js'
 export * from './types/portal.js'
+export * from './types/portal-content.js'
