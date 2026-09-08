@@ -23,7 +23,8 @@ const archiveSha256 = createHash('sha256').update(readFileSync(archive)).digest(
 console.log(`SDK_ARCHIVE_SHA256=${archiveSha256}`)
 if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `archive=${archive}\narchive_sha256=${archiveSha256}\n`)
 const expoVersion = major === '57' ? '57.0.20' : '56.0.21'
-writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'usergist-expo-consumer', version: '1.0.0', private: true, main: 'index.js', dependencies: { expo: expoVersion, react: '19.2.3', 'react-native': major === '57' ? '0.86.3' : '0.85.3' } }, null, 2))
+const port = 28900 + Number(major) + (mode === 'expo-notifications' ? 10 : 0)
+writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'usergist-expo-consumer', version: '1.0.0', private: true, main: 'index.js', scripts: { start: `expo start --dev-client --port ${port}`, ios: `expo run:ios --port ${port}`, android: `expo run:android --port ${port}` }, dependencies: { expo: expoVersion, react: '19.2.3', 'react-native': major === '57' ? '0.86.3' : '0.85.3' } }, null, 2))
 run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'])
 const bundled = JSON.parse(readFileSync(join(root, 'node_modules/expo/bundledNativeModules.json')))
 const packages = ['@react-native-async-storage/async-storage', 'react-native-safe-area-context', 'expo-dev-client', ...(mode === 'expo-notifications' ? ['expo-notifications'] : [])]
