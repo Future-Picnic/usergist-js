@@ -83,7 +83,19 @@ jobs:
         env:
           DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
         run: |
-          xcodebuild -downloadPlatform iOS -buildVersion 18.2
+          sudo xcode-select --switch "$DEVELOPER_DIR"
+          # Initialize CoreSimulator before downloading the older runtime.
+          # Hosted runners can otherwise fail with "Unable to connect to simulator".
+          xcrun simctl list > /dev/null
+          runtime_ready=false
+          for attempt in 1 2 3; do
+            if xcodebuild -downloadPlatform iOS -buildVersion 18.2; then
+              runtime_ready=true
+              break
+            fi
+            sleep 10
+          done
+          test "$runtime_ready" = true
           pod install
           xcodebuild -workspace HelloWorld.xcworkspace -scheme HelloWorld -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
   consumer:
