@@ -38,6 +38,7 @@ export interface SdkEvents {
   readonly pushEvent: PushEventPayload
   readonly showRequestsBoard: undefined
   readonly showRequestDetail: { readonly requestId: string }
+  readonly dismissRequests: undefined
 }
 
 export type EventName = keyof SdkEvents
@@ -104,6 +105,11 @@ export function createEventBus(): EventBus {
       }
     },
     emit<K extends EventName>(name: K, payload: SdkEvents[K]): void {
+      if (name === 'resetSurfaces') pending.clear()
+      if (name === 'dismissRequests') {
+        pending.delete('showRequestsBoard')
+        pending.delete('showRequestDetail')
+      }
       const s = listeners.get(name)
       if (!s || s.size === 0) {
         if (BUFFERED_EVENTS.includes(name)) {

@@ -49,12 +49,12 @@ public enum UserGistPushState {
     try? configure(state)
   }
 
-  public static func receipt(_ kind: String, id: String) {
+  public static func receipt(_ kind: String, id: String, completion: @escaping (Bool) -> Void = { _ in }) {
     let state = snapshot
     guard state["push"] as? Bool == true, !id.isEmpty, let folder = receiptsFolder(state),
           let key = state["writeKey"] as? String,
           let api = state["apiUrl"] as? String,
-          let anonymousId = state["anonymousId"] as? String else { return }
+          let anonymousId = state["anonymousId"] as? String else { completion(false); return }
     do {
       try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
       let now = ISO8601DateFormatter().string(from: Date())
@@ -64,33 +64,47 @@ public enum UserGistPushState {
       let record: [String: Any] = ["kind": kind, "body": body, "writeKey": key, "apiUrl": api, "anonymousId": anonymousId]
       let file = folder.appendingPathComponent(UUID().uuidString + ".json")
       try JSONSerialization.data(withJSONObject: record).write(to: file, options: .atomic)
-      send(file)
-    } catch { /* Receipt remains best effort if protected storage is unavailable. */ }
+      send(file, completion: completion)
+    } catch { completion(false) }
   }
   public static func retry() {
     guard let folder = receiptsFolder(snapshot),
           let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { return }
-    files.prefix(500).forEach(send)
+    files.prefix(500).forEach { send($0) }
   }
-  private static func send(_ file: URL) {
+  private static func send(_ file: URL, completion: @escaping (Bool) -> Void = { _ in }) {
     guard let data = try? Data(contentsOf: file),
           let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let key = record["writeKey"] as? String, let api = record["apiUrl"] as? String,
           let kind = record["kind"] as? String, let body = record["body"] as? [String: Any],
-          let base = URL(string: api), ["https", "http"].contains(base.scheme ?? "") else { return }
+          let base = URL(string: api), ["https", "http"].contains(base.scheme ?? "") else { completion(false); return }
     let state = snapshot
     // Never replay old identity receipts with a new session's configuration.
     guard state["push"] as? Bool == true, state["writeKey"] as? String == key,
-          state["anonymousId"] as? String == record["anonymousId"] as? String else { return }
+          state["anonymousId"] as? String == record["anonymousId"] as? String else { completion(false); return }
     var request = URLRequest(url: base.appendingPathComponent("v1/sdk/push/" + kind), timeoutInterval: 5)
     request.httpMethod = "POST"
     request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    let lock = NSLock()
+    var completed = false
+    let finish: (Bool) -> Void = { success in
+      lock.lock()
+      guard !completed else { lock.unlock(); return }
+      completed = true
+      lock.unlock()
+      completion(success)
+    }
     URLSession.shared.dataTask(with: request) { _, response, error in
-      if error == nil, let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status) {
+      let success = error == nil && (200..<300).contains((response as? HTTPURLResponse)?.statusCode ?? 0)
+      if success {
         try? FileManager.default.removeItem(at: file)
       }
+      finish(success)
     }.resume()
+    // Keep the extension/background task alive for the acknowledgement attempt,
+    // while retaining a bounded completion even if the connection stalls.
+    DispatchQueue.global().asyncAfter(deadline: .now() + 5.5) { finish(false) }
   }
 }

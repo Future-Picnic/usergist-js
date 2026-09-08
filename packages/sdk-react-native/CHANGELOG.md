@@ -5,6 +5,7 @@
 - Add Expo config plugin, iOS extension/EAS setup, and an optional notification adapter.
 - Preserve existing Expo notification ownership and shared provider tokens.
 - Add scoped native delivery-receipt retries, Expo onboarding, demo and consumer checks.
+- Keep logout and consent changes from accepting stale request responses or disabling a newer push session.
 - Expo support remains prerelease until signed-device acceptance is complete.
 
 All notable changes to `@usergist/feedback-react-native` are documented here.

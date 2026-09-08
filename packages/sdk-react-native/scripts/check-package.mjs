@@ -51,6 +51,7 @@ for (const file of [
   'UserGistFeedback.podspec',
   'UserGistFeedbackExtension.podspec',
   'ios/UserGistPush.h',
+  'ios/UserGistPushInterop.h',
   'ios/UserGistPush.mm',
   'ios/UserGistPushImpl.swift',
   'ios/Extension/UserGistNotificationService.swift',

@@ -29,6 +29,8 @@ export function RequestsHost(): React.ReactElement | null {
   useEffect(() => {
     let unsubBoard: (() => void) | null = null
     let unsubDetail: (() => void) | null = null
+    let unsubReset: (() => void) | null = null
+    let unsubDismiss: (() => void) | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
 
     function attach(): void {
@@ -40,6 +42,8 @@ export function RequestsHost(): React.ReactElement | null {
         unsubDetail = bus.on('showRequestDetail', ({ requestId }) => {
           setView({ kind: 'detail', requestId })
         })
+        unsubReset = bus.on('resetSurfaces', () => setView({ kind: 'closed' }))
+        unsubDismiss = bus.on('dismissRequests', () => setView({ kind: 'closed' }))
       } catch {
         retryTimer = setTimeout(attach, 250)
       }
@@ -49,6 +53,8 @@ export function RequestsHost(): React.ReactElement | null {
       if (retryTimer) clearTimeout(retryTimer)
       if (unsubBoard) unsubBoard()
       if (unsubDetail) unsubDetail()
+      if (unsubReset) unsubReset()
+      if (unsubDismiss) unsubDismiss()
     }
   }, [])
 

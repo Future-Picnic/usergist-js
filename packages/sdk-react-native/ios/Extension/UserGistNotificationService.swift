@@ -101,7 +101,8 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
 
     // ---------- Delivered beacon (direct, with App Group fallback) ----------
     if let deliveryId = extractDeliveryId(from: userInfo) {
-      UserGistBeaconClient.delivered(deliveryId: deliveryId)
+      actionsReady.enter()
+      UserGistBeaconClient.delivered(deliveryId: deliveryId) { actionsReady.leave() }
       if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool != true {
         UserGistDeliveryLedger.recordDelivered(deliveryId: deliveryId)
       }
@@ -144,6 +145,15 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
     let handler = contentHandler
     contentHandler = nil
     completionLock.unlock()
+    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true,
+       content.userInfo["usergist"] != nil {
+      let state = UserGistPushState.snapshot
+      if state["push"] as? Bool != true ||
+         (content.userInfo["usergist_anonymous_id"] as? String).map({ $0 != state["anonymousId"] as? String }) == true {
+        handler?(UNNotificationContent())
+        return
+      }
+    }
     handler?(content)
   }
 
@@ -201,11 +211,12 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
 /// + URLSession's background-friendly default config.
 enum UserGistBeaconClient {
 
-  static func delivered(deliveryId: String) {
+  static func delivered(deliveryId: String, completion: @escaping () -> Void = {}) {
     if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true {
-      UserGistPushState.receipt("delivered", id: deliveryId)
+      UserGistPushState.receipt("delivered", id: deliveryId) { _ in completion() }
       return
     }
+    defer { completion() }
     guard !deliveryId.isEmpty else { return }
     guard let writeKey = UserGistNSEConfig.writeKey,
           let apiUrl = UserGistNSEConfig.apiUrl else { return }
@@ -225,8 +236,7 @@ enum UserGistBeaconClient {
 
   static func silentAck(pingId: String, completion: @escaping () -> Void) {
     if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true {
-      UserGistPushState.receipt("silent-ack", id: pingId)
-      completion()
+      UserGistPushState.receipt("silent-ack", id: pingId) { _ in completion() }
       return
     }
     guard !pingId.isEmpty else { return completion() }

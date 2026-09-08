@@ -161,6 +161,16 @@ function ensureRequestsCache() {
   return requestsCache
 }
 
+function requestSessionIsCurrent(e: Engine): () => boolean {
+  const generation = e.resetGeneration
+  const consentVersion = e.consent.get().version
+  const identity = e.identity.get()
+  return () => !e.resetting && generation === e.resetGeneration &&
+    consentVersion === e.consent.get().version && e.consent.allowsFeedback() &&
+    identity.anonymousId === e.identity.get().anonymousId &&
+    identity.externalId === e.identity.get().externalId
+}
+
 async function syncNativePushState(e: Engine, push = e.consent.allowsPush()): Promise<void> {
   const anonymousId = e.identity.get().anonymousId
   const generation = e.resetGeneration
@@ -479,6 +489,10 @@ export const UserGist = {
       if (e.resetting) return false
       const next = await e.consent.set(purposes)
       if (e.resetting || next.version !== e.consent.get().version) return false
+      if (!next.feedback) {
+        requestsCache = null
+        e.events.emit('dismissRequests', undefined)
+      }
       await syncNativePushState(e)
       if (e.resetting || next.version !== e.consent.get().version) return false
       if (purposes.push === false) {
@@ -526,6 +540,7 @@ export const UserGist = {
       if (e.resetting) return resetPromise ?? Promise.resolve()
       e.resetting = true
       e.resetGeneration += 1
+      requestsCache = null
       lastEnablePushOptions = null
       e.events.emit('resetSurfaces', undefined)
       const operation = (async () => {
@@ -847,8 +862,12 @@ export const UserGist = {
       await ensureHydrated(e)
       if (!e.consent.allowsPush() || e.resetting) return { granted: false, status: 'not_determined', platform: Platform.OS === 'ios' ? 'ios' : 'android', error: 'consent_required' }
       const generation = e.resetGeneration
+      const consentVersion = e.consent.get().version
+      const current = () => !e.resetting && generation === e.resetGeneration && consentVersion === e.consent.get().version && e.consent.allowsPush()
+      const cancelled = () => ({ granted: false, status: 'not_determined' as const, platform: Platform.OS === 'ios' ? 'ios' as const : 'android' as const, error: 'session_changed' })
       opts = { ...opts, environment: opts?.environment ?? await UserGistPushNative.defaultEnvironment() ?? defaultEnvironment() }
       await syncNativePushState(e)
+      if (!current()) return cancelled()
       if (!enginePushListenersAttached) attachEnginePushListeners()
       // Snapshot the caller's options so the AppState foreground listener
       // can re-run enablePush idempotently with the same environment.
@@ -858,10 +877,9 @@ export const UserGist = {
         installDelegateProxy: opts?.installDelegateProxy,
       }
       const result = await UserGistPushNative.enablePush(opts ?? {})
-      if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) {
-        await UserGistPushNative.disablePush()
-        return { granted: false, status: 'not_determined', platform: Platform.OS === 'ios' ? 'ios' : 'android', error: 'session_changed' }
-      }
+      // Reset/withdrawal owns native cleanup. An old permission callback must
+      // not disable a new account's subsequently enabled notification adapter.
+      if (!current()) return cancelled()
       // Server-side registration runs on the tokenReceived event; if the
       // native module already had a cached token it surfaces here.
       if (result.granted && result.token) {
@@ -1220,6 +1238,8 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
+      if (e.resetting || !e.consent.allowsFeedback()) return { items: [], nextCursor: null }
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const result = await e.transport.requestsList({
         anonymousId: id.anonymousId,
@@ -1231,6 +1251,7 @@ export const UserGist = {
         cursor: options.cursor ?? null,
         limit: options.limit,
       })
+      if (!current()) return { items: [], nextCursor: null }
       ensureRequestsCache().upsertList(
         result.items.map((s) => ({
           id: s.id,
@@ -1282,10 +1303,11 @@ export const UserGist = {
       void (async () => {
         try {
           await ensureHydrated(e)
-          if (!e.consent.allowsFeedback()) {
+          if (e.resetting || !e.consent.allowsFeedback()) {
             callback?.(new Error('feedback consent required'))
             return
           }
+          const current = requestSessionIsCurrent(e)
           const id = e.identity.get()
           const req = await e.transport.requestSubmit({
             idempotencyKey: generateEventId(),
@@ -1294,6 +1316,7 @@ export const UserGist = {
             title,
             description,
           })
+          if (!current()) { callback?.(new Error('Request cancelled by identity or consent change')); return }
           ensureRequestsCache().upsert(req)
           recordServerBackedEventLocally(e, '$request_submitted')
           requestsHandlers.onSubmit?.(req)
@@ -1312,10 +1335,11 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
       const cache = ensureRequestsCache()
       const rollback = cache.applyOptimisticVote(requestId, vote)
       try {
+        const current = requestSessionIsCurrent(e)
         const id = e.identity.get()
         const result = await e.transport.requestVote({
           requestId,
@@ -1323,6 +1347,7 @@ export const UserGist = {
           externalId: id.externalId ?? null,
           vote,
         })
+        if (!current()) { rollback(); return }
         cache.commitVote(requestId, result)
         recordServerBackedEventLocally(e, vote ? '$request_upvoted' : '$request_unupvoted')
         requestsHandlers.onVote?.(result)
@@ -1339,10 +1364,11 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
       const cache = ensureRequestsCache()
       const rollback = cache.applyOptimisticFollow(requestId, follow)
       try {
+        const current = requestSessionIsCurrent(e)
         const id = e.identity.get()
         const result = await e.transport.requestFollow({
           requestId,
@@ -1350,6 +1376,7 @@ export const UserGist = {
           externalId: id.externalId ?? null,
           follow,
         })
+        if (!current()) { rollback(); return }
         cache.commitFollow(requestId, result)
         recordServerBackedEventLocally(e, follow ? '$request_followed' : '$request_unfollowed')
         requestsHandlers.onFollow?.(result)
@@ -1377,8 +1404,10 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return null
-      return await e.transport.requestBranding()
+      if (e.resetting || !e.consent.allowsFeedback()) return null
+      const current = requestSessionIsCurrent(e)
+      const branding = await e.transport.requestBranding()
+      return current() ? branding : null
     } catch (err) {
       reportError('getRequestBranding failed', err)
       return null
@@ -1397,13 +1426,15 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return null
+      if (e.resetting || !e.consent.allowsFeedback()) return null
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const req = await e.transport.requestGet({
         requestId,
         anonymousId: id.anonymousId,
         externalId: id.externalId ?? null,
       })
+      if (!current()) return null
       ensureRequestsCache().upsert(req)
       return req
     } catch (err) {
@@ -1415,7 +1446,7 @@ export const UserGist = {
   openRequestsBoard(): void {
     try {
       const e = requireEngine()
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
       e.events.emit('showRequestsBoard', undefined)
     } catch (err) {
       reportError('openRequestsBoard failed', err)
@@ -1425,7 +1456,7 @@ export const UserGist = {
   openRequestDetail(requestId: string): void {
     try {
       const e = requireEngine()
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
       e.events.emit('showRequestDetail', { requestId })
     } catch (err) {
       reportError('openRequestDetail failed', err)
@@ -1445,14 +1476,15 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return []
+      if (e.resetting || !e.consent.allowsFeedback()) return []
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const result = await e.transport.requestCommentsList({
         requestId,
         anonymousId: id.anonymousId,
         externalId: id.externalId ?? null,
       })
-      return result.items
+      return current() ? result.items : []
     } catch (err) {
       reportError('getComments failed', err)
       return []
@@ -1468,7 +1500,8 @@ export const UserGist = {
       const e = requireEngine()
       validateCommentBody(body)
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return null
+      if (e.resetting || !e.consent.allowsFeedback()) return null
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const comment = await e.transport.requestCommentPost({
         idempotencyKey: generateEventId(),
@@ -1477,6 +1510,7 @@ export const UserGist = {
         externalId: id.externalId ?? null,
         body,
       })
+      if (!current()) return null
       recordServerBackedEventLocally(e, REQUEST_COMMENTED_EVENT_NAME)
       return comment
     } catch (err) {
@@ -1495,7 +1529,8 @@ export const UserGist = {
       const e = requireEngine()
       validateCommentBody(body)
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return null
+      if (e.resetting || !e.consent.allowsFeedback()) return null
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const comment = await e.transport.requestCommentEdit({
         requestId,
@@ -1503,6 +1538,7 @@ export const UserGist = {
         anonymousId: id.anonymousId,
         body,
       })
+      if (!current()) return null
       recordServerBackedEventLocally(e, REQUEST_COMMENT_EDITED_EVENT_NAME)
       return comment
     } catch (err) {
@@ -1516,13 +1552,15 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       await e.transport.requestCommentDelete({
         requestId,
         commentId,
         anonymousId: id.anonymousId,
       })
+      if (!current()) return
       recordServerBackedEventLocally(e, REQUEST_COMMENT_DELETED_EVENT_NAME)
     } catch (err) {
       reportError('deleteComment failed', err)

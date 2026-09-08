@@ -334,7 +334,7 @@ public final class UserGistPushImpl: NSObject {
     NotificationCenter.default.addObserver(
       forName: UIApplication.didBecomeActiveNotification,
       object: nil,
-      queue: .main,
+      queue: .main
     ) { _ in
       UserGistUNDelegateSwizzler.reinstallIfHijacked()
     }
