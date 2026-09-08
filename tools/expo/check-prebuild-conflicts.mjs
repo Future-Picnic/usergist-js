@@ -13,6 +13,18 @@ const version = JSON.parse(readFileSync(join(root, 'node_modules/expo/package.js
 const run = platform => spawnSync(process.execPath, [join(root, 'node_modules/expo/bin/cli'), 'prebuild', '--no-install', '--platform', platform, ...(version.startsWith('57.') ? ['--no-clean'] : [])], { cwd: root, encoding: 'utf8', env: { ...process.env, CI: '1' } })
 const manifest = join(root, 'android/app/src/main/AndroidManifest.xml')
 const android = readFileSync(manifest, 'utf8')
+if (options.push.mode === 'expo-notifications') {
+  try {
+    const iosOnly = JSON.parse(original)
+    iosOnly.expo.platforms = ['ios']
+    iosOnly.expo.plugins = iosOnly.expo.plugins.filter(plugin => plugin !== 'expo-notifications')
+    iosOnly.expo.plugins.find(plugin => Array.isArray(plugin) && plugin[0] === '@usergist/feedback-react-native')[1].push.mode = 'automatic'
+    writeFileSync(appFile, JSON.stringify(iosOnly))
+    const result = run('ios')
+    assert.notEqual(result.status, 0)
+    assert.match(result.stdout + result.stderr, /expo-notifications is installed/)
+  } finally { writeFileSync(appFile, original) }
+}
 try {
   writeFileSync(manifest, android.replace('</application>', '<service android:name="com.example.HostMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service></application>'))
   const result = run('android')

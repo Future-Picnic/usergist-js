@@ -14,6 +14,7 @@ const evidence = JSON.parse(process.env.USERGIST_EXPO_RELEASE_EVIDENCE || 'null'
 assert.ok(evidence, 'Expo publication is blocked: supply USERGIST_EXPO_RELEASE_EVIDENCE after the native build gates pass')
 assert.equal(evidence.version, manifest.version, 'Evidence must describe this package version')
 assert.equal(evidence.archiveSha256, createHash('sha256').update(readFileSync(archive)).digest('hex'), 'Evidence must describe these exact archive bytes')
+assert.match(String(evidence.nativeBuildRunId || ''), /^\d+$/, 'Record the successful native build run that retained this archive')
 assert.match(evidence.sourceCommit || '', /^[a-f0-9]{40}$/, 'Record the source commit')
 const passed = (name, entries) => {
   const entry = entries?.find(e => e.name === name)

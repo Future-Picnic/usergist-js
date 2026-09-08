@@ -44,12 +44,14 @@ validated while this document remains pending.
 The public release workflow enforces this through
 `tools/expo/check-release-evidence.mjs`. Supply the repository variable
 `USERGIST_EXPO_RELEASE_EVIDENCE` as JSON with `version`, `archiveSha256`,
-`sourceCommit`, and arrays `nativeBuilds`, `regressions`, `physicalDevices`.
+`sourceCommit`, `nativeBuildRunId`, and arrays `nativeBuilds`, `regressions`, `physicalDevices`.
 Each entry has `name`, `passed: true`, and a durable HTTPS `evidenceUrl` to
 the corresponding build or device report. The script lists the exact required
 names. Prereleases require package, prebuild, ordinary React Native regression,
 and all eight Expo native combinations; stable additionally requires signed
-physical-device evidence. A missing variable blocks publication.
+physical-device evidence. A missing variable blocks publication. CI builds one archive and passes that file
+to every consumer; the publish job downloads it from `nativeBuildRunId` instead
+of rebuilding it. The release tag must point to that run’s source commit.
 
 For stable promotion, validate the final stable archive too: changing a
 prerelease version changes the package bytes and invalidates its earlier hash.

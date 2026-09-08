@@ -1,9 +1,11 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, cpSync, appendFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 const archive = resolve(process.argv[2])
+console.log(`SDK_ARCHIVE_SHA256=${createHash('sha256').update(readFileSync(archive)).digest('hex')}`)
 const root = mkdtempSync(join(tmpdir(), 'usergist-rn74-consumer-'))
 console.log(`Bare React Native consumer retained: ${root}`)
 writeFileSync(join(root, 'package.json'), JSON.stringify({
