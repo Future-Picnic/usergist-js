@@ -11,7 +11,7 @@ export const workspaceTimezoneSchema = z
   .max(64)
   .refine(isValidIanaTimeZone, 'Enter a valid IANA timezone')
 
-export const platformSchema = z.enum(['ios', 'android', 'react-native', 'flutter', 'web'])
+export const platformSchema = z.enum(['ios', 'android', 'react-native', 'expo', 'flutter', 'web'])
 
 export const writeKeyEnvironmentSchema = z.enum(['production', 'staging', 'development'])
 

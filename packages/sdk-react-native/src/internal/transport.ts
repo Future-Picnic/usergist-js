@@ -149,7 +149,7 @@ export interface Transport {
     readonly currentToken?: string
   }) => Promise<SdkSessionResponse>
   readonly revokeSession: () => Promise<{ ok: true }>
-  readonly instructions: (after: number) => Promise<{
+  readonly instructions: (after: number, client?: {anonymousId:string;platform:string;sdkVersion:string}) => Promise<{
     readonly instructions: ReadonlyArray<{
       readonly id: number
       readonly type: string
@@ -440,9 +440,9 @@ export function createTransport(cfg: TransportConfig): Transport {
       path: '/v1/sdk/session/revoke',
       idempotent: true,
     }),
-    instructions: (after) => request({
+    instructions: (after, client) => request({
       method: 'GET',
-      path: `/v1/sdk/instructions?after=${encodeURIComponent(String(after))}&limit=100`,
+      path: `/v1/sdk/instructions?after=${encodeURIComponent(String(after))}&limit=100${client ? `&protocolVersion=2&anonymousId=${encodeURIComponent(client.anonymousId)}&platform=${encodeURIComponent(client.platform)}&sdkVersion=${encodeURIComponent(client.sdkVersion)}` : ''}`,
       idempotent: true,
     }),
     acknowledgeInstructions: (ids) => request({

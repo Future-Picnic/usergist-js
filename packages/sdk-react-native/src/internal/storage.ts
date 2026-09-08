@@ -239,6 +239,7 @@ export const STORAGE_KEYS = {
   seenInstructions: 'seenInstructions',
   localInstructionDedupe: 'localInstructionDedupe',
   appVersion: 'appVersion',
+  pushToken: 'pushToken',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

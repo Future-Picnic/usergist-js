@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   id-token: write
 
 concurrency:
@@ -90,13 +91,40 @@ jobs:
         if: steps.versions.outputs.react_native_only != 'true'
       - run: pnpm --filter @usergist/feedback-react-native typecheck
       - run: pnpm --filter @usergist/feedback-react-native test
+      - run: pnpm --filter @usergist/feedback-react-native test:plugin
       - run: pnpm --filter @usergist/feedback-react-native build
-      - name: Build and inspect immutable package archives
+      - name: Select the successful native build run
+        id: native_evidence
+        env:
+          USERGIST_EXPO_RELEASE_EVIDENCE: ${{ vars.USERGIST_EXPO_RELEASE_EVIDENCE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import assert from 'node:assert/strict'
+          const evidence = JSON.parse(process.env.USERGIST_EXPO_RELEASE_EVIDENCE || 'null')
+          assert.match(String(evidence?.nativeBuildRunId || ''), /^\d+$/, 'Supply the verified native build run')
+          const response = await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/actions/runs/${evidence.nativeBuildRunId}`, { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' } })
+          assert.equal(response.status, 200, 'Cannot inspect the native build run')
+          const run = await response.json()
+          assert.equal(run.conclusion, 'success', 'Native builds have not passed')
+          assert.equal(run.path, '.github/workflows/sdk-expo.yml')
+          assert.equal(run.head_sha, evidence.sourceCommit)
+          assert.equal(evidence.sourceCommit, process.env.GITHUB_SHA, 'The release tag must match the tested source commit')
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `run_id=${evidence.nativeBuildRunId}\n`)
+          NODE
+      - name: Download the exact archive tested on every native platform
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: usergist-react-native-candidate
+          path: ${{ runner.temp }}/usergist-packs
+          run-id: ${{ steps.native_evidence.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Inspect the verified archive and prepare the core package
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/usergist-packs"
           (cd packages/sdk-core && pnpm pack --pack-destination "$RUNNER_TEMP/usergist-packs")
-          (cd packages/sdk-react-native && pnpm pack --pack-destination "$RUNNER_TEMP/usergist-packs")
           core_archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-sdk-core-*.tgz' -print -quit)
           rn_archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
           test -n "$core_archive"
@@ -108,6 +136,12 @@ jobs:
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/core-files.txt"
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/rn-files.txt"
           node packages/sdk-react-native/scripts/check-package.mjs "$rn_archive"
+      - name: Enforce Expo native and signed-device release gates
+        env:
+          USERGIST_EXPO_RELEASE_EVIDENCE: ${{ vars.USERGIST_EXPO_RELEASE_EVIDENCE }}
+        run: |
+          archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
+          node tools/expo/check-release-evidence.mjs "$archive"
       - name: Build Web package archive
         if: steps.versions.outputs.react_native_only != 'true'
         run: pnpm --dir packages/sdk-web pack --pack-destination "$RUNNER_TEMP/usergist-packs"
@@ -123,7 +157,8 @@ jobs:
         run: |
           archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
           test -n "$archive"
-          npm stage publish "$archive" --access public --provenance
+          release_tag=$(node -p 'require("./packages/sdk-react-native/package.json").version.includes("-") ? "next" : "latest"')
+          npm stage publish "$archive" --access public --provenance --tag "$release_tag"
       - name: Stage Web package for 2FA approval
         if: steps.versions.outputs.react_native_only != 'true'
         shell: bash

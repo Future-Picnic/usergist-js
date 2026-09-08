@@ -7,6 +7,8 @@ export const USERGIST_PUSH_EVENTS = {
   TOKEN_RECEIVED: 'UserGistPush:tokenReceived',
   TOKEN_ERROR: 'UserGistPush:tokenError',
   NOTIFICATION_RECEIVED: 'UserGistPush:notificationReceived',
+  NOTIFICATION_DISPLAYED: 'UserGistPush:notificationDisplayed',
+  NOTIFICATION_DISMISSED: 'UserGistPush:notificationDismissed',
   NOTIFICATION_OPENED: 'UserGistPush:notificationOpened',
 } as const
 

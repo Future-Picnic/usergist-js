@@ -27,15 +27,31 @@ execFileSync('tar', ['-xzf', archive, '--strip-components=1', '-C', installedRoo
 
 const manifest = JSON.parse(readFileSync(join(installedRoot, 'package.json'), 'utf8'))
 assert.equal(manifest.name, '@usergist/feedback-react-native')
+assert.equal(manifest.codegenConfig, undefined, 'The handwritten bridge must not advertise generated specs')
+assert.equal(manifest.peerDependenciesMeta.expo.optional, true)
+if (manifest.version.includes('-')) assert.equal(manifest.publishConfig.tag, 'next', 'Prereleases must not replace latest')
 const coreManifest = JSON.parse(readFileSync(join(packageRoot, '../sdk-core/package.json'), 'utf8'))
 assert.equal(manifest.dependencies['@usergist/sdk-core'], `^${coreManifest.version}`)
 for (const file of [
   'dist/index.js',
+  'dist/expo/index.js',
+  'dist/expo/index.d.ts',
+  'app.plugin.js',
+  'plugin/index.cjs',
+  'plugin/index.d.cts',
+  'plugin/templates/UserGistExpoMessagingService.kt',
+  'expo-module.config.json',
+  'expo-support/UserGistFeedbackExpo.podspec',
+  'expo-support/UserGistExpoAppDelegateSubscriber.swift',
+  'ios/Shared/UserGistPushState.swift',
+  'ios/Shared/UserGistNotificationActions.swift',
+  'android/src/main/java/studio/usergist/feedback/UserGistPushState.kt',
   'dist/NativeUserGistPush.js',
   'react-native.config.js',
   'UserGistFeedback.podspec',
   'UserGistFeedbackExtension.podspec',
   'ios/UserGistPush.h',
+  'ios/UserGistPushInterop.h',
   'ios/UserGistPush.mm',
   'ios/UserGistPushImpl.swift',
   'ios/Extension/UserGistNotificationService.swift',

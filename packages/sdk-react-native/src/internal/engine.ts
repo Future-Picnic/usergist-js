@@ -283,6 +283,7 @@ export async function ensureHydrated(engine: Engine): Promise<void> {
         engine.surveyRules.hydrate(),
         engine.inAppRules.hydrate(),
         engine.localInstructionDedupe.hydrate(),
+        engine.storage.getJson<string>(STORAGE_KEYS.pushToken).then(token => { if (typeof token === 'string') engine.lastPushToken = token }),
       ])
       await ensureSubjectSession(engine)
       engine.hydrated = true
@@ -696,7 +697,7 @@ async function performInstructionPoll(engine: Engine): Promise<void> {
       STORAGE_KEYS.seenInstructions,
     )) ?? []
     const seenSet = new Set(seen)
-    const result = await engine.transport.instructions(after)
+    const result = await engine.transport.instructions(after, { anonymousId: engine.identity.get().anonymousId, platform: engine.context.platform(), sdkVersion: engine.context.sdkVersion() })
     if (result.instructions.length === 0) return
 
     const handledIds: number[] = []
@@ -1007,6 +1008,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
     STORAGE_KEYS.instructionCursor,
     STORAGE_KEYS.seenInstructions,
     STORAGE_KEYS.localInstructionDedupe,
+    STORAGE_KEYS.pushToken,
     SEEN_OFFERS_KEY,
   ])
   engine.subjectToken = null
@@ -1015,6 +1017,8 @@ export async function clearAllState(engine: Engine): Promise<void> {
   engine.matcher.resetPending()
   engine.surveyMatcher.resetPending()
   engine.lastPushToken = null
+  engine.lastPushRegistrationKey = null
+  engine.lastPushRegistrationAt = 0
   lastPollAt = 0
   await engine.identity.hydrate()
   await ensureSubjectSession(engine)

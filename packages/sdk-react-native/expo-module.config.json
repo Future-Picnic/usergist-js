@@ -1,0 +1,8 @@
+{
+  "platforms": ["apple"],
+  "apple": {
+    "podspecPath": "expo-support/UserGistFeedbackExpo.podspec",
+    "swiftModuleName": "UserGistFeedbackExpo",
+    "appDelegateSubscribers": ["UserGistExpoAppDelegateSubscriber"]
+  }
+}
