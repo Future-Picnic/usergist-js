@@ -46,6 +46,13 @@ function writeOwned(file, content, ownedTarget = false) {
   fs.writeFileSync(file, content)
 }
 
+function assertNotificationOwnership(push, projectRoot) {
+  if (push?.mode !== 'automatic') return
+  let installed = false
+  try { require.resolve('expo-notifications/package.json', { paths: [projectRoot] }); installed = true } catch {}
+  if (installed) fail('expo-notifications is installed and autolinks native notification handlers. Select push.mode="expo-notifications" and add its plugin to preserve notification ownership')
+}
+
 function withUserGist(config, options = {}) {
   const push = settings(config, options)
   const plugins = (config.plugins || []).map(p => Array.isArray(p) ? p[0] : p)
@@ -56,6 +63,7 @@ function withUserGist(config, options = {}) {
     fail('Install expo-notifications and add its plugin before the UserGist plugin')
   }
   config = withInfoPlist(config, c => {
+    assertNotificationOwnership(push, c.modRequest.projectRoot)
     c.modResults.UserGistExpo = true
     c.modResults.UserGistPushMode = push?.mode || 'disabled'
     if (push?.ios) {
@@ -137,11 +145,7 @@ function withUserGist(config, options = {}) {
     })
     config = withDangerousMod(config, ['android', async c => {
       const root = c.modRequest.platformProjectRoot
-      if (push.mode === 'automatic') {
-        let installed = false
-        try { require.resolve('expo-notifications/package.json', { paths: [c.modRequest.projectRoot] }); installed = true } catch {}
-        if (installed) fail('expo-notifications is installed and autolinks its FCM service. Select push.mode="expo-notifications" and add its plugin to preserve notification ownership')
-      }
+      assertNotificationOwnership(push, c.modRequest.projectRoot)
       const google = path.resolve(c.modRequest.projectRoot, c.android.googleServicesFile)
       const json = JSON.parse(fs.readFileSync(google, 'utf8'))
       if (!json.client?.some(client => client.client_info?.android_client_info?.package_name === c.android.package)) fail('google-services.json does not contain android.package')
