@@ -69,16 +69,37 @@ public final class UserGistPushImpl: NSObject {
     }
   }
 
+  @objc public func configurePushState(_ state: [String: Any], resolver: @escaping (Any?) -> Void, rejecter: @escaping (String, String, Error?) -> Void) {
+    do { try UserGistPushState.configure(state); resolver(nil) }
+    catch { rejecter("push_state_failed", error.localizedDescription, error) }
+  }
+
+  /// Restore notification callbacks before iOS delivers a cold-start response.
+  /// This only restores an existing opt-in; it does not acquire permission or
+  /// register a token. Expo Notifications retains ownership in coexistence mode.
+  public func prepareExpoLaunch() {
+    guard Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true,
+          Bundle.main.object(forInfoDictionaryKey: "UserGistPushMode") as? String == "automatic",
+          UserGistPushState.enabled else { return }
+    Self.installUNDelegateSwizzleIfNeeded()
+  }
+
   // MARK: - Exported (called from UserGistPush.mm)
 
   @objc public func enablePush(options: [String: Any],
                                 resolver: @escaping (Any?) -> Void,
                                 rejecter: @escaping (String, String, Error?) -> Void) {
     NSLog("[UserGistPush] enablePush called")
-    let installDelegateProxy = options["installDelegateProxy"] as? Bool ?? true
+    let expo = Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true
+    let mode = Bundle.main.object(forInfoDictionaryKey: "UserGistPushMode") as? String
+    if expo && mode == "disabled" {
+      resolver(["granted": false, "status": "not_determined", "platform": "ios", "error": "push_not_configured"])
+      return
+    }
+    let installDelegateProxy = mode == "expo-notifications" ? false : (options["installDelegateProxy"] as? Bool ?? true)
     if installDelegateProxy {
       Self.installUNDelegateSwizzleIfNeeded()
-      if let swizzler: AnyClass = NSClassFromString("UserGistPushSwizzle") {
+      if !expo, let swizzler: AnyClass = NSClassFromString("UserGistPushSwizzle") {
         let selector = NSSelectorFromString("installIfNeeded")
         let target = swizzler as AnyObject
         if target.responds(to: selector) {
@@ -118,7 +139,10 @@ public final class UserGistPushImpl: NSObject {
   @objc public func disablePush(resolver: @escaping (Any?) -> Void,
                                  rejecter: @escaping (String, String, Error?) -> Void) {
     DispatchQueue.main.async {
-      UIApplication.shared.unregisterForRemoteNotifications()
+      UserGistPushState.disable()
+      if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool != true {
+        UIApplication.shared.unregisterForRemoteNotifications()
+      }
       self.stateLock.lock()
       self.lastApnsTokenHex = nil
       self.stateLock.unlock()
@@ -148,6 +172,7 @@ public final class UserGistPushImpl: NSObject {
     DispatchQueue.main.async {
       let center = UNUserNotificationCenter.current()
       let n = Int(count)
+      _ = UserGistPushState.updateBadge(count: n)
       if #available(iOS 16.0, *) {
         center.setBadgeCount(n) { error in
           if let error = error {
@@ -190,11 +215,23 @@ public final class UserGistPushImpl: NSObject {
   }
 
   func recordNotificationReceived(userInfo: [AnyHashable: Any]) {
+    guard userInfo["usergist"] != nil else { return }
+    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true && !UserGistPushState.enabled { return }
     let normalized = normalizeUserInfo(userInfo)
     emit(name: "UserGistPush:notificationReceived", body: normalized)
   }
 
   func recordNotificationOpened(userInfo: [AnyHashable: Any], actionIdentifier: String?) {
+    guard userInfo["usergist"] != nil else { return }
+    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true && !UserGistPushState.enabled { return }
+    if let scope = userInfo["usergist_anonymous_id"] as? String, scope != UserGistPushState.snapshot["anonymousId"] as? String { return }
+    if actionIdentifier == UNNotificationDismissActionIdentifier {
+      if let payload = userInfo["usergist"] as? [String: Any], let id = payload["deliveryId"] as? String {
+        UserGistPushState.receipt("dismissed", id: id)
+      }
+      emit(name: "UserGistPush:notificationDismissed", body: normalizeUserInfo(userInfo))
+      return
+    }
     var body = normalizeUserInfo(userInfo)
     if let actionIdentifier = actionIdentifier, actionIdentifier != "com.apple.UNNotificationDefaultActionIdentifier" {
       body["actionIdentifier"] = actionIdentifier
@@ -307,7 +344,7 @@ public final class UserGistPushImpl: NSObject {
     NotificationCenter.default.addObserver(
       forName: UIApplication.didBecomeActiveNotification,
       object: nil,
-      queue: .main,
+      queue: .main
     ) { _ in
       UserGistUNDelegateSwizzler.reinstallIfHijacked()
     }
@@ -368,12 +405,17 @@ public final class UserGistPushImpl: NSObject {
   func userNotificationCenter(_ center: UNUserNotificationCenter,
                               willPresent notification: UNNotification,
                               withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    if notification.request.content.userInfo["usergist"] != nil && Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true && !UserGistPushState.enabled {
+      completionHandler([])
+      return
+    }
     UserGistPushImpl.shared.recordNotificationReceived(userInfo: notification.request.content.userInfo)
     if let existing = chainTarget(),
        existing.responds(to: #selector(UNUserNotificationCenterDelegate.userNotificationCenter(_:willPresent:withCompletionHandler:))) {
       existing.userNotificationCenter?(center, willPresent: notification, withCompletionHandler: completionHandler)
       return
     }
+    if notification.request.content.userInfo["usergist"] == nil { completionHandler([]); return }
     if #available(iOS 14.0, *) {
       completionHandler([.banner, .list, .sound, .badge])
     } else {

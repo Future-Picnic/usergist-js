@@ -23,7 +23,10 @@ Pod::Spec.new do |s|
   # The RN bridge module: RCTBridgeModule, RCTEventEmitter, Swift impl.
   # Pulls in React-Core because it imports <React/...> headers.
   s.subspec 'Core' do |core|
-    core.source_files = 'ios/*.{h,m,mm,swift}'
+    core.source_files = 'ios/*.{h,m,mm,swift}', 'ios/Shared/*.swift'
+    # This shim is internal to the Obj-C implementation. Exporting its React
+    # imports through our Swift umbrella can hide React types in host modules.
+    core.private_header_files = 'ios/UserGistPush.h'
     core.frameworks   = 'UIKit', 'UserNotifications', 'Security'
     core.dependency 'React-Core'
   end

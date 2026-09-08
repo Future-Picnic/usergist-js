@@ -57,6 +57,21 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
     self.bestAttempt = request.content.mutableCopy() as? UNMutableNotificationContent
 
     let userInfo = request.content.userInfo
+    let pushState = UserGistPushState.snapshot
+    if userInfo["usergist"] == nil && userInfo["usergist_silent"] as? String != "1" {
+      finish(request.content)
+      return
+    }
+    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true && !UserGistPushState.enabled {
+      finish(userInfo["usergist"] == nil ? request.content : UNNotificationContent())
+      return
+    }
+    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true,
+       let recipient = userInfo["usergist_anonymous_id"] as? String,
+       recipient != pushState["anonymousId"] as? String {
+      finish(UNNotificationContent())
+      return
+    }
 
     // ---------- Silent reachability ping ----------
     if (userInfo["usergist_silent"] as? String) == "1" {
@@ -72,11 +87,25 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
       finish(request.content)
       return
     }
+    if bestAttempt.userInfo["usergist_anonymous_id"] == nil, let anonymousId = pushState["anonymousId"] as? String {
+      bestAttempt.userInfo["usergist_anonymous_id"] = anonymousId
+    }
+    if userInfo["usergist_badge_increment"] as? Bool == true {
+      bestAttempt.badge = UserGistPushState.updateBadge(increment: true)
+    } else if let badge = bestAttempt.badge {
+      _ = UserGistPushState.updateBadge(count: badge.intValue)
+    }
+    let actionsReady = DispatchGroup()
+    actionsReady.enter()
+    UserGistNotificationActions.configure(bestAttempt) { actionsReady.leave() }
 
     // ---------- Delivered beacon (direct, with App Group fallback) ----------
     if let deliveryId = extractDeliveryId(from: userInfo) {
-      UserGistBeaconClient.delivered(deliveryId: deliveryId)
-      UserGistDeliveryLedger.recordDelivered(deliveryId: deliveryId)
+      actionsReady.enter()
+      UserGistBeaconClient.delivered(deliveryId: deliveryId) { actionsReady.leave() }
+      if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool != true {
+        UserGistDeliveryLedger.recordDelivered(deliveryId: deliveryId)
+      }
     }
 
     if let subtitle = userInfo["subtitle"] as? String {
@@ -87,7 +116,7 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
     let imageUrlString = extractImageUrl(from: userInfo)
 
     guard let raw = imageUrlString, let imageUrl = URL(string: raw) else {
-      finish(bestAttempt)
+      actionsReady.notify(queue: .main) { self.finish(bestAttempt) }
       return
     }
 
@@ -95,7 +124,7 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
       if let attachment = attachment {
         bestAttempt.attachments = [attachment]
       }
-      self.finish(bestAttempt)
+      actionsReady.notify(queue: .main) { self.finish(bestAttempt) }
     }
   }
 
@@ -116,6 +145,15 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
     let handler = contentHandler
     contentHandler = nil
     completionLock.unlock()
+    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true,
+       content.userInfo["usergist"] != nil {
+      let state = UserGistPushState.snapshot
+      if state["push"] as? Bool != true ||
+         (content.userInfo["usergist_anonymous_id"] as? String).map({ $0 != state["anonymousId"] as? String }) == true {
+        handler?(UNNotificationContent())
+        return
+      }
+    }
     handler?(content)
   }
 
@@ -173,7 +211,12 @@ open class UserGistNotificationService: UNNotificationServiceExtension {
 /// + URLSession's background-friendly default config.
 enum UserGistBeaconClient {
 
-  static func delivered(deliveryId: String) {
+  static func delivered(deliveryId: String, completion: @escaping () -> Void = {}) {
+    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true {
+      UserGistPushState.receipt("delivered", id: deliveryId) { _ in completion() }
+      return
+    }
+    defer { completion() }
     guard !deliveryId.isEmpty else { return }
     guard let writeKey = UserGistNSEConfig.writeKey,
           let apiUrl = UserGistNSEConfig.apiUrl else { return }
@@ -192,6 +235,10 @@ enum UserGistBeaconClient {
   }
 
   static func silentAck(pingId: String, completion: @escaping () -> Void) {
+    if Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true {
+      UserGistPushState.receipt("silent-ack", id: pingId) { _ in completion() }
+      return
+    }
     guard !pingId.isEmpty else { return completion() }
     guard let writeKey = UserGistNSEConfig.writeKey,
           let apiUrl = UserGistNSEConfig.apiUrl,

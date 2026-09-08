@@ -49,6 +49,12 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
   }
 
   override fun getName(): String = NAME
+  override fun invalidate() {
+    reactApplicationContext.removeLifecycleEventListener(this)
+    reactApplicationContext.removeActivityEventListener(this)
+    UserGistPushEventBus.detach(reactApplicationContext)
+    super.invalidate()
+  }
 
   private val securePreferences by lazy {
     val masterKey = MasterKey.Builder(reactApplicationContext)
@@ -64,7 +70,8 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
   }
 
   override fun onHostResume() {
-    currentActivity?.intent?.let { consumeNotificationIntent(it) }
+    UserGistPushState.retry(reactApplicationContext)
+    reactApplicationContext.currentActivity?.intent?.let { consumeNotificationIntent(it) }
   }
 
   override fun onHostPause() = Unit
@@ -77,6 +84,7 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
 
   private fun consumeNotificationIntent(intent: Intent) {
     val extras = intent.extras ?: return
+    if (!UserGistPushState.accepts(reactApplicationContext, extras.getString("usergist_anonymous_id"))) return
     val keys = extras.keySet().filter { it.startsWith("usergist_") }
     if (keys.isEmpty()) return
     val body = Arguments.createMap()
@@ -100,7 +108,22 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
   // MARK: - Exported methods
 
   @ReactMethod
+  fun getPushConfiguration(promise: Promise) {
+    promise.resolve(Arguments.createMap().apply { putString("mode", UserGistPushState.mode(reactApplicationContext)) })
+  }
+
+  @ReactMethod
+  fun configurePushState(state: ReadableMap, promise: Promise) {
+    runCatching { UserGistPushState.configure(reactApplicationContext, org.json.JSONObject(state.toHashMap())) }
+      .onSuccess { promise.resolve(null) }.onFailure { promise.reject("push_state_failed", it) }
+  }
+
+  @ReactMethod
   fun enablePush(_options: ReadableMap?, promise: Promise) {
+    if (UserGistPushState.mode(reactApplicationContext) == "disabled") {
+      promise.resolve(buildResult(false, "not_determined", null, "push_not_configured"))
+      return
+    }
     // Android < 13: notification permission is install-time, no runtime
     // prompt. We can short-circuit straight to the token fetch.
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
@@ -112,7 +135,7 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
       fetchTokenAndResolve(promise, status = "authorized")
       return
     }
-    val activity = currentActivity
+    val activity = reactApplicationContext.currentActivity
     if (activity == null) {
       // No activity: can't ask for permission. Resolve with current state.
       val granted = ActivityCompat.checkSelfPermission(
@@ -165,6 +188,8 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun disablePush(promise: Promise) {
+    UserGistPushState.disable(reactApplicationContext)
+    if (UserGistPushState.isExpo(reactApplicationContext)) { promise.resolve(null); return }
     FirebaseMessaging.getInstance().deleteToken()
       .addOnCompleteListener { promise.resolve(null) }
   }
@@ -233,10 +258,10 @@ class UserGistPushModule(reactContext: ReactApplicationContext) :
   // Required for RN's NativeEventEmitter API even though we emit from a
   // separate static bus — RN will warn otherwise.
   @ReactMethod
-  fun addListener(_eventName: String?) { /* no-op */ }
+  fun addListener(_eventName: String?) { UserGistPushEventBus.addListener() }
 
   @ReactMethod
-  fun removeListeners(_count: Double) { /* no-op */ }
+  fun removeListeners(_count: Double) { UserGistPushEventBus.removeListeners(_count.toInt()) }
 
   // MARK: - Internal
 
@@ -287,16 +312,32 @@ internal object UserGistPushEventBus {
   @Volatile private var reactContext: ReactApplicationContext? = null
   private val pending: MutableList<Pair<String, WritableMap>> = mutableListOf()
   private var initialNotification: WritableMap? = null
+  private var listenerCount = 0
 
   @Synchronized
   fun attach(ctx: ReactApplicationContext) {
     this.reactContext = ctx
+    if (listenerCount == 0) return
     val drained = pending.toList()
     pending.clear()
     for ((name, body) in drained) {
       send(name, body)
     }
   }
+
+  @Synchronized
+  fun addListener() {
+    listenerCount++
+    // Drain after all JS subscriptions in this tick have been registered.
+    android.os.Handler(android.os.Looper.getMainLooper()).post {
+      synchronized(this) { if (listenerCount > 0) reactContext?.let { attach(it) } }
+    }
+  }
+  @Synchronized fun removeListeners(count: Int) { listenerCount = (listenerCount - count).coerceAtLeast(0) }
+  @Synchronized fun detach(ctx: ReactApplicationContext) { if (reactContext === ctx) { reactContext = null; listenerCount = 0 } }
+
+  fun emitNotificationDisplayed(body: WritableMap) = emit("UserGistPush:notificationDisplayed", body)
+  fun emitNotificationDismissed(body: WritableMap) = emit("UserGistPush:notificationDismissed", body)
 
   fun emitToken(token: String) {
     val map = Arguments.createMap()
@@ -328,7 +369,7 @@ internal object UserGistPushEventBus {
   @Synchronized
   private fun emit(name: String, body: WritableMap) {
     val ctx = reactContext
-    if (ctx == null || !ctx.hasActiveReactInstance()) {
+    if (ctx == null || !ctx.hasActiveReactInstance() || listenerCount == 0) {
       if (pending.size >= 100) pending.removeAt(0)
       pending.add(name to body)
       return

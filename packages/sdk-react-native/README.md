@@ -7,6 +7,12 @@ passed end-to-end physical-device validation; each host app still needs its own
 provider credentials, identifiers, native callback setup, and signed-device
 acceptance test.
 
+## Expo
+
+Expo 56/57 development and production build integration is being validated for
+0.2. Use the same package with its config plugin; see [EXPO.md](EXPO.md).
+Expo Go cannot load the native bridge. See [release gates](EXPO-ACCEPTANCE.md).
+
 ## Install
 
 ```bash
