@@ -82,6 +82,8 @@ export interface PublicDocumentSummary {
   category: ChangelogCategory
   releaseDate: string
   version: string
+  /** Full published body; present for changelog entries so the portal can show release notes inline. */
+  body?: ContentNode
 }
 export interface HelpCollection {
   id: string
