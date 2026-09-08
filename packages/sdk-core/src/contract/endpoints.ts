@@ -1,4 +1,5 @@
 import type * as Content from '../types/portal-content.js'
+import type * as Mcp from '../types/mcp.js'
 // ============================================================
 // API contract — every endpoint path, method, request, response.
 // The API implements this; clients (dashboard, SDKs) consume it.
@@ -27,6 +28,7 @@ import type {
   FeedbackRecipient,
   InAppRecipient,
   RecipientList,
+  RecipientPageQuery,
   SurveyRecipient,
 } from '../types/recipient.js'
 import type {
@@ -303,6 +305,8 @@ export interface PaginatedAppUserEvents {
 
 export interface ListUsersQuery {
   readonly q?: string
+  readonly identityKind?: 'anonymous' | 'identified'
+  readonly origin?: 'sdk' | 'portal'
   readonly cursor?: string
   readonly limit?: number
 }
@@ -501,6 +505,8 @@ export interface GdprExportRequest {
 export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
 
 export const endpoints = {
+  'GET /v1/apps/:appId/search': {} as Endpoint<Mcp.AppSearchQuery, Mcp.AppSearchResult>,
+  'POST /v1/apps/:appId/delivery-diagnostics': {} as Endpoint<Mcp.DeliveryDiagnosticInput, Mcp.DeliveryDiagnosticResult>,
   'GET /v1/workspaces/:wid/portal': {} as Endpoint<void, Portal.PortalSettings>,
   'PUT /v1/workspaces/:wid/portal': {} as Endpoint<Portal.UpdatePortalRequest, Portal.PortalSettings>,
   'GET /v1/workspaces/:wid/portal/slug-available': {} as Endpoint<{ slug: string }, { available: boolean }>,
@@ -545,6 +551,11 @@ export const endpoints = {
   'GET /v1/workspaces/:wid/apps': {} as Endpoint<void, ReadonlyArray<App>>,
   'POST /v1/workspaces/:wid/apps': {} as Endpoint<CreateAppRequest, CreatedApp>,
   'GET /v1/workspaces/:wid/api-tokens': {} as Endpoint<void, ReadonlyArray<ApiToken>>,
+  'GET /v1/workspaces/:wid/ai-connections': {} as Endpoint<void, Mcp.McpConnectionSettings>,
+  'PATCH /v1/workspaces/:wid/ai-connections/:id': {} as Endpoint<Mcp.McpGrant & { policyVersion: number }, Mcp.McpConnection>,
+  'POST /v1/workspaces/:wid/ai-connections/:id/revoke': {} as Endpoint<void, { revoked: boolean }>,
+  'GET /v1/workspaces/:wid/ai-connections/:id/activity': {} as Endpoint<void, { items: Mcp.McpActivity[]; limit: number }>,
+  'POST /v1/mcp/consent': {} as Endpoint<Mcp.McpGrant & { workspaceId: string; externalAuthId: string }, { redirectUri: string }>,
   'POST /v1/workspaces/:wid/api-tokens': {} as Endpoint<CreateApiTokenRequest, CreatedApiToken>,
   'DELETE /v1/workspaces/:wid/api-tokens/:tokenId': {} as Endpoint<void, { revoked: true }>,
   'GET /v1/apps/:appId': {} as Endpoint<void, App>,
@@ -631,7 +642,7 @@ export const endpoints = {
 
   'GET /v1/apps/:appId/prompts/:promptId/responses': {} as Endpoint<ListResponsesQuery, ReadonlyArray<PromptResponse>>,
   'GET /v1/apps/:appId/prompts/:promptId/recipients': {} as Endpoint<
-    { from?: string; to?: string },
+    RecipientPageQuery,
     RecipientList<FeedbackRecipient>
   >,
   'GET /v1/apps/:appId/prompts/:promptId/analytics': {} as Endpoint<
@@ -883,7 +894,7 @@ export const endpoints = {
     ReadonlyArray<SurveyResponseRecord>
   >,
   'GET /v1/apps/:appId/surveys/:sid/recipients': {} as Endpoint<
-    { from?: string; to?: string },
+    RecipientPageQuery,
     RecipientList<SurveyRecipient>
   >,
   'GET /v1/apps/:appId/surveys/:sid/attempts': {} as Endpoint<
@@ -938,7 +949,7 @@ export const endpoints = {
     InAppMessageAnalytics
   >,
   'GET /v1/apps/:appId/inapp-messages/:id/recipients': {} as Endpoint<
-    { from?: string; to?: string },
+    RecipientPageQuery,
     RecipientList<InAppRecipient>
   >,
   'GET /v1/sdk/armed-inapp-messages': {} as Endpoint<
