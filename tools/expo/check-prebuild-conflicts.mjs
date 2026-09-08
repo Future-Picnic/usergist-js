@@ -44,4 +44,17 @@ try {
   assert.match(entitlements, /applinks:example.com/)
   assert.match(entitlements, new RegExp(`<string>${options.push.ios.apsEnvironment}</string>`))
 } finally { writeFileSync(appFile, original) }
+try {
+  const image = join(root, 'assets/usergist-notification-test.png')
+  const installed = join(root, 'android/app/src/main/res/drawable/usergist_notification_icon.png')
+  options.push.android = { notificationIcon: './assets/usergist-notification-test.png', notificationColor: '#3366FF' }
+  writeFileSync(appFile, JSON.stringify(app))
+  for (const density of ['mdpi', 'hdpi']) {
+    const bytes = readFileSync(join(root, `android/app/src/main/res/drawable-${density}/splashscreen_logo.png`))
+    writeFileSync(image, bytes)
+    const result = run('android')
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    assert.deepEqual(readFileSync(installed), bytes, 'Owned notification resources must update on prebuild')
+  }
+} finally { writeFileSync(appFile, original) }
 console.log('Existing native configuration is preserved; foreign push ownership fails explicitly.')

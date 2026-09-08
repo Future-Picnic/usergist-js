@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
@@ -18,6 +19,9 @@ if (!archive) {
   run('pnpm', ['pack', '--pack-destination', root], join(repo, 'packages/sdk-react-native'))
   archive = join(root, `usergist-feedback-react-native-${JSON.parse(readFileSync(join(repo, 'packages/sdk-react-native/package.json'))).version}.tgz`)
 }
+const archiveSha256 = createHash('sha256').update(readFileSync(archive)).digest('hex')
+console.log(`SDK_ARCHIVE_SHA256=${archiveSha256}`)
+if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `archive=${archive}\narchive_sha256=${archiveSha256}\n`)
 const expoVersion = major === '57' ? '57.0.20' : '56.0.21'
 writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'usergist-expo-consumer', version: '1.0.0', private: true, main: 'index.js', dependencies: { expo: expoVersion, react: '19.2.3', 'react-native': major === '57' ? '0.86.3' : '0.85.3' } }, null, 2))
 run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'])

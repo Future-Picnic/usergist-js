@@ -162,7 +162,25 @@ function ensureRequestsCache() {
 }
 
 async function syncNativePushState(e: Engine, push = e.consent.allowsPush()): Promise<void> {
-  await UserGistPushNative.syncState({ writeKey: e.config.writeKey, apiUrl: e.config.apiUrl, anonymousId: e.identity.get().anonymousId, push: push && !e.resetting })
+  const anonymousId = e.identity.get().anonymousId
+  const generation = e.resetGeneration
+  const version = e.consent.get().version
+  const operation = nativeStateQueue.then(async () => {
+    if (generation !== e.resetGeneration || anonymousId !== e.identity.get().anonymousId || version !== e.consent.get().version) return
+    await UserGistPushNative.syncState({ writeKey: e.config.writeKey, apiUrl: e.config.apiUrl, anonymousId, push: push && !e.resetting })
+  })
+  nativeStateQueue = operation.catch(() => undefined)
+  await operation
+}
+let nativeStateQueue = Promise.resolve()
+
+async function disableNativePushForConsent(e: Engine, version: number): Promise<void> {
+  const operation = nativeStateQueue.then(async () => {
+    if (e.consent.get().version !== version || e.consent.allowsPush()) return
+    await UserGistPushNative.disablePush()
+  })
+  nativeStateQueue = operation.catch(() => undefined)
+  await operation
 }
 
 function requireEngine(): Engine {
@@ -393,6 +411,7 @@ export const UserGist = {
       }
       const e = requireEngine()
       await ensureHydrated(e)
+      if (e.resetting) return 'rejected'
       const identity = e.identity.get()
       const pendingIdentity = e.mutations.peek()
       const transition = validateIdentifyTransition(
@@ -457,14 +476,19 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
+      if (e.resetting) return false
       const next = await e.consent.set(purposes)
+      if (e.resetting || next.version !== e.consent.get().version) return false
       await syncNativePushState(e)
+      if (e.resetting || next.version !== e.consent.get().version) return false
       if (purposes.push === false) {
         lastEnablePushOptions = null
         await pushRegistrationQueue
+        if (e.resetting || next.version !== e.consent.get().version) return false
         if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
-        await UserGistPushNative.disablePush()
+        await disableNativePushForConsent(e, next.version)
       }
+      if (e.resetting || next.version !== e.consent.get().version) return false
       const id = e.identity.get()
       try {
         await e.transport.consent({

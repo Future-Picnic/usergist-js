@@ -1,6 +1,7 @@
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
+const { createHash } = require('node:crypto')
 const {
   createRunOncePlugin, withInfoPlist, withEntitlementsPlist, withXcodeProject,
   withPodfile, withAndroidManifest, withAppBuildGradle, withProjectBuildGradle,
@@ -113,6 +114,7 @@ function withUserGist(config, options = {}) {
   if (config.platforms?.includes('android') !== false) {
     if (!config.android?.googleServicesFile) fail('Set android.googleServicesFile to your Firebase client google-services.json (not a service-account key)')
     config = withProjectBuildGradle(config, c => {
+      if (c.modResults.language && c.modResults.language !== 'groovy') fail('Kotlin Gradle configuration requires explicit Google Services integration; see /docs/sdks/expo#conflicts')
       if (!c.modResults.contents.includes('com.google.gms:google-services:')) {
         if (!/dependencies\s*\{/.test(c.modResults.contents)) fail('Unsupported project Gradle format; add the Google Services classpath explicitly')
         c.modResults.contents = c.modResults.contents.replace(/dependencies\s*\{/, "dependencies {\n        classpath('com.google.gms:google-services:4.4.4')")
@@ -120,6 +122,7 @@ function withUserGist(config, options = {}) {
       return c
     })
     config = withAppBuildGradle(config, c => {
+      if (c.modResults.language && c.modResults.language !== 'groovy') fail('Kotlin Gradle configuration requires an explicit notification dispatcher dependency; see /docs/sdks/expo#conflicts')
       if (!/apply plugin: ['"]com.google.gms.google-services['"]/.test(c.modResults.contents)) c.modResults.contents += '\napply plugin: "com.google.gms.google-services"\n'
       if (push.mode === 'expo-notifications') {
         const folder = path.dirname(require.resolve('expo-notifications/package.json', { paths: [c.modRequest.projectRoot] }))
@@ -151,8 +154,15 @@ function withUserGist(config, options = {}) {
         if (path.extname(file).toLowerCase() !== '.png') fail('notificationIcon must be a white-on-transparent PNG')
         const dest = path.join(root, 'app/src/main/res/drawable/usergist_notification_icon.png')
         fs.mkdirSync(path.dirname(dest), { recursive: true })
-        if (fs.existsSync(dest) && !fs.readFileSync(dest).equals(fs.readFileSync(file))) fail('Notification icon already exists with different content; use a fresh native fixture')
+        const ownershipFile = path.join(root, '.usergist-expo-assets.json')
+        const ownership = fs.existsSync(ownershipFile) ? JSON.parse(fs.readFileSync(ownershipFile, 'utf8')) : { owner: '@usergist/feedback-react-native', files: {} }
+        if (ownership.owner !== '@usergist/feedback-react-native') fail(`Asset ownership file is not owned by UserGist: ${ownershipFile}`)
+        const asset = path.relative(root, dest)
+        const hash = bytes => createHash('sha256').update(bytes).digest('hex')
+        if (fs.existsSync(dest) && !fs.readFileSync(dest).equals(fs.readFileSync(file)) && ownership.files[asset] !== hash(fs.readFileSync(dest))) fail('Notification icon was customized outside the plugin; preserve it and follow /docs/sdks/expo#conflicts')
         fs.copyFileSync(file, dest)
+        ownership.files[asset] = hash(fs.readFileSync(dest))
+        fs.writeFileSync(ownershipFile, JSON.stringify(ownership))
       }
       return c
     }])
@@ -199,8 +209,9 @@ function withExtension(config, ios) {
         const list = project.pbxXCConfigurationList()[native.buildConfigurationList]
         for (const ref of list?.buildConfigurations || []) {
           const settings = project.pbxXCBuildConfigurationSection()[ref.value].buildSettings
-          const name = String(settings.INFOPLIST_FILE || '').replaceAll('"', '')
+          const name = String(settings.INFOPLIST_FILE || '').replaceAll('"', '').replace(/\$\((?:SRCROOT|PROJECT_DIR)\)|\$\{(?:SRCROOT|PROJECT_DIR)\}/g, root).replace(/\$\(TARGET_NAME\)/g, String(native.name).replaceAll('"', ''))
           const file = path.resolve(root, name)
+          if (!name || name.includes('$') || !fs.existsSync(file)) fail(`Cannot inspect Info.plist for existing app extension ${native.name}; verify notification ownership explicitly, see /docs/sdks/expo#conflicts`)
           if (name && fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('com.apple.usernotifications.service')) fail(`Existing notification service extension ${native.name} needs manual composition; see /docs/sdks/expo#conflicts`)
         }
       }

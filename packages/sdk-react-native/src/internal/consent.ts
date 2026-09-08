@@ -35,6 +35,7 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
   let hydrated = false
   let hydrating: Promise<ConsentState> | null = null
   const listeners = new Set<(s: ConsentState) => void>()
+  let pendingWrite = Promise.resolve()
 
   function emit(): void {
     for (const l of listeners) {
@@ -47,7 +48,9 @@ export function createConsentManager(storage: StorageScope): ConsentManager {
   }
 
   async function persist(next: ConsentState): Promise<void> {
-    await storage.setJson(STORAGE_KEYS.consent, next)
+    const write = pendingWrite.then(() => storage.setJson(STORAGE_KEYS.consent, next))
+    pendingWrite = write.catch(() => undefined)
+    await write
   }
 
   async function hydrate(): Promise<ConsentState> {

@@ -44,6 +44,7 @@ for (const file of [
   'expo-support/UserGistFeedbackExpo.podspec',
   'expo-support/UserGistExpoAppDelegateSubscriber.swift',
   'ios/Shared/UserGistPushState.swift',
+  'ios/Shared/UserGistNotificationActions.swift',
   'android/src/main/java/studio/usergist/feedback/UserGistPushState.kt',
   'dist/NativeUserGistPush.js',
   'react-native.config.js',

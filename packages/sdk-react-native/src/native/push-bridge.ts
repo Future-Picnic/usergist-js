@@ -48,6 +48,7 @@ export const UserGistPushNative = {
   },
 
   async syncState(state: { writeKey: string; apiUrl: string; anonymousId: string; push: boolean }): Promise<void> {
+    if (!Module) { warnMissing(); return }
     const configuration = await Module?.getPushConfiguration?.()
     await Module?.configurePushState?.({ ...state, push: state.push && configuration?.mode !== 'disabled' })
   },

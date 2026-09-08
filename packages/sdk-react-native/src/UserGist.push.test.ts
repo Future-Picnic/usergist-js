@@ -14,10 +14,11 @@ vi.mock('./native/push-bridge.js', () => ({ UserGistPushNative: { syncState: asy
 beforeEach(() => {
   vi.resetModules()
   let push = true
+  let version = 0
   fixture.engine = {
     config: { writeKey: 'wk', apiUrl: 'https://api.usergist.com', environment: 'development' },
     identity: { get: () => ({ anonymousId: 'old-account', externalId: null }) },
-    consent: { allowsPush: () => push, set: async (v: { push: boolean }) => { push = v.push; return { push } } },
+    consent: { get: () => ({ push, version }), allowsPush: () => push, set: async (v: { push: boolean }) => { push = v.push; version++; return { push, version } } },
     lifecycle: { start() {} }, events: { emit() {} }, storage: { setJson: vi.fn(async () => {}) },
     resetting: false, resetGeneration: 0, lastPushToken: null, lastPushRegistrationKey: null, lastPushRegistrationAt: 0,
     transport: { pushRegisterToken: vi.fn(async () => {}), pushInvalidateToken: vi.fn(async () => {}), consent: vi.fn(async () => {}) },
