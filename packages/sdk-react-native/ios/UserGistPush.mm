@@ -44,6 +44,8 @@ RCT_EXPORT_MODULE(UserGistPush)
     @"UserGistPush:tokenError",
     @"UserGistPush:notificationReceived",
     @"UserGistPush:notificationOpened",
+    @"UserGistPush:notificationDisplayed",
+    @"UserGistPush:notificationDismissed",
   ];
 }
 
@@ -56,6 +58,22 @@ RCT_EXPORT_MODULE(UserGistPush)
 }
 
 // MARK: - Exported methods
+RCT_EXPORT_METHOD(getPushConfiguration:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
+  NSString *mode = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UserGistPushMode"];
+  NSString *environment = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UserGistApsEnvironment"];
+  NSMutableDictionary *result = [NSMutableDictionary new];
+  if (mode) result[@"mode"] = mode;
+  if (environment) result[@"environment"] = [environment isEqualToString:@"production"] ? @"production" : @"sandbox";
+  resolve(result);
+}
+
+RCT_EXPORT_METHOD(configurePushState:(NSDictionary *)state
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
+  [UserGistPushImpl.shared configurePushState:state resolver:resolve rejecter:reject];
+}
+
 
 RCT_EXPORT_METHOD(enablePush:(NSDictionary *)options
                   resolver:(RCTPromiseResolveBlock)resolve

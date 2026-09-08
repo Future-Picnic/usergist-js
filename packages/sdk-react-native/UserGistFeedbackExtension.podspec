@@ -18,6 +18,6 @@ Pod::Spec.new do |s|
   s.source           = { :git => 'https://github.com/Future-Picnic/usergist-js.git', :tag => "v#{s.version}" }
   s.requires_arc     = true
   s.swift_version    = '5.7'
-  s.source_files     = 'ios/Extension/*.swift'
+  s.source_files     = 'ios/Extension/*.swift', 'ios/Shared/*.swift'
   s.frameworks       = 'UserNotifications'
 end

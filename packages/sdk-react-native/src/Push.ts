@@ -1,3 +1,4 @@
+import { acceptPushEvent } from './internal/push-dedupe.js'
 /**
  * UserGist Push — React Native public surface.
  *
@@ -242,6 +243,7 @@ export const Push = {
   handleReceived(args: PushHandlerArgs): void {
     const msg = parsePushArgs(args)
     if (!msg) return
+    if (!acceptPushEvent('$push_received', msg.deliveryId)) return
     emitEvent('$push_received', msg)
     handlers.onReceive?.(msg, (args.userInfo ?? args.data ?? {}) as Record<string, unknown>)
   },
@@ -249,6 +251,7 @@ export const Push = {
   handleDisplayed(args: PushHandlerArgs): void {
     const msg = parsePushArgs(args)
     if (!msg) return
+    if (!acceptPushEvent('$push_displayed', msg.deliveryId)) return
     emitEvent('$push_displayed', msg)
     if (msg.deliveryId) void UserGist.pushBeacon('displayed', msg.deliveryId)
   },
@@ -256,6 +259,7 @@ export const Push = {
   handleDismissed(args: PushHandlerArgs): void {
     const msg = parsePushArgs(args)
     if (!msg) return
+    if (!acceptPushEvent('$push_dismissed', msg.deliveryId)) return
     emitEvent('$push_dismissed', msg)
     if (msg.deliveryId) void UserGist.pushBeacon('dismissed', msg.deliveryId)
     handlers.onDismiss?.(msg)
@@ -264,6 +268,7 @@ export const Push = {
   handleOpened(args: PushHandlerArgs & { actionIdentifier?: string }): void {
     const msg = parsePushArgs(args)
     if (!msg) return
+    if (!acceptPushEvent('$push_opened', msg.deliveryId, args.actionIdentifier)) return
     if (args.actionIdentifier) {
       emitEvent('$push_action_clicked', msg, { action_button: args.actionIdentifier })
       try {

@@ -1,3 +1,4 @@
+import { hydratePushDedupe } from './internal/push-dedupe.js'
 // UserGist — public singleton facade.
 //
 // Philosophy:
@@ -67,6 +68,8 @@ import {
   onTokenReceived,
   onNotificationReceived,
   onNotificationOpened,
+  onNotificationDisplayed,
+  onNotificationDismissed,
   onTokenError,
 } from './native/push-bridge.js'
 import { Push } from './Push.js'
@@ -75,6 +78,7 @@ import { AppState, Platform } from 'react-native'
 import { generateEventId, validateIdentifyTransition } from './internal/identity.js'
 import {
   configureStorageAdapter,
+  STORAGE_KEYS,
   type UserGistStorageAdapter,
 } from './internal/storage.js'
 import { surveyCompletionOutcome } from './internal/survey-completion.js'
@@ -130,6 +134,12 @@ export interface InAppHandlers {
 }
 
 let engine: Engine | null = null
+let pushRegistrationQueue: Promise<void> = Promise.resolve()
+function serializePushRegistration(operation: () => Promise<void>): Promise<void> {
+  const task = pushRegistrationQueue.then(operation)
+  pushRegistrationQueue = task.catch(() => undefined)
+  return task
+}
 let runtimeStarted = false
 let runtimeStartPromise: Promise<void> | null = null
 let resetPromise: Promise<void> | null = null
@@ -149,6 +159,10 @@ function ensureRequestsCache() {
     requestsCache = mod.createRequestsCache()
   }
   return requestsCache
+}
+
+async function syncNativePushState(e: Engine, push = e.consent.allowsPush()): Promise<void> {
+  await UserGistPushNative.syncState({ writeKey: e.config.writeKey, apiUrl: e.config.apiUrl, anonymousId: e.identity.get().anonymousId, push: push && !e.resetting })
 }
 
 function requireEngine(): Engine {
@@ -238,7 +252,7 @@ function attachEnginePushListeners(): void {
       try {
         const platform = (p.platform === 'ios' ? 'ios' : 'android') as 'ios' | 'android'
         await UserGist.registerPushToken(p.token, platform, {
-          environment: lastEnablePushOptions?.environment ?? defaultEnvironment(),
+          environment: lastEnablePushOptions?.environment ?? await UserGistPushNative.defaultEnvironment() ?? defaultEnvironment(),
         })
       } catch (err) {
         reportError('tokenReceived registration failed', err)
@@ -254,13 +268,17 @@ function attachEnginePushListeners(): void {
     forwardToPushHandler(p, 'received')
   })
 
+  onNotificationDisplayed(p => forwardToPushHandler(p, 'displayed'))
+  onNotificationDismissed(p => forwardToPushHandler(p, 'dismissed'))
   onNotificationOpened((p: NotificationPayload) => {
     forwardToPushHandler(p, 'opened')
   })
 }
 
-function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened'): void {
+function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened' | 'displayed' | 'dismissed'): void {
+  if (!engine?.consent.allowsPush() || engine.resetting) return
   const data = p.data ?? {}
+  if (data.usergist_anonymous_id && data.usergist_anonymous_id !== engine.identity.get().anonymousId) return
   if (p.deliveryId) {
     ;(data as Record<string, unknown>).usergist_delivery_id = p.deliveryId
   }
@@ -276,6 +294,10 @@ function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened
     Object.assign(userInfo, data)
     if (kind === 'received') {
       Push.handleReceived({ userInfo, notification: { title: p.title, body: p.body } })
+    } else if (kind === 'displayed') {
+      Push.handleDisplayed({ userInfo })
+    } else if (kind === 'dismissed') {
+      Push.handleDismissed({ userInfo })
     } else {
       Push.handleOpened({ userInfo, actionIdentifier: p.actionIdentifier })
     }
@@ -286,6 +308,10 @@ function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened
     }
     if (kind === 'received') {
       Push.handleReceived({ data: dataStr, notification: { title: p.title, body: p.body } })
+    } else if (kind === 'displayed') {
+      Push.handleDisplayed({ data: dataStr })
+    } else if (kind === 'dismissed') {
+      Push.handleDismissed({ data: dataStr })
     } else {
       Push.handleOpened({ data: dataStr, actionIdentifier: p.actionIdentifier })
     }
@@ -337,6 +363,8 @@ export const UserGist = {
         )
         if (result !== 'synced') return result
       }
+      await hydratePushDedupe(e.config.writeKey, e.identity.get().anonymousId)
+      await syncNativePushState(e)
       await startRuntime(e)
       return 'synced'
     } catch (error) {
@@ -402,6 +430,7 @@ export const UserGist = {
         debugLog('identify is saved locally and pending retry')
         return 'queued'
       }
+      await syncNativePushState(e)
       void UserGist.rebindPushToken(userId)
       return 'synced'
     } catch (err) {
@@ -429,6 +458,13 @@ export const UserGist = {
       const e = requireEngine()
       await ensureHydrated(e)
       const next = await e.consent.set(purposes)
+      await syncNativePushState(e)
+      if (purposes.push === false) {
+        lastEnablePushOptions = null
+        await pushRegistrationQueue
+        if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
+        await UserGistPushNative.disablePush()
+      }
       const id = e.identity.get()
       try {
         await e.transport.consent({
@@ -466,12 +502,16 @@ export const UserGist = {
       if (e.resetting) return resetPromise ?? Promise.resolve()
       e.resetting = true
       e.resetGeneration += 1
+      lastEnablePushOptions = null
       e.events.emit('resetSurfaces', undefined)
       const operation = (async () => {
         await ensureHydrated(e)
+        await syncNativePushState(e, false)
+        await pushRegistrationQueue
         if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
         await UserGistPushNative.disablePush().catch(() => undefined)
         await clearAllState(e)
+        await hydratePushDedupe(e.config.writeKey, e.identity.get().anonymousId)
       })()
       const finalized = operation
         .catch((err: unknown) => reportError('reset failed', err))
@@ -594,42 +634,46 @@ export const UserGist = {
       if (!token) return
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsPush()) return
-      // Consent is enforced server-side (the register-token route reads
-      // consent_log and refuses if push was explicitly declined). We no
-      // longer short-circuit here because the host app typically calls
-      // setConsent and registerPushToken in parallel; racing the local
-      // consent hydration is not our problem to solve.
-      const id = e.identity.get()
-      const environment = opts?.environment ??
-        (e.config.environment === 'production' ? 'production' : 'sandbox')
-      const registrationKey = [
-        id.anonymousId,
-        id.externalId ?? '',
-        platform,
-        environment,
-        token,
-      ].join(':')
-      if (
-        e.lastPushRegistrationKey === registrationKey &&
-        Date.now() - e.lastPushRegistrationAt < 24 * 60 * 60_000
-      ) return
-      await e.transport.pushRegisterToken({
-        anonymousId: id.anonymousId,
-        externalId: id.externalId ?? null,
-        token,
-        platform,
-        environment,
-        language: undefined,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        appVersion: undefined,
-        sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
-        optIn: true,
+      if (!e.consent.allowsPush() || e.resetting) return
+      const generation = e.resetGeneration
+      await serializePushRegistration(async () => {
+        if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+        const id = e.identity.get()
+        const environment = opts?.environment ?? await UserGistPushNative.defaultEnvironment() ??
+          (e.config.environment === 'production' ? 'production' : 'sandbox')
+        const registrationKey = [
+          id.anonymousId,
+          id.externalId ?? '',
+          platform,
+          environment,
+          token,
+        ].join(':')
+        if (
+          e.lastPushRegistrationKey === registrationKey &&
+          Date.now() - e.lastPushRegistrationAt < 24 * 60 * 60_000
+        ) return
+        if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+        // Persist before the request so logout can invalidate a token even when
+        // the response is lost or the process exits after the server accepts it.
+        e.lastPushToken = token
+        await e.storage.setJson(STORAGE_KEYS.pushToken, token)
+        await e.transport.pushRegisterToken({
+          anonymousId: id.anonymousId,
+          externalId: id.externalId ?? null,
+          token,
+          platform,
+          environment,
+          language: undefined,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          appVersion: undefined,
+          sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
+          optIn: true,
+        })
+        e.lastPushToken = token
+        e.lastPushRegistrationKey = registrationKey
+        e.lastPushRegistrationAt = Date.now()
+        debugLog('push token registered with server')
       })
-      e.lastPushToken = token
-      e.lastPushRegistrationKey = registrationKey
-      e.lastPushRegistrationAt = Date.now()
-      debugLog('push token registered with server')
     } catch (err) {
       reportError('registerPushToken failed', err)
     }
@@ -641,6 +685,8 @@ export const UserGist = {
       const e = requireEngine()
       await ensureHydrated(e)
       const id = e.identity.get()
+      e.lastPushRegistrationKey = null
+      e.lastPushRegistrationAt = 0
       await e.transport.pushInvalidateToken({
         anonymousId: id.anonymousId,
         token,
@@ -660,13 +706,17 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      const id = e.identity.get()
-      const token = e.lastPushToken
-      if (!token) return
-      await e.transport.pushRebind({
-        anonymousId: id.anonymousId,
-        externalId,
-        token,
+      const generation = e.resetGeneration
+      await serializePushRegistration(async () => {
+        if (generation !== e.resetGeneration) return
+        const id = e.identity.get()
+        const token = e.lastPushToken
+        if (!token || e.resetting || !e.consent.allowsPush() || id.externalId !== externalId) return
+        await e.transport.pushRebind({
+          anonymousId: id.anonymousId,
+          externalId,
+          token,
+        })
       })
     } catch (err) {
       reportError('rebindPushToken failed', err)
@@ -766,8 +816,15 @@ export const UserGist = {
     readonly status: 'authorized' | 'provisional' | 'denied' | 'not_determined'
     readonly token?: string
     readonly platform: 'ios' | 'android'
+    readonly error?: string
   }> {
     try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      if (!e.consent.allowsPush() || e.resetting) return { granted: false, status: 'not_determined', platform: Platform.OS === 'ios' ? 'ios' : 'android', error: 'consent_required' }
+      const generation = e.resetGeneration
+      opts = { ...opts, environment: opts?.environment ?? await UserGistPushNative.defaultEnvironment() ?? defaultEnvironment() }
+      await syncNativePushState(e)
       if (!enginePushListenersAttached) attachEnginePushListeners()
       // Snapshot the caller's options so the AppState foreground listener
       // can re-run enablePush idempotently with the same environment.
@@ -777,6 +834,10 @@ export const UserGist = {
         installDelegateProxy: opts?.installDelegateProxy,
       }
       const result = await UserGistPushNative.enablePush(opts ?? {})
+      if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) {
+        await UserGistPushNative.disablePush()
+        return { granted: false, status: 'not_determined', platform: Platform.OS === 'ios' ? 'ios' : 'android', error: 'session_changed' }
+      }
       // Server-side registration runs on the tokenReceived event; if the
       // native module already had a cached token it surfaces here.
       if (result.granted && result.token) {
@@ -790,23 +851,18 @@ export const UserGist = {
       reportError('enablePush failed', err)
       return {
         granted: false,
-        status: 'denied',
-        platform: (typeof navigator === 'object' && (navigator as { product?: string }).product === 'ReactNative' ? 'ios' : 'android') as 'ios' | 'android',
+        status: 'not_determined',
+        error: 'push_setup_failed',
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
       }
     }
   },
 
   async disablePush(): Promise<void> {
+    lastEnablePushOptions = null
     try {
-      const e = engine
-      if (e?.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
-      await UserGistPushNative.disablePush()
-      if (e) {
-        e.lastPushToken = null
-        e.lastPushRegistrationKey = null
-        e.lastPushRegistrationAt = 0
-        void UserGist.setConsent({ push: false })
-      }
+      if (engine) await UserGist.setConsent({ push: false })
+      else await UserGistPushNative.disablePush()
     } catch (err) {
       reportError('disablePush failed', err)
     }

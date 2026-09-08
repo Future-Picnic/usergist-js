@@ -1,6 +1,6 @@
 {
   "name": "@usergist/feedback-react-native",
-  "version": "0.1.1",
+  "version": "0.2.0-beta.0",
   "description": "userGist feedback + push SDK for React Native (self-contained, no Firebase/OneSignal/WonderPush required)",
   "license": "MIT",
   "homepage": "https://usergist.com/docs/sdks/react-native",
@@ -35,7 +35,16 @@
       "import": "./dist/preview/index.js",
       "default": "./dist/preview/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./expo": {
+      "types": "./dist/expo/index.d.ts",
+      "import": "./dist/expo/index.js",
+      "default": "./dist/expo/index.js"
+    },
+    "./app.plugin.js": {
+      "types": "./plugin/index.d.cts",
+      "default": "./plugin/index.cjs"
+    }
   },
   "files": [
     "dist",
@@ -49,7 +58,14 @@
     "react-native.config.js",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "app.plugin.js",
+    "plugin",
+    "expo-module.config.json",
+    "expo-support",
+    "EXPO.md",
+    "EXPO-ACCEPTANCE.md",
+    "!plugin/*.test.cjs"
   ],
   "scripts": {
     "build": "tsc",
@@ -57,19 +73,23 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "prepack": "pnpm run build",
-    "pack:check": "node scripts/check-package.mjs"
+    "pack:check": "node scripts/check-package.mjs",
+    "test:plugin": "node --test plugin/*.test.cjs"
   },
   "peerDependencies": {
     "@react-native-async-storage/async-storage": ">=1.19",
     "react": ">=18",
     "react-native": ">=0.72",
-    "react-native-safe-area-context": ">=4"
+    "react-native-safe-area-context": ">=4",
+    "expo": ">=56 <58"
   },
   "dependencies": {
-    "@usergist/sdk-core": "workspace:^"
+    "@usergist/sdk-core": "workspace:^",
+    "@expo/plist": "0.4.7"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "next"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
@@ -77,6 +97,12 @@
     "react-native": "0.74.0",
     "react-native-safe-area-context": "^4",
     "vitest": "^2.1.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "expo": "57.0.20"
+  },
+  "peerDependenciesMeta": {
+    "expo": {
+      "optional": true
+    }
   }
 }

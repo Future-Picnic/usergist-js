@@ -23,7 +23,7 @@ Pod::Spec.new do |s|
   # The RN bridge module: RCTBridgeModule, RCTEventEmitter, Swift impl.
   # Pulls in React-Core because it imports <React/...> headers.
   s.subspec 'Core' do |core|
-    core.source_files = 'ios/*.{h,m,mm,swift}'
+    core.source_files = 'ios/*.{h,m,mm,swift}', 'ios/Shared/*.swift'
     core.frameworks   = 'UIKit', 'UserNotifications', 'Security'
     core.dependency 'React-Core'
   end
