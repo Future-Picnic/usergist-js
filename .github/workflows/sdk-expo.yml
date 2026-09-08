@@ -11,14 +11,16 @@ on:
       - 'pnpm-lock.yaml'
 permissions:
   contents: read
+concurrency:
+  group: expo-sdk-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  bare-react-native:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-15]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      filename: ${{ steps.pack.outputs.filename }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
@@ -27,19 +29,50 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24.15.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @usergist/sdk-core build
+      - run: pnpm --filter @usergist/feedback-react-native test && pnpm --filter @usergist/feedback-react-native test:plugin
+      - id: pack
+        name: Build and verify the single release candidate
+        run: |
+          mkdir -p "$RUNNER_TEMP/sdk-candidate"
+          pnpm --dir packages/sdk-react-native pack --pack-destination "$RUNNER_TEMP/sdk-candidate"
+          sdk_version=$(node -p 'require("./packages/sdk-react-native/package.json").version')
+          filename="usergist-feedback-react-native-$sdk_version.tgz"
+          node packages/sdk-react-native/scripts/check-package.mjs "$RUNNER_TEMP/sdk-candidate/$filename"
+          echo "filename=$filename" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/sdk-candidate/$filename" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Retain the immutable candidate for builds and publication
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: usergist-react-native-candidate
+          path: ${{ runner.temp }}/sdk-candidate/*.tgz
+          if-no-files-found: error
+          retention-days: 90
+  bare-react-native:
+    needs: archive
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.15.0
       - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
         if: runner.os == 'Linux'
         with:
           distribution: temurin
           java-version: 17
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @usergist/sdk-core build
-      - name: Pack the same SDK for an ordinary React Native consumer
-        run: pnpm --dir packages/sdk-react-native pack --pack-destination '${{ runner.temp }}'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: usergist-react-native-candidate
+          path: ${{ runner.temp }}/sdk-candidate
       - id: bare
-        run: |
-          sdk_version=$(node -p 'require("./packages/sdk-react-native/package.json").version')
-          node tools/expo/create-bare-consumer.mjs '${{ runner.temp }}/usergist-feedback-react-native-'"$sdk_version"'.tgz'
+        run: node tools/expo/create-bare-consumer.mjs '${{ runner.temp }}/sdk-candidate/${{ needs.archive.outputs.filename }}'
       - name: Android baseline without Expo dependencies
         if: runner.os == 'Linux'
         working-directory: ${{ steps.bare.outputs.consumer }}/android
@@ -51,8 +84,9 @@ jobs:
           DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
         run: |
           pod install
-          xcodebuild -workspace HelloWorld.xcworkspace -scheme HelloWorld -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -workspace HelloWorld.xcworkspace -scheme HelloWorld -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
   consumer:
+    needs: archive
     strategy:
       fail-fast: false
       matrix:
@@ -63,9 +97,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
-        with:
-          version: 9.0.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24.15.0
@@ -74,11 +105,12 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @usergist/sdk-core build
-      - run: pnpm --filter @usergist/feedback-react-native test && pnpm --filter @usergist/feedback-react-native test:plugin
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: usergist-react-native-candidate
+          path: ${{ runner.temp }}/sdk-candidate
       - id: fixture
-        run: node tools/expo/create-consumer.mjs '${{ matrix.sdk }}' '${{ matrix.mode }}'
+        run: node tools/expo/create-consumer.mjs '${{ matrix.sdk }}' '${{ matrix.mode }}' '${{ runner.temp }}/sdk-candidate/${{ needs.archive.outputs.filename }}'
       - run: node tools/expo/verify-consumer.mjs '${{ steps.fixture.outputs.consumer }}'
       - run: node tools/expo/check-prebuild-conflicts.mjs '${{ steps.fixture.outputs.consumer }}'
       - name: Bundle the consumer application
