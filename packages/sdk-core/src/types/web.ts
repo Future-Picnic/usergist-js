@@ -20,7 +20,7 @@ export function deliveryPlatformsForApp(platforms: ReadonlyArray<string>): Deliv
   const values = new Set<DeliveryPlatform>()
   for (const platform of platforms) {
     if (platform === 'web' || platform === 'ios' || platform === 'android') values.add(platform)
-    if (platform === 'react-native' || platform === 'flutter') {
+    if (platform === 'expo' || platform === 'react-native' || platform === 'flutter') {
       values.add('ios'); values.add('android')
     }
   }

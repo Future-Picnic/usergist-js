@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { createApiTokenSchema, createAppSchema, updateOnboardingSchema } from './apps.js'
+import { deliveryPlatformsForApp } from '../types/web.js'
 
 describe('SDK administration schemas', () => {
+  it('accepts Expo as an integration and expands campaigns to native delivery platforms', () => {
+    const app = createAppSchema.parse({ name: 'Expo app', platforms: ['expo'] })
+    expect(app.platforms).toEqual(['expo'])
+    expect(deliveryPlatformsForApp(app.platforms)).toEqual(['ios', 'android'])
+    expect(deliveryPlatformsForApp(['expo', 'ios', 'react-native', 'web'])).toEqual(['ios', 'android', 'web'])
+  })
   it('defaults a new app to a production write key', () => {
     const parsed = createAppSchema.parse({
       name: 'Acme Mobile',

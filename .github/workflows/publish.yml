@@ -90,6 +90,7 @@ jobs:
         if: steps.versions.outputs.react_native_only != 'true'
       - run: pnpm --filter @usergist/feedback-react-native typecheck
       - run: pnpm --filter @usergist/feedback-react-native test
+      - run: pnpm --filter @usergist/feedback-react-native test:plugin
       - run: pnpm --filter @usergist/feedback-react-native build
       - name: Build and inspect immutable package archives
         shell: bash
@@ -108,6 +109,12 @@ jobs:
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/core-files.txt"
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/rn-files.txt"
           node packages/sdk-react-native/scripts/check-package.mjs "$rn_archive"
+      - name: Enforce Expo native and signed-device release gates
+        env:
+          USERGIST_EXPO_RELEASE_EVIDENCE: ${{ vars.USERGIST_EXPO_RELEASE_EVIDENCE }}
+        run: |
+          archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
+          node tools/expo/check-release-evidence.mjs "$archive"
       - name: Build Web package archive
         if: steps.versions.outputs.react_native_only != 'true'
         run: pnpm --dir packages/sdk-web pack --pack-destination "$RUNNER_TEMP/usergist-packs"
@@ -123,7 +130,8 @@ jobs:
         run: |
           archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
           test -n "$archive"
-          npm stage publish "$archive" --access public --provenance
+          release_tag=$(node -p 'require("./packages/sdk-react-native/package.json").version.includes("-") ? "next" : "latest"')
+          npm stage publish "$archive" --access public --provenance --tag "$release_tag"
       - name: Stage Web package for 2FA approval
         if: steps.versions.outputs.react_native_only != 'true'
         shell: bash

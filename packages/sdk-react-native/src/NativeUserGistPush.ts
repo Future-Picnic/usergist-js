@@ -30,6 +30,8 @@ export type PushPermissionStatus =
   | 'not_determined'
 
 export interface Spec extends TurboModule {
+  getPushConfiguration?(): Promise<{ mode?: string; environment?: 'sandbox' | 'production' }>
+  configurePushState?(state: { writeKey: string; apiUrl: string; anonymousId: string; push: boolean }): Promise<void>
   enablePush(options: { [key: string]: unknown } | null): Promise<EnablePushResult>
   disablePush(): Promise<void>
   getPushPermissionStatus(): Promise<PushPermissionStatus>

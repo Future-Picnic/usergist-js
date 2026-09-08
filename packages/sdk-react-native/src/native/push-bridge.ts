@@ -1,3 +1,4 @@
+import { getPushAdapter } from './push-adapter.js'
 // Runtime bridge to the UserGist native push module.
 //
 // Strategy:
@@ -30,17 +31,28 @@ function warnMissing(): void {
   warned = true
   // eslint-disable-next-line no-console
   console.warn(
-    '[usergist] Native push module not found. Make sure @usergist/feedback-react-native is installed and rebuild the app (`pod install` for iOS, rebuild for Android). Push acquisition is disabled until then.',
+    '[usergist] Native push module not found. Make sure @usergist/feedback-react-native is installed and rebuild the app (`pod install` for iOS, rebuild for Android). Expo Go cannot load this module. Use an Expo development build (npx expo run:ios / run:android) or EAS Build; an OTA update cannot add native code.',
   )
 }
 
 const STUB_RESULT: EnablePushResult = {
   granted: false,
-  status: 'denied',
+  status: 'not_determined',
+  error: 'native_module_unavailable',
   platform: Platform.OS === 'ios' ? 'ios' : 'android',
 }
 
 export const UserGistPushNative = {
+  async defaultEnvironment(): Promise<'sandbox' | 'production' | undefined> {
+    return (await Module?.getPushConfiguration?.())?.environment
+  },
+
+  async syncState(state: { writeKey: string; apiUrl: string; anonymousId: string; push: boolean }): Promise<void> {
+    if (!Module) { warnMissing(); return }
+    const configuration = await Module?.getPushConfiguration?.()
+    await Module?.configurePushState?.({ ...state, push: state.push && configuration?.mode !== 'disabled' })
+  },
+
   isAvailable(): boolean {
     return Module != null
   },
@@ -50,6 +62,11 @@ export const UserGistPushNative = {
       warnMissing()
       return STUB_RESULT
     }
+    const configuration = await Module.getPushConfiguration?.()
+    if (configuration?.mode === 'disabled') return { ...STUB_RESULT, error: 'push_not_configured' }
+    const adapter = getPushAdapter()
+    if (configuration?.mode === 'expo-notifications' && !adapter) return { ...STUB_RESULT, error: 'expo_adapter_required' }
+    if (adapter) return adapter.enablePush(options)
     return Module.enablePush(options as unknown as { [key: string]: unknown })
   },
 
@@ -58,16 +75,23 @@ export const UserGistPushNative = {
       warnMissing()
       return
     }
+    const adapter = getPushAdapter()
+    if (adapter) await adapter.disablePush()
+    // Native Expo mode disables only UserGist, never the host APNs/FCM token.
     await Module.disablePush()
   },
 
   async getPermissionStatus(): Promise<PushPermissionStatus> {
-    if (!Module) return 'denied'
+    if (!Module) { warnMissing(); return 'not_determined' }
+    const adapter = getPushAdapter()
+    if (adapter) return adapter.getPermissionStatus()
     return Module.getPushPermissionStatus()
   },
 
   async setBadgeCount(count: number): Promise<void> {
     if (!Module) return
+    const adapter = getPushAdapter()
+    if (adapter) await adapter.setBadgeCount(count)
     await Module.setBadgeCount(count)
   },
 
@@ -120,3 +144,8 @@ export const onNotificationOpened = (cb: (p: NotificationPayload) => void) =>
   onPushEvent<NotificationPayload>(USERGIST_PUSH_EVENTS.NOTIFICATION_OPENED, cb)
 
 export type { EnablePushOptions, EnablePushResult, PushPermissionStatus }
+
+export const onNotificationDisplayed = (cb: (p: NotificationPayload) => void) =>
+  onPushEvent<NotificationPayload>(USERGIST_PUSH_EVENTS.NOTIFICATION_DISPLAYED, cb)
+export const onNotificationDismissed = (cb: (p: NotificationPayload) => void) =>
+  onPushEvent<NotificationPayload>(USERGIST_PUSH_EVENTS.NOTIFICATION_DISMISSED, cb)

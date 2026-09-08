@@ -1,0 +1,105 @@
+name: Expo SDK consumer builds
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packages/sdk-react-native/**'
+      - 'packages/sdk-core/**'
+      - 'tools/expo/**'
+      - 'apps/demo-expo/**'
+      - '.github/workflows/sdk-expo.yml'
+      - 'pnpm-lock.yaml'
+permissions:
+  contents: read
+jobs:
+  bare-react-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: 9.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.15.0
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @usergist/sdk-core build
+      - name: Pack the same SDK for an ordinary React Native consumer
+        run: pnpm --dir packages/sdk-react-native pack --pack-destination '${{ runner.temp }}'
+      - id: bare
+        run: |
+          sdk_version=$(node -p 'require("./packages/sdk-react-native/package.json").version')
+          node tools/expo/create-bare-consumer.mjs '${{ runner.temp }}/usergist-feedback-react-native-'"$sdk_version"'.tgz'
+      - name: Android baseline without Expo dependencies
+        if: runner.os == 'Linux'
+        working-directory: ${{ steps.bare.outputs.consumer }}/android
+        run: ./gradlew :app:assembleDebug --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1536m' -PreactNativeArchitectures=arm64-v8a
+      - name: iOS baseline without Expo dependencies
+        if: runner.os == 'macOS'
+        working-directory: ${{ steps.bare.outputs.consumer }}/ios
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+        run: |
+          pod install
+          xcodebuild -workspace HelloWorld.xcworkspace -scheme HelloWorld -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+  consumer:
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ['56', '57']
+        mode: [automatic, expo-notifications]
+        os: [ubuntu-latest, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: 9.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.15.0
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @usergist/sdk-core build
+      - run: pnpm --filter @usergist/feedback-react-native test && pnpm --filter @usergist/feedback-react-native test:plugin
+      - id: fixture
+        run: node tools/expo/create-consumer.mjs '${{ matrix.sdk }}' '${{ matrix.mode }}'
+      - run: node tools/expo/verify-consumer.mjs '${{ steps.fixture.outputs.consumer }}'
+      - run: node tools/expo/check-prebuild-conflicts.mjs '${{ steps.fixture.outputs.consumer }}'
+      - name: Bundle the consumer application
+        working-directory: ${{ steps.fixture.outputs.consumer }}
+        run: npx expo export --platform ios --platform android
+      - name: Android native build
+        if: runner.os == 'Linux'
+        working-directory: ${{ steps.fixture.outputs.consumer }}/android
+        run: ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1536m' -PreactNativeArchitectures=arm64-v8a
+      - name: Require the supported Apple toolchain
+        if: runner.os == 'macOS'
+        run: |
+          xcodebuild -version
+          python3 -c 'import subprocess; v=subprocess.check_output(["xcodebuild","-version"],text=True).split()[1]; assert tuple(map(int,v.split(".")[:2])) >= (26,4), "Expo 56/57 require Xcode 26.4+"'
+      - name: Install native iOS dependencies
+        if: runner.os == 'macOS'
+        working-directory: ${{ steps.fixture.outputs.consumer }}/ios
+        run: pod install
+      - name: iOS native build with embedded extension
+        if: runner.os == 'macOS'
+        working-directory: ${{ steps.fixture.outputs.consumer }}/ios
+        run: |
+          xcodebuild -workspace UserGistExpoFixture.xcworkspace -scheme UserGistExpoFixture -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -workspace UserGistExpoFixture.xcworkspace -scheme UserGistExpoFixture -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
