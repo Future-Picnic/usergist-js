@@ -74,6 +74,16 @@ public final class UserGistPushImpl: NSObject {
     catch { rejecter("push_state_failed", error.localizedDescription, error) }
   }
 
+  /// Restore notification callbacks before iOS delivers a cold-start response.
+  /// This only restores an existing opt-in; it does not acquire permission or
+  /// register a token. Expo Notifications retains ownership in coexistence mode.
+  public func prepareExpoLaunch() {
+    guard Bundle.main.object(forInfoDictionaryKey: "UserGistExpo") as? Bool == true,
+          Bundle.main.object(forInfoDictionaryKey: "UserGistPushMode") as? String == "automatic",
+          UserGistPushState.enabled else { return }
+    Self.installUNDelegateSwizzleIfNeeded()
+  }
+
   // MARK: - Exported (called from UserGistPush.mm)
 
   @objc public func enablePush(options: [String: Any],

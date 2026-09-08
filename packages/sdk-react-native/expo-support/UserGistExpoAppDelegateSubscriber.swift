@@ -3,6 +3,10 @@ import UserGistFeedback
 import UIKit
 
 public class UserGistExpoAppDelegateSubscriber: ExpoAppDelegateSubscriber {
+  public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+    UserGistPushImpl.shared.prepareExpoLaunch()
+    return true
+  }
   public func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
     UserGistPushImpl.shared.recordToken(deviceToken: token)
   }
