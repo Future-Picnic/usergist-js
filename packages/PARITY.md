@@ -16,6 +16,9 @@ Status legend:
 | `init(...)` / `initAsync(...)` | full | full | full | full |
 | `identify(...)` / `identifyAsync(...)` | full | full | full | full |
 | `track(name, properties)` | full | full | full | full |
+| `setUserProperties(properties, unset)` | full | missing | missing | missing |
+| Online dynamic personalization (`personalization.v1`) | full | missing | missing | missing |
+| Primary push tap JSON (`push.json-open.v1`) | full | missing | missing | missing |
 | `setConsent({ analytics, feedback, push, survey })` | full | full | full | full |
 | `reset()` | full | full | full | full |
 | `flush()` | full | full | full | full |
@@ -73,6 +76,8 @@ Status legend:
 | TLS pinning (`api.usergist.com`, SPKI) | missing | partial | partial | partial |
 
 ## Implementation notes
+
+- **Dynamic personalization** — React Native and the web SDK support typed profile updates and online recipient resolution. Native-only iOS, Android and Flutter SDK support is not included in this release; capability gates exclude older clients from versioned personalized delivery. Personalized survey attempts retain server snapshots; offline reopening after a process restart is not part of this capability. The [Movie Lab guide](../tools/demo-fixtures/README.md) describes the tested scope.
 
 - **Native surveys** — iOS (`NativeSurveyView` / `SurveyHost`), Android (`SurveyActivity`), and Flutter (`SurveyPresenter`) render the full question contract, local branching, validation, and relaunch-safe progress. Completion ends as soon as the encrypted mutation queue accepts the answers; transient delivery failures retry in the background without trapping the user on a Retry screen, while permanent rejection or reset still fails the transition. `openSurvey` uses `GET /v1/sdk/surveys/{id}` plus the server-owned attempt endpoints, with cached armed content as the local-fire fast path.
 - **Authenticated subjects and delivery** — every SDK creates or resumes an anonymous session at `/v1/sdk/session`, applies `X-UserGist-Subject-Token` to protected calls, and sends identify with a request-scoped replacement credential so concurrent calls keep the last confirmed subject. Installation identity rotates only after an explicit 401/403/409 credential conflict; transient session failures preserve anonymous identity and retry. All implementations isolate ingest batches by anonymous/external identity and poll the cursor-based instruction inbox only after local dedupe state is persisted.

@@ -23,7 +23,10 @@ import type { Segment } from '../types/segment.js'
 import type * as Portal from '../types/portal.js'
 import type { SegmentDsl } from '../types/segment-dsl.js'
 import type { AudienceSpec } from '../types/targeting.js'
-import type { PromptResponse, SubmitResponsePayload } from '../types/response.js'
+import type {
+  PromptResponse,
+  SubmitResponsePayload,
+} from '../types/response.js'
 import type {
   FeedbackRecipient,
   InAppRecipient,
@@ -263,7 +266,9 @@ export interface AppUserSummary {
   readonly firstSeenAt: string
   readonly lastSeenAt: string
   readonly eventCount?: number
-  readonly topProperties?: Readonly<Record<string, string | number | boolean | null>>
+  readonly topProperties?: Readonly<
+    Record<string, string | number | boolean | null>
+  >
   // Latest device-context fields surfaced from usergist.events (argMax
   // by occurred_at). Useful in the users list + user detail card.
   readonly country?: string | null
@@ -278,7 +283,9 @@ export interface AppUserDetail {
   readonly externalId?: string | null
   readonly firstSeenAt: string
   readonly lastSeenAt: string
-  readonly properties: Readonly<Record<string, string | number | boolean | null>>
+  readonly properties: Readonly<
+    Record<string, string | number | boolean | null>
+  >
   readonly eventCount: number
   readonly country?: string | null
   readonly platform?: string | null
@@ -350,11 +357,16 @@ export interface SegmentPreview {
 // ---------- prompts ----------
 
 export interface CreatePromptRequest {
+  readonly personalization?:
+    | import('../types/personalization.js').PersonalizationSpec
+    | null
   readonly name: string
   readonly triggerEventName: string
   readonly segmentId?: string | null
   readonly questions: ReadonlyArray<Question>
-  readonly deliveryPlatforms?: ReadonlyArray<import('../types/web.js').DeliveryPlatform>
+  readonly deliveryPlatforms?: ReadonlyArray<
+    import('../types/web.js').DeliveryPlatform
+  >
   readonly webPresentation?: import('../types/web.js').WebPresentation | null
   readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
@@ -365,11 +377,16 @@ export interface CreatePromptRequest {
 }
 
 export interface UpdatePromptRequest {
+  readonly personalization?:
+    | import('../types/personalization.js').PersonalizationSpec
+    | null
   readonly name?: string
   readonly triggerEventName?: string
   readonly segmentId?: string | null
   readonly questions?: ReadonlyArray<Question>
-  readonly deliveryPlatforms?: ReadonlyArray<import('../types/web.js').DeliveryPlatform>
+  readonly deliveryPlatforms?: ReadonlyArray<
+    import('../types/web.js').DeliveryPlatform
+  >
   readonly webPresentation?: import('../types/web.js').WebPresentation | null
   readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
@@ -458,33 +475,39 @@ export interface SdkIdentifyPayload {
 }
 
 export interface RegisterSdkClientRequest {
-  readonly anonymousId:string
-  readonly instanceId:string
-  readonly platform:import('../types/web.js').DeliveryPlatform
-  readonly sdkVersion:string
-  readonly protocolVersion:2
-  readonly screenName?:string|null
+  readonly anonymousId: string
+  readonly instanceId: string
+  readonly platform: import('../types/web.js').DeliveryPlatform
+  readonly sdkVersion: string
+  readonly protocolVersion: 2
+  readonly capabilities?: ReadonlyArray<string>
+  readonly screenName?: string | null
 }
 export interface SdkDeliveryInstruction {
-  readonly id:number
-  readonly type:string
-  readonly payload:Readonly<Record<string,unknown>>
-  readonly emittedAt:string
-  readonly expiresAt:string
+  readonly id: number
+  readonly type: string
+  readonly payload: Readonly<Record<string, unknown>>
+  readonly emittedAt: string
+  readonly expiresAt: string
 }
 export interface AuthorizePresentationRequest {
-  readonly clientId:string
-  readonly pillar:'feedback'|'survey'|'inapp'
-  readonly campaignId:string
-  readonly idempotencyKey:string
-  readonly instructionId?:number
-  readonly screenName?:string
+  readonly clientId: string
+  readonly pillar: 'feedback' | 'survey' | 'inapp'
+  readonly campaignId: string
+  readonly idempotencyKey: string
+  readonly instructionId?: number
+  readonly screenName?: string
 }
-export type AuthorizePresentationResponse = {
-  readonly status:'authorized'
-  readonly presentationId:string
-  readonly content:Prompt|import('../types/survey.js').SurveyCampaignWithFlow|import('../types/inapp-message.js').InAppMessage
-}|{readonly status:'unavailable'|'consent_required'}
+export type AuthorizePresentationResponse =
+  | {
+      readonly status: 'authorized'
+      readonly presentationId: string
+      readonly content:
+        | Prompt
+        | import('../types/survey.js').SurveyCampaignWithFlow
+        | import('../types/inapp-message.js').InAppMessage
+    }
+  | { readonly status: 'unavailable' | 'consent_required' }
 
 // ---------- GDPR ----------
 
@@ -506,45 +529,140 @@ export interface GdprExportRequest {
 export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
 
 export const endpoints = {
-  'GET /v1/apps/:appId/search': {} as Endpoint<Mcp.AppSearchQuery, Mcp.AppSearchResult>,
-  'POST /v1/apps/:appId/delivery-diagnostics': {} as Endpoint<Mcp.DeliveryDiagnosticInput, Mcp.DeliveryDiagnosticResult>,
+  'GET /v1/apps/:appId/search': {} as Endpoint<
+    Mcp.AppSearchQuery,
+    Mcp.AppSearchResult
+  >,
+  'POST /v1/apps/:appId/delivery-diagnostics': {} as Endpoint<
+    Mcp.DeliveryDiagnosticInput,
+    Mcp.DeliveryDiagnosticResult
+  >,
   'GET /v1/workspaces/:wid/portal': {} as Endpoint<void, Portal.PortalSettings>,
-  'PUT /v1/workspaces/:wid/portal': {} as Endpoint<Portal.UpdatePortalRequest, Portal.PortalSettings>,
-  'GET /v1/workspaces/:wid/portal/slug-available': {} as Endpoint<{ slug: string }, { available: boolean }>,
-  'PUT /v1/workspaces/:wid/portal/apps/:appId': {} as Endpoint<Portal.UpdatePortalAppRequest, Portal.PortalSettings>,
-  'POST /v1/workspaces/:wid/portal/publish': {} as Endpoint<void, Portal.PortalSettings>,
-  'POST /v1/workspaces/:wid/portal/unpublish': {} as Endpoint<void, Portal.PortalSettings>,
-  'GET /v1/workspaces/:wid/portal/preview/:appId': {} as Endpoint<Portal.PortalRequestQuery, Portal.PortalRequestList>,
-  'PATCH /v1/apps/:appId/requests/portal-visibility': {} as Endpoint<{ ids: readonly string[]; visible: boolean }, { updated: number }>,
+  'PUT /v1/workspaces/:wid/portal': {} as Endpoint<
+    Portal.UpdatePortalRequest,
+    Portal.PortalSettings
+  >,
+  'GET /v1/workspaces/:wid/portal/slug-available': {} as Endpoint<
+    { slug: string },
+    { available: boolean }
+  >,
+  'PUT /v1/workspaces/:wid/portal/apps/:appId': {} as Endpoint<
+    Portal.UpdatePortalAppRequest,
+    Portal.PortalSettings
+  >,
+  'POST /v1/workspaces/:wid/portal/publish': {} as Endpoint<
+    void,
+    Portal.PortalSettings
+  >,
+  'POST /v1/workspaces/:wid/portal/unpublish': {} as Endpoint<
+    void,
+    Portal.PortalSettings
+  >,
+  'GET /v1/workspaces/:wid/portal/preview/:appId': {} as Endpoint<
+    Portal.PortalRequestQuery,
+    Portal.PortalRequestList
+  >,
+  'PATCH /v1/apps/:appId/requests/portal-visibility': {} as Endpoint<
+    { ids: readonly string[]; visible: boolean },
+    { updated: number }
+  >,
   'GET /v1/portal/:portalSlug': {} as Endpoint<void, Portal.PublicPortal>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/requests': {} as Endpoint<Portal.PortalRequestQuery, Portal.PortalRequestList>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/requests/counts': {} as Endpoint<void, Portal.PortalRequestCounts>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId': {} as Endpoint<void, Portal.PortalRequest>,
-  'POST /v1/portal/:portalSlug/auth/start': {} as Endpoint<Portal.PortalAuthStart, { sent: true; retryAfter: number }>,
-  'POST /v1/portal/:portalSlug/auth/verify': {} as Endpoint<Portal.PortalAuthVerify, Portal.PortalSession & { sessionToken: string }>,
-  'GET /v1/portal/:portalSlug/session': {} as Endpoint<void, Portal.PortalSession | null>,
-  'DELETE /v1/portal/:portalSlug/session': {} as Endpoint<void, { signedOut: true }>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/votes': {} as Endpoint<{ ids: string }, { votedIds: string[] }>,
-  'POST /v1/portal/:portalSlug/apps/:appSlug/requests': {} as Endpoint<Portal.PortalSubmission, Portal.PortalRequest>,
-  'PUT /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId/vote': {} as Endpoint<Portal.PortalVote, { upvoted: boolean; upvoteCount: number }>,
-  'POST /v1/sdk/clients': {} as Endpoint<RegisterSdkClientRequest,{clientId:string;protocolVersion:2}>,
-  'POST /v1/sdk/clients/:id/end': {} as Endpoint<Record<string,never>,{ok:true}>,
-  'GET /v1/sdk/clients/:id/instructions': {} as Endpoint<void,{instructions:ReadonlyArray<SdkDeliveryInstruction>}>,
-  'POST /v1/sdk/presentations/authorize': {} as Endpoint<AuthorizePresentationRequest,AuthorizePresentationResponse>,
-  'POST /v1/sdk/presentations/:id/receipt': {} as Endpoint<{clientId:string;event:'shown'|'dismissed'|'completed'|'cta_clicked'},{recorded:boolean}>,
-  'GET /v1/me': {} as Endpoint<void, { user: User; workspaces: ReadonlyArray<WorkspaceWithRole> }>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/requests': {} as Endpoint<
+    Portal.PortalRequestQuery,
+    Portal.PortalRequestList
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/requests/counts': {} as Endpoint<
+    void,
+    Portal.PortalRequestCounts
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId':
+    {} as Endpoint<void, Portal.PortalRequest>,
+  'POST /v1/portal/:portalSlug/auth/start': {} as Endpoint<
+    Portal.PortalAuthStart,
+    { sent: true; retryAfter: number }
+  >,
+  'POST /v1/portal/:portalSlug/auth/verify': {} as Endpoint<
+    Portal.PortalAuthVerify,
+    Portal.PortalSession & { sessionToken: string }
+  >,
+  'GET /v1/portal/:portalSlug/session': {} as Endpoint<
+    void,
+    Portal.PortalSession | null
+  >,
+  'DELETE /v1/portal/:portalSlug/session': {} as Endpoint<
+    void,
+    { signedOut: true }
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/votes': {} as Endpoint<
+    { ids: string },
+    { votedIds: string[] }
+  >,
+  'POST /v1/portal/:portalSlug/apps/:appSlug/requests': {} as Endpoint<
+    Portal.PortalSubmission,
+    Portal.PortalRequest
+  >,
+  'PUT /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId/vote':
+    {} as Endpoint<
+      Portal.PortalVote,
+      { upvoted: boolean; upvoteCount: number }
+    >,
+  'POST /v1/sdk/clients': {} as Endpoint<
+    RegisterSdkClientRequest,
+    { clientId: string; protocolVersion: 2 }
+  >,
+  'POST /v1/sdk/clients/:id/end': {} as Endpoint<
+    Record<string, never>,
+    { ok: true }
+  >,
+  'GET /v1/sdk/clients/:id/instructions': {} as Endpoint<
+    void,
+    { instructions: ReadonlyArray<SdkDeliveryInstruction> }
+  >,
+  'POST /v1/sdk/presentations/authorize': {} as Endpoint<
+    AuthorizePresentationRequest,
+    AuthorizePresentationResponse
+  >,
+  'POST /v1/sdk/presentations/:id/receipt': {} as Endpoint<
+    {
+      clientId: string
+      event: 'shown' | 'dismissed' | 'completed' | 'cta_clicked'
+    },
+    { recorded: boolean }
+  >,
+  'GET /v1/me': {} as Endpoint<
+    void,
+    { user: User; workspaces: ReadonlyArray<WorkspaceWithRole> }
+  >,
   'PATCH /v1/me': {} as Endpoint<UpdateCurrentUserRequest, User>,
-  'PATCH /v1/me/onboarding': {} as Endpoint<DeferCurrentUserOnboardingRequest, User>,
+  'PATCH /v1/me/onboarding': {} as Endpoint<
+    DeferCurrentUserOnboardingRequest,
+    User
+  >,
   'GET /v1/features': {} as Endpoint<void, ProductFeatureFlags>,
   'GET /v1/signup-status': {} as Endpoint<void, PublicSignupStatus>,
 
   'GET /v1/workspaces': {} as Endpoint<void, ReadonlyArray<Workspace>>,
   'POST /v1/workspaces': {} as Endpoint<CreateWorkspaceRequest, Workspace>,
-  'PATCH /v1/workspaces/:wid': {} as Endpoint<UpdateWorkspaceRequest, Workspace>,
-  'GET /v1/workspaces/:wid/members': {} as Endpoint<void, ReadonlyArray<WorkspaceMember>>,
-  'GET /v1/workspaces/:wid/invites': {} as Endpoint<void, ReadonlyArray<WorkspaceInvite>>,
-  'POST /v1/workspaces/:wid/invites': {} as Endpoint<InviteMemberRequest, { queued: true }>,
-  'DELETE /v1/workspaces/:wid/invites/:inviteId': {} as Endpoint<void, { revoked: true }>,
+  'PATCH /v1/workspaces/:wid': {} as Endpoint<
+    UpdateWorkspaceRequest,
+    Workspace
+  >,
+  'GET /v1/workspaces/:wid/members': {} as Endpoint<
+    void,
+    ReadonlyArray<WorkspaceMember>
+  >,
+  'GET /v1/workspaces/:wid/invites': {} as Endpoint<
+    void,
+    ReadonlyArray<WorkspaceInvite>
+  >,
+  'POST /v1/workspaces/:wid/invites': {} as Endpoint<
+    InviteMemberRequest,
+    { queued: true }
+  >,
+  'DELETE /v1/workspaces/:wid/invites/:inviteId': {} as Endpoint<
+    void,
+    { revoked: true }
+  >,
   'POST /v1/invites/accept': {} as Endpoint<
     AcceptWorkspaceInviteRequest,
     AcceptWorkspaceInviteResponse
@@ -552,66 +670,170 @@ export const endpoints = {
 
   'GET /v1/workspaces/:wid/apps': {} as Endpoint<void, ReadonlyArray<App>>,
   'POST /v1/workspaces/:wid/apps': {} as Endpoint<CreateAppRequest, CreatedApp>,
-  'GET /v1/workspaces/:wid/api-tokens': {} as Endpoint<void, ReadonlyArray<ApiToken>>,
-  'GET /v1/workspaces/:wid/ai-connections': {} as Endpoint<void, Mcp.McpConnectionSettings>,
-  'PATCH /v1/workspaces/:wid/ai-connections/:id': {} as Endpoint<Mcp.McpGrant & { policyVersion: number }, Mcp.McpConnection>,
-  'POST /v1/workspaces/:wid/ai-connections/:id/revoke': {} as Endpoint<void, { revoked: boolean }>,
-  'GET /v1/workspaces/:wid/ai-connections/:id/activity': {} as Endpoint<void, { items: Mcp.McpActivity[]; limit: number }>,
-  'POST /v1/mcp/consent': {} as Endpoint<Mcp.McpGrant & { workspaceId: string; externalAuthId: string }, { redirectUri: string }>,
-  'POST /v1/workspaces/:wid/api-tokens': {} as Endpoint<CreateApiTokenRequest, CreatedApiToken>,
-  'DELETE /v1/workspaces/:wid/api-tokens/:tokenId': {} as Endpoint<void, { revoked: true }>,
+  'GET /v1/workspaces/:wid/api-tokens': {} as Endpoint<
+    void,
+    ReadonlyArray<ApiToken>
+  >,
+  'GET /v1/workspaces/:wid/ai-connections': {} as Endpoint<
+    void,
+    Mcp.McpConnectionSettings
+  >,
+  'PATCH /v1/workspaces/:wid/ai-connections/:id': {} as Endpoint<
+    Mcp.McpGrant & { policyVersion: number },
+    Mcp.McpConnection
+  >,
+  'POST /v1/workspaces/:wid/ai-connections/:id/revoke': {} as Endpoint<
+    void,
+    { revoked: boolean }
+  >,
+  'GET /v1/workspaces/:wid/ai-connections/:id/activity': {} as Endpoint<
+    void,
+    { items: Mcp.McpActivity[]; limit: number }
+  >,
+  'POST /v1/mcp/consent': {} as Endpoint<
+    Mcp.McpGrant & { workspaceId: string; externalAuthId: string },
+    { redirectUri: string }
+  >,
+  'POST /v1/workspaces/:wid/api-tokens': {} as Endpoint<
+    CreateApiTokenRequest,
+    CreatedApiToken
+  >,
+  'DELETE /v1/workspaces/:wid/api-tokens/:tokenId': {} as Endpoint<
+    void,
+    { revoked: true }
+  >,
   'GET /v1/apps/:appId': {} as Endpoint<void, App>,
   'PATCH /v1/apps/:appId': {} as Endpoint<UpdateAppRequest, App>,
   'DELETE /v1/apps/:appId': {} as Endpoint<void, { ok: true }>,
   'GET /v1/apps/:appId/onboarding': {} as Endpoint<void, AppOnboardingStatus>,
-  'PATCH /v1/apps/:appId/onboarding': {} as Endpoint<UpdateAppOnboardingRequest, AppOnboardingStatus>,
+  'PATCH /v1/apps/:appId/onboarding': {} as Endpoint<
+    UpdateAppOnboardingRequest,
+    AppOnboardingStatus
+  >,
   'POST /v1/apps/:appId/sdk/subject-tokens': {} as Endpoint<
     { externalId: string },
     SdkSessionResponse
   >,
 
   // ---------- outbound analytics integrations ----------
-  'GET /v1/apps/:appId/integrations': {} as Endpoint<void, ReadonlyArray<IntegrationSummary>>,
-  'PUT /v1/apps/:appId/integrations/:provider': {} as Endpoint<ConnectIntegrationRequest, { integration: IntegrationSummary; test: IntegrationTestResult }>,
-  'PATCH /v1/apps/:appId/integrations/:provider': {} as Endpoint<UpdateIntegrationRequest, IntegrationSummary>,
-  'POST /v1/apps/:appId/integrations/:provider/test': {} as Endpoint<Record<string, never>, IntegrationTestResult>,
-  'POST /v1/apps/:appId/integrations/:provider/pause': {} as Endpoint<Record<string, never>, IntegrationSummary>,
-  'POST /v1/apps/:appId/integrations/:provider/resume': {} as Endpoint<Record<string, never>, IntegrationSummary>,
-  'DELETE /v1/apps/:appId/integrations/:provider': {} as Endpoint<void, { disconnected: true }>,
-  'GET /v1/apps/:appId/integrations/:provider/deliveries': {} as Endpoint<{ cursor?: string; limit?: number }, IntegrationDeliveriesResponse>,
+  'GET /v1/apps/:appId/integrations': {} as Endpoint<
+    void,
+    ReadonlyArray<IntegrationSummary>
+  >,
+  'PUT /v1/apps/:appId/integrations/:provider': {} as Endpoint<
+    ConnectIntegrationRequest,
+    { integration: IntegrationSummary; test: IntegrationTestResult }
+  >,
+  'PATCH /v1/apps/:appId/integrations/:provider': {} as Endpoint<
+    UpdateIntegrationRequest,
+    IntegrationSummary
+  >,
+  'POST /v1/apps/:appId/integrations/:provider/test': {} as Endpoint<
+    Record<string, never>,
+    IntegrationTestResult
+  >,
+  'POST /v1/apps/:appId/integrations/:provider/pause': {} as Endpoint<
+    Record<string, never>,
+    IntegrationSummary
+  >,
+  'POST /v1/apps/:appId/integrations/:provider/resume': {} as Endpoint<
+    Record<string, never>,
+    IntegrationSummary
+  >,
+  'DELETE /v1/apps/:appId/integrations/:provider': {} as Endpoint<
+    void,
+    { disconnected: true }
+  >,
+  'GET /v1/apps/:appId/integrations/:provider/deliveries': {} as Endpoint<
+    { cursor?: string; limit?: number },
+    IntegrationDeliveriesResponse
+  >,
 
   'GET /v1/apps/:appId/brand-settings': {} as Endpoint<void, AppBrandSettings>,
-  'POST /v1/apps/:appId/brand-themes': {} as Endpoint<CreateBrandThemeRequest, BrandTheme>,
-  'PATCH /v1/apps/:appId/brand-themes/:themeId':
-    {} as Endpoint<UpdateBrandThemeRequest, BrandTheme>,
-  'DELETE /v1/apps/:appId/brand-themes/:themeId': {} as Endpoint<void, { ok: true }>,
-  'PUT /v1/apps/:appId/brand-theme-defaults':
-    {} as Endpoint<UpdateBrandThemeDefaultsRequest, AppBrandSettings>,
+  'POST /v1/apps/:appId/brand-themes': {} as Endpoint<
+    CreateBrandThemeRequest,
+    BrandTheme
+  >,
+  'PATCH /v1/apps/:appId/brand-themes/:themeId': {} as Endpoint<
+    UpdateBrandThemeRequest,
+    BrandTheme
+  >,
+  'DELETE /v1/apps/:appId/brand-themes/:themeId': {} as Endpoint<
+    void,
+    { ok: true }
+  >,
+  'PUT /v1/apps/:appId/brand-theme-defaults': {} as Endpoint<
+    UpdateBrandThemeDefaultsRequest,
+    AppBrandSettings
+  >,
 
-  'GET /v1/apps/:appId/write-keys': {} as Endpoint<void, ReadonlyArray<WriteKey>>,
-  'POST /v1/apps/:appId/write-keys': {} as Endpoint<CreateWriteKeyRequest, CreatedWriteKey>,
-  'POST /v1/apps/:appId/write-keys/:keyId/rotate':
-    {} as Endpoint<RotateWriteKeyRequest, RotateWriteKeyResponse>,
-  'DELETE /v1/apps/:appId/write-keys/:keyId': {} as Endpoint<void, { ok: true }>,
+  'GET /v1/apps/:appId/write-keys': {} as Endpoint<
+    void,
+    ReadonlyArray<WriteKey>
+  >,
+  'POST /v1/apps/:appId/write-keys': {} as Endpoint<
+    CreateWriteKeyRequest,
+    CreatedWriteKey
+  >,
+  'POST /v1/apps/:appId/write-keys/:keyId/rotate': {} as Endpoint<
+    RotateWriteKeyRequest,
+    RotateWriteKeyResponse
+  >,
+  'DELETE /v1/apps/:appId/write-keys/:keyId': {} as Endpoint<
+    void,
+    { ok: true }
+  >,
 
-  'GET /v1/apps/:appId/event-definitions': {} as Endpoint<void, ReadonlyArray<EventDefinition>>,
-  'POST /v1/apps/:appId/event-definitions': {} as Endpoint<RegisterEventDefinitionRequest, EventDefinition>,
-  'PATCH /v1/apps/:appId/event-definitions/:defId': {} as Endpoint<UpdateEventDefinitionRequest, EventDefinition>,
+  'GET /v1/apps/:appId/event-definitions': {} as Endpoint<
+    void,
+    ReadonlyArray<EventDefinition>
+  >,
+  'POST /v1/apps/:appId/event-definitions': {} as Endpoint<
+    RegisterEventDefinitionRequest,
+    EventDefinition
+  >,
+  'PATCH /v1/apps/:appId/event-definitions/:defId': {} as Endpoint<
+    UpdateEventDefinitionRequest,
+    EventDefinition
+  >,
 
   'GET /v1/apps/:appId/segments': {} as Endpoint<void, ReadonlyArray<Segment>>,
-  'POST /v1/apps/:appId/segments': {} as Endpoint<CreateSegmentRequest, Segment>,
+  'POST /v1/apps/:appId/segments': {} as Endpoint<
+    CreateSegmentRequest,
+    Segment
+  >,
   'GET /v1/apps/:appId/segments/:segId': {} as Endpoint<void, Segment>,
-  'PATCH /v1/apps/:appId/segments/:segId': {} as Endpoint<Partial<CreateSegmentRequest>, Segment>,
+  'PATCH /v1/apps/:appId/segments/:segId': {} as Endpoint<
+    Partial<CreateSegmentRequest>,
+    Segment
+  >,
   'DELETE /v1/apps/:appId/segments/:segId': {} as Endpoint<void, { ok: true }>,
-  'POST /v1/apps/:appId/segments/:segId/preview': {} as Endpoint<void, SegmentPreview>,
-  'POST /v1/apps/:appId/segments/:segId/rebuild': {} as Endpoint<void, { scheduled: true }>,
-  'GET /v1/apps/:appId/users': {} as Endpoint<ListUsersQuery, PaginatedAppUsers>,
+  'POST /v1/apps/:appId/segments/:segId/preview': {} as Endpoint<
+    void,
+    SegmentPreview
+  >,
+  'POST /v1/apps/:appId/segments/:segId/rebuild': {} as Endpoint<
+    void,
+    { scheduled: true }
+  >,
+  'GET /v1/apps/:appId/users': {} as Endpoint<
+    ListUsersQuery,
+    PaginatedAppUsers
+  >,
   'GET /v1/apps/:appId/users/:anonymousId': {} as Endpoint<void, AppUserDetail>,
-  'GET /v1/apps/:appId/users/:anonymousId/events': {} as Endpoint<ListUserEventsQuery, PaginatedAppUserEvents>,
+  'GET /v1/apps/:appId/users/:anonymousId/events': {} as Endpoint<
+    ListUserEventsQuery,
+    PaginatedAppUserEvents
+  >,
   'GET /v1/apps/:appId/users/:anonymousId/push': {} as Endpoint<
     void,
     {
-      consent: { push: boolean; feedback: boolean; analytics: boolean; recordedAt: string | null }
+      consent: {
+        push: boolean
+        feedback: boolean
+        analytics: boolean
+        recordedAt: string | null
+      }
       devices: ReadonlyArray<{
         id: string
         platform: 'ios' | 'android'
@@ -629,20 +851,43 @@ export const endpoints = {
   >,
   'POST /v1/apps/:appId/users/:anonymousId/push/test-send': {} as Endpoint<
     { title: string; body: string; imageUrl?: string; deepLink?: string },
-    { dispatched: number; held: number; dropped: number; errors: ReadonlyArray<{ reason: string }> }
+    {
+      dispatched: number
+      held: number
+      dropped: number
+      errors: ReadonlyArray<{ reason: string }>
+    }
   >,
 
-  'POST /v1/apps/:appId/segments/ai-generate-rules': {} as Endpoint<GenerateSegmentRulesRequest, GenerateSegmentRulesResponse>,
-  'POST /v1/apps/:appId/segments/ai-generate-name': {} as Endpoint<GenerateSegmentNameRequest, GenerateSegmentNameResponse>,
+  'POST /v1/apps/:appId/segments/ai-generate-rules': {} as Endpoint<
+    GenerateSegmentRulesRequest,
+    GenerateSegmentRulesResponse
+  >,
+  'POST /v1/apps/:appId/segments/ai-generate-name': {} as Endpoint<
+    GenerateSegmentNameRequest,
+    GenerateSegmentNameResponse
+  >,
 
   'GET /v1/apps/:appId/prompts': {} as Endpoint<void, ReadonlyArray<Prompt>>,
   'POST /v1/apps/:appId/prompts': {} as Endpoint<CreatePromptRequest, Prompt>,
   'GET /v1/apps/:appId/prompts/:promptId': {} as Endpoint<void, Prompt>,
-  'PATCH /v1/apps/:appId/prompts/:promptId': {} as Endpoint<UpdatePromptRequest, Prompt>,
-  'DELETE /v1/apps/:appId/prompts/:promptId': {} as Endpoint<void, { ok: true }>,
-  'POST /v1/apps/:appId/prompts/:promptId/test-on-device': {} as Endpoint<TestPromptOnDeviceRequest, { dispatched: true }>,
+  'PATCH /v1/apps/:appId/prompts/:promptId': {} as Endpoint<
+    UpdatePromptRequest,
+    Prompt
+  >,
+  'DELETE /v1/apps/:appId/prompts/:promptId': {} as Endpoint<
+    void,
+    { ok: true }
+  >,
+  'POST /v1/apps/:appId/prompts/:promptId/test-on-device': {} as Endpoint<
+    TestPromptOnDeviceRequest,
+    { dispatched: true }
+  >,
 
-  'GET /v1/apps/:appId/prompts/:promptId/responses': {} as Endpoint<ListResponsesQuery, ReadonlyArray<PromptResponse>>,
+  'GET /v1/apps/:appId/prompts/:promptId/responses': {} as Endpoint<
+    ListResponsesQuery,
+    ReadonlyArray<PromptResponse>
+  >,
   'GET /v1/apps/:appId/prompts/:promptId/recipients': {} as Endpoint<
     RecipientPageQuery,
     RecipientList<FeedbackRecipient>
@@ -663,14 +908,30 @@ export const endpoints = {
       readonly buckets: ReadonlyArray<{
         readonly bucket: string
         readonly push: { sent: number; opened: number; clicked: number }
-        readonly inapp: { impressions: number; dismissed: number; ctaClicked: number }
-        readonly prompts: { shown: number; responded: number; dismissed: number }
+        readonly inapp: {
+          impressions: number
+          dismissed: number
+          ctaClicked: number
+        }
+        readonly prompts: {
+          shown: number
+          responded: number
+          dismissed: number
+        }
         readonly surveys: { started: number; completed: number }
       }>
       readonly totals: {
         readonly push: { sent: number; opened: number; clicked: number }
-        readonly inapp: { impressions: number; dismissed: number; ctaClicked: number }
-        readonly prompts: { shown: number; responded: number; dismissed: number }
+        readonly inapp: {
+          impressions: number
+          dismissed: number
+          ctaClicked: number
+        }
+        readonly prompts: {
+          shown: number
+          responded: number
+          dismissed: number
+        }
         readonly surveys: { started: number; completed: number }
       }
     }
@@ -685,27 +946,134 @@ export const endpoints = {
 
   // SDK-facing (authenticated via write key)
   'POST /v1/sdk/ingest': {} as Endpoint<SdkIngestRequest, SdkIngestResponse>,
-  'GET /v1/sdk/armed-triggers': {} as Endpoint<{ anonymousId: string; externalId?: string }, SdkArmedTriggersResponse>,
+  'GET /v1/sdk/armed-triggers': {} as Endpoint<
+    { anonymousId: string; externalId?: string },
+    SdkArmedTriggersResponse
+  >,
   'POST /v1/sdk/consent': {} as Endpoint<SdkConsentPayload, { ok: true }>,
+  'PATCH /v1/apps/:appId/users/properties': {} as Endpoint<
+    {
+      subject: import('../types/mcp.js').SubjectRef
+      update: import('../types/personalization.js').UserPropertiesUpdate
+    },
+    { applied: boolean; filteredKeys: string[] }
+  >,
+  'POST /v1/sdk/user-properties': {} as Endpoint<
+    import('../types/personalization.js').UserPropertiesUpdate & {
+      anonymousId: string
+    },
+    { applied: boolean; filteredKeys: string[] }
+  >,
+  'GET /v1/apps/:appId/personalization/fields': {} as Endpoint<
+    { q?: string; eventName?: string },
+    {
+      userProperties: ReadonlyArray<{
+        key: string
+        label: string
+        type: string
+        source: string
+        available: boolean
+      }>
+      events: ReadonlyArray<{
+        name: string
+        description: string | null
+        status: string
+        properties: ReadonlyArray<{
+          key: string
+          label: string
+          type: string
+          source: string
+          available: boolean
+        }>
+      }>
+      retentionDays: number
+    }
+  >,
+  'POST /v1/apps/:appId/personalization/preview': {} as Endpoint<
+    {
+      surface: import('../types/personalization.js').PersonalizationSurface
+      content: Record<string, unknown>
+      subject?: import('../types/mcp.js').SubjectRef
+      triggerEventId?: string
+      examples?: Record<
+        string,
+        import('../types/personalization.js').PersonalizationSourceValue
+      >
+      data?: Record<
+        string,
+        import('../types/personalization.js').PersonalizationScalar
+      >
+    },
+    {
+      content: Record<string, unknown>
+      resolution:
+        | import('../types/personalization.js').PersonalizationResolution
+        | null
+      example: boolean
+      previewId?: string
+      subjectId?: string
+    }
+  >,
   'POST /v1/sdk/identify': {} as Endpoint<SdkIdentifyPayload, { ok: true }>,
   'POST /v1/sdk/responses': {} as Endpoint<SubmitResponsePayload, { ok: true }>,
 
   // GDPR
-  'POST /v1/apps/:appId/gdpr/delete': {} as Endpoint<GdprDeleteRequest, { scheduled: true }>,
-  'POST /v1/apps/:appId/gdpr/export': {} as Endpoint<GdprExportRequest, { scheduled: true; exportId: string }>,
-  'GET /v1/apps/:appId/gdpr/exports/:exportId': {} as Endpoint<void, { status: 'pending' | 'running' | 'completed' | 'failed'; downloadUrl?: string }>,
+  'POST /v1/apps/:appId/gdpr/delete': {} as Endpoint<
+    GdprDeleteRequest,
+    { scheduled: true }
+  >,
+  'POST /v1/apps/:appId/gdpr/export': {} as Endpoint<
+    GdprExportRequest,
+    { scheduled: true; exportId: string }
+  >,
+  'GET /v1/apps/:appId/gdpr/exports/:exportId': {} as Endpoint<
+    void,
+    {
+      status: 'pending' | 'running' | 'completed' | 'failed'
+      downloadUrl?: string
+    }
+  >,
 
   // Campaigns (push)
-  'GET /v1/apps/:appId/campaigns': {} as Endpoint<void, ReadonlyArray<Campaign>>,
-  'POST /v1/apps/:appId/campaigns': {} as Endpoint<CreateCampaignRequest, CampaignWithVariants>,
-  'GET /v1/apps/:appId/campaigns/:cid': {} as Endpoint<void, CampaignWithVariants>,
-  'PATCH /v1/apps/:appId/campaigns/:cid': {} as Endpoint<UpdateCampaignRequest, CampaignWithVariants>,
+  'GET /v1/apps/:appId/campaigns': {} as Endpoint<
+    void,
+    ReadonlyArray<Campaign>
+  >,
+  'POST /v1/apps/:appId/campaigns': {} as Endpoint<
+    CreateCampaignRequest,
+    CampaignWithVariants
+  >,
+  'GET /v1/apps/:appId/campaigns/:cid': {} as Endpoint<
+    void,
+    CampaignWithVariants
+  >,
+  'PATCH /v1/apps/:appId/campaigns/:cid': {} as Endpoint<
+    UpdateCampaignRequest,
+    CampaignWithVariants
+  >,
   'DELETE /v1/apps/:appId/campaigns/:cid': {} as Endpoint<void, { ok: true }>,
-  'POST /v1/apps/:appId/campaigns/:cid/activate': {} as Endpoint<void, Campaign>,
+  'POST /v1/apps/:appId/campaigns/:cid/activate': {} as Endpoint<
+    void,
+    Campaign
+  >,
   'POST /v1/apps/:appId/campaigns/:cid/pause': {} as Endpoint<void, Campaign>,
-  'POST /v1/apps/:appId/campaigns/:cid/resend': {} as Endpoint<void, { queued: number }>,
-  'POST /v1/apps/:appId/campaigns/:cid/preview': {} as Endpoint<{ anonymousId?: string; mergeTags?: Record<string, unknown> }, ReadonlyArray<{ variantId: string; language: string | null; title: string; body: string }>>,
-  'POST /v1/apps/:appId/campaigns/:cid/test-send': {} as Endpoint<{ anonymousId: string }, { queued: true }>,
+  'POST /v1/apps/:appId/campaigns/:cid/resend': {} as Endpoint<
+    void,
+    { queued: number }
+  >,
+  'POST /v1/apps/:appId/campaigns/:cid/preview': {} as Endpoint<
+    { anonymousId?: string; mergeTags?: Record<string, unknown> },
+    ReadonlyArray<{
+      variantId: string
+      language: string | null
+      title: string
+      body: string
+    }>
+  >,
+  'POST /v1/apps/:appId/campaigns/:cid/test-send': {} as Endpoint<
+    { anonymousId: string },
+    { queued: true }
+  >,
   'GET /v1/apps/:appId/campaigns/:cid/analytics': {} as Endpoint<
     { from?: string; to?: string },
     CampaignAnalytics
@@ -732,9 +1100,18 @@ export const endpoints = {
   >,
 
   // Push credentials
-  'GET /v1/apps/:appId/push/credentials': {} as Endpoint<void, ReadonlyArray<PushCredentialSummary>>,
-  'POST /v1/apps/:appId/push/credentials': {} as Endpoint<UploadCredentialRequest, PushCredentialSummary>,
-  'DELETE /v1/apps/:appId/push/credentials/:credId': {} as Endpoint<void, { ok: true }>,
+  'GET /v1/apps/:appId/push/credentials': {} as Endpoint<
+    void,
+    ReadonlyArray<PushCredentialSummary>
+  >,
+  'POST /v1/apps/:appId/push/credentials': {} as Endpoint<
+    UploadCredentialRequest,
+    PushCredentialSummary
+  >,
+  'DELETE /v1/apps/:appId/push/credentials/:credId': {} as Endpoint<
+    void,
+    { ok: true }
+  >,
   'GET /v1/apps/:appId/push/stats': {} as Endpoint<
     void,
     {
@@ -745,7 +1122,12 @@ export const endpoints = {
   >,
   'GET /v1/apps/:appId/push/audience-estimate': {} as Endpoint<
     { segmentId?: string },
-    { audienceSize: number; withPush: number; iosCount: number; androidCount: number }
+    {
+      audienceSize: number
+      withPush: number
+      iosCount: number
+      androidCount: number
+    }
   >,
   'GET /v1/apps/:appId/push/reachability': {} as Endpoint<
     void,
@@ -788,7 +1170,10 @@ export const endpoints = {
     },
     { saved: true }
   >,
-  'DELETE /v1/apps/:appId/push/channels/:channelId': {} as Endpoint<void, { archived: true }>,
+  'DELETE /v1/apps/:appId/push/channels/:channelId': {} as Endpoint<
+    void,
+    { archived: true }
+  >,
 
   // Push outbound webhooks
   'GET /v1/apps/:appId/push/webhooks': {} as Endpoint<
@@ -826,17 +1211,32 @@ export const endpoints = {
     }>,
     { saved: true }
   >,
-  'DELETE /v1/apps/:appId/push/webhooks/:webhookId': {} as Endpoint<void, { deleted: true }>,
-  'POST /v1/apps/:appId/push/webhooks/:webhookId/rotate': {} as Endpoint<void, { secret: string }>,
+  'DELETE /v1/apps/:appId/push/webhooks/:webhookId': {} as Endpoint<
+    void,
+    { deleted: true }
+  >,
+  'POST /v1/apps/:appId/push/webhooks/:webhookId/rotate': {} as Endpoint<
+    void,
+    { secret: string }
+  >,
   'POST /v1/apps/:appId/push/webhooks/:webhookId/test': {} as Endpoint<
     void,
     { success: boolean; statusCode: number; attempts: number; error?: string }
   >,
 
   // Push device-token registration (SDK-facing, write-key auth)
-  'POST /v1/sdk/push/register-token': {} as Endpoint<RegisterDeviceTokenPayload, { registered: true } | { skipped: 'consent' }>,
-  'POST /v1/sdk/push/update-token': {} as Endpoint<UpdateDeviceTokenPayload, { updated: true }>,
-  'POST /v1/sdk/push/invalidate-token': {} as Endpoint<InvalidateDeviceTokenPayload, { invalidated: true }>,
+  'POST /v1/sdk/push/register-token': {} as Endpoint<
+    RegisterDeviceTokenPayload,
+    { registered: true } | { skipped: 'consent' }
+  >,
+  'POST /v1/sdk/push/update-token': {} as Endpoint<
+    UpdateDeviceTokenPayload,
+    { updated: true }
+  >,
+  'POST /v1/sdk/push/invalidate-token': {} as Endpoint<
+    InvalidateDeviceTokenPayload,
+    { invalidated: true }
+  >,
   'POST /v1/sdk/push/rebind': {} as Endpoint<
     { anonymousId: string; externalId: string; token: string },
     { rebound: boolean }
@@ -846,15 +1246,30 @@ export const endpoints = {
     { recorded: true }
   >,
   'POST /v1/sdk/push/delivered': {} as Endpoint<
-    { deliveryId: string; occurredAt?: string; attemptId?: string; actionButton?: string },
+    {
+      deliveryId: string
+      occurredAt?: string
+      attemptId?: string
+      actionButton?: string
+    },
     { recorded: true }
   >,
   'POST /v1/sdk/push/displayed': {} as Endpoint<
-    { deliveryId: string; occurredAt?: string; attemptId?: string; actionButton?: string },
+    {
+      deliveryId: string
+      occurredAt?: string
+      attemptId?: string
+      actionButton?: string
+    },
     { recorded: true }
   >,
   'POST /v1/sdk/push/dismissed': {} as Endpoint<
-    { deliveryId: string; occurredAt?: string; attemptId?: string; actionButton?: string },
+    {
+      deliveryId: string
+      occurredAt?: string
+      attemptId?: string
+      actionButton?: string
+    },
     { recorded: true }
   >,
   'POST /v1/sdk/push/silent-ack': {} as Endpoint<
@@ -871,28 +1286,66 @@ export const endpoints = {
   >,
 
   // Transactional push (server API token auth)
-  'POST /v1/apps/:appId/push/transactional': {} as Endpoint<PushTransactionalRequest, { queued: true; deliveryId: string; idempotent?: boolean }>,
+  'POST /v1/apps/:appId/push/transactional': {} as Endpoint<
+    PushTransactionalRequest,
+    { queued: true; deliveryId: string; idempotent?: boolean }
+  >,
 
   // Surveys — dashboard CRUD
-  'GET /v1/apps/:appId/surveys': {} as Endpoint<void, ReadonlyArray<SurveyCampaign>>,
-  'POST /v1/apps/:appId/surveys': {} as Endpoint<CreateSurveyRequest, SurveyCampaignWithFlow>,
-  'GET /v1/apps/:appId/surveys/:sid': {} as Endpoint<void, SurveyCampaignWithFlow>,
-  'PATCH /v1/apps/:appId/surveys/:sid': {} as Endpoint<UpdateSurveyRequest, SurveyCampaignWithFlow>,
-  'DELETE /v1/apps/:appId/surveys/:sid': {} as Endpoint<void, { ok: true }>,
-  'POST /v1/apps/:appId/surveys/:sid/activate': {} as Endpoint<void, SurveyCampaign>,
-  'POST /v1/apps/:appId/surveys/:sid/pause': {} as Endpoint<void, SurveyCampaign>,
-  'POST /v1/apps/:appId/surveys/:sid/archive': {} as Endpoint<void, SurveyCampaign>,
-  'POST /v1/apps/:appId/surveys/:sid/preview': {} as Endpoint<
-    { anonymousId?: string; mergeTags?: Record<string, unknown>; language?: string },
+  'GET /v1/apps/:appId/surveys': {} as Endpoint<
+    void,
+    ReadonlyArray<SurveyCampaign>
+  >,
+  'POST /v1/apps/:appId/surveys': {} as Endpoint<
+    CreateSurveyRequest,
     SurveyCampaignWithFlow
   >,
-  'POST /v1/apps/:appId/surveys/:sid/test-on-device': {} as Endpoint<{ anonymousId: string }, { dispatched: true }>,
+  'GET /v1/apps/:appId/surveys/:sid': {} as Endpoint<
+    void,
+    SurveyCampaignWithFlow
+  >,
+  'PATCH /v1/apps/:appId/surveys/:sid': {} as Endpoint<
+    UpdateSurveyRequest,
+    SurveyCampaignWithFlow
+  >,
+  'DELETE /v1/apps/:appId/surveys/:sid': {} as Endpoint<void, { ok: true }>,
+  'POST /v1/apps/:appId/surveys/:sid/activate': {} as Endpoint<
+    void,
+    SurveyCampaign
+  >,
+  'POST /v1/apps/:appId/surveys/:sid/pause': {} as Endpoint<
+    void,
+    SurveyCampaign
+  >,
+  'POST /v1/apps/:appId/surveys/:sid/archive': {} as Endpoint<
+    void,
+    SurveyCampaign
+  >,
+  'POST /v1/apps/:appId/surveys/:sid/preview': {} as Endpoint<
+    {
+      anonymousId?: string
+      mergeTags?: Record<string, unknown>
+      language?: string
+    },
+    SurveyCampaignWithFlow
+  >,
+  'POST /v1/apps/:appId/surveys/:sid/test-on-device': {} as Endpoint<
+    { anonymousId: string },
+    { dispatched: true }
+  >,
   'GET /v1/apps/:appId/surveys/:sid/analytics': {} as Endpoint<
     { from?: string; to?: string },
     SurveyAnalytics
   >,
   'GET /v1/apps/:appId/surveys/:sid/responses': {} as Endpoint<
-    { from?: string; to?: string; page?: number; limit?: number; segmentId?: string; language?: string },
+    {
+      from?: string
+      to?: string
+      page?: number
+      limit?: number
+      segmentId?: string
+      language?: string
+    },
     ReadonlyArray<SurveyResponseRecord>
   >,
   'GET /v1/apps/:appId/surveys/:sid/recipients': {} as Endpoint<
@@ -915,8 +1368,14 @@ export const endpoints = {
       language: string | null
     }>
   >,
-  'GET /v1/apps/:appId/surveys/:sid/share-link': {} as Endpoint<void, SurveyShareLinkResponse>,
-  'GET /v1/apps/:appId/survey-templates': {} as Endpoint<void, ReadonlyArray<SurveyTemplate>>,
+  'GET /v1/apps/:appId/surveys/:sid/share-link': {} as Endpoint<
+    void,
+    SurveyShareLinkResponse
+  >,
+  'GET /v1/apps/:appId/survey-templates': {} as Endpoint<
+    void,
+    ReadonlyArray<SurveyTemplate>
+  >,
   'POST /v1/apps/:appId/surveys/from-template/:slug': {} as Endpoint<
     CloneSurveyFromTemplateRequest,
     SurveyCampaignWithFlow
@@ -927,25 +1386,61 @@ export const endpoints = {
     { anonymousId: string; externalId?: string },
     { surveys: ReadonlyArray<SurveySummary> }
   >,
-  'POST /v1/sdk/surveys/resolve-link': {} as Endpoint<ResolveSurveyLinkRequest, ResolveSurveyLinkResponse>,
+  'POST /v1/sdk/surveys/resolve-link': {} as Endpoint<
+    ResolveSurveyLinkRequest,
+    ResolveSurveyLinkResponse
+  >,
   'GET /v1/sdk/surveys/:sid': {} as Endpoint<
     { anonymousId: string; externalId?: string; language?: string },
     SurveyCampaignWithFlow
   >,
-  'POST /v1/sdk/surveys/:sid/attempts': {} as Endpoint<CreateSurveyAttemptRequest, CreateSurveyAttemptResponse>,
-  'PATCH /v1/sdk/surveys/attempts/:attemptId': {} as Endpoint<UpdateSurveyAttemptProgressRequest, { ok: true }>,
-  'POST /v1/sdk/surveys/attempts/:attemptId/responses': {} as Endpoint<SubmitSurveyAnswersRequest, { ok: true }>,
-  'POST /v1/sdk/surveys/attempts/:attemptId/complete': {} as Endpoint<CompleteSurveyAttemptRequest, { ok: true }>,
-  'POST /v1/sdk/surveys/attempts/:attemptId/abandon': {} as Endpoint<void, { ok: true }>,
+  'POST /v1/sdk/surveys/:sid/attempts': {} as Endpoint<
+    CreateSurveyAttemptRequest,
+    CreateSurveyAttemptResponse
+  >,
+  'PATCH /v1/sdk/surveys/attempts/:attemptId': {} as Endpoint<
+    UpdateSurveyAttemptProgressRequest,
+    { ok: true }
+  >,
+  'POST /v1/sdk/surveys/attempts/:attemptId/responses': {} as Endpoint<
+    SubmitSurveyAnswersRequest,
+    { ok: true }
+  >,
+  'POST /v1/sdk/surveys/attempts/:attemptId/complete': {} as Endpoint<
+    CompleteSurveyAttemptRequest,
+    { ok: true }
+  >,
+  'POST /v1/sdk/surveys/attempts/:attemptId/abandon': {} as Endpoint<
+    void,
+    { ok: true }
+  >,
 
   // ---------- in-app messages (4th pillar) ----------
-  'GET /v1/apps/:appId/inapp-messages': {} as Endpoint<void, ReadonlyArray<InAppMessage>>,
-  'POST /v1/apps/:appId/inapp-messages': {} as Endpoint<CreateInAppMessageRequest, InAppMessage>,
+  'GET /v1/apps/:appId/inapp-messages': {} as Endpoint<
+    void,
+    ReadonlyArray<InAppMessage>
+  >,
+  'POST /v1/apps/:appId/inapp-messages': {} as Endpoint<
+    CreateInAppMessageRequest,
+    InAppMessage
+  >,
   'GET /v1/apps/:appId/inapp-messages/:id': {} as Endpoint<void, InAppMessage>,
-  'PATCH /v1/apps/:appId/inapp-messages/:id': {} as Endpoint<UpdateInAppMessageRequest, InAppMessage>,
-  'DELETE /v1/apps/:appId/inapp-messages/:id': {} as Endpoint<void, { ok: true }>,
-  'POST /v1/apps/:appId/inapp-messages/:id/activate': {} as Endpoint<void, InAppMessage>,
-  'POST /v1/apps/:appId/inapp-messages/:id/pause': {} as Endpoint<void, InAppMessage>,
+  'PATCH /v1/apps/:appId/inapp-messages/:id': {} as Endpoint<
+    UpdateInAppMessageRequest,
+    InAppMessage
+  >,
+  'DELETE /v1/apps/:appId/inapp-messages/:id': {} as Endpoint<
+    void,
+    { ok: true }
+  >,
+  'POST /v1/apps/:appId/inapp-messages/:id/activate': {} as Endpoint<
+    void,
+    InAppMessage
+  >,
+  'POST /v1/apps/:appId/inapp-messages/:id/pause': {} as Endpoint<
+    void,
+    InAppMessage
+  >,
   'GET /v1/apps/:appId/inapp-messages/:id/analytics': {} as Endpoint<
     { from?: string; to?: string },
     InAppMessageAnalytics
@@ -960,35 +1455,72 @@ export const endpoints = {
   >,
 
   // ---------- feature requests (5th pillar) — dashboard ----------
-  'GET /v1/apps/:appId/requests': {} as Endpoint<ListRequestsQuery, ReadonlyArray<RequestSummary>>,
-  'GET /v1/apps/:appId/requests/:requestId': {} as Endpoint<void, RequestDetail>,
-  'PATCH /v1/apps/:appId/requests/:requestId/status':
-    {} as Endpoint<UpdateRequestStatusRequest, RequestDetail>,
-  'PUT /v1/apps/:appId/requests/:requestId/response':
-    {} as Endpoint<UpdateRequestResponseRequest, RequestDetail>,
-  'PATCH /v1/apps/:appId/requests/:requestId/moderation':
-    {} as Endpoint<UpdateRequestModerationRequest, RequestDetail>,
-  'POST /v1/apps/:appId/requests/merge':
-    {} as Endpoint<MergeRequestsRequest, { canonicalId: string; mergedCount: number }>,
-  'POST /v1/apps/:appId/requests/bulk/status':
-    {} as Endpoint<BulkUpdateStatusRequest, { updated: number }>,
-  'GET /v1/apps/:appId/requests/:requestId/upvoter-segments':
-    {} as Endpoint<void, RequestUpvoterSegmentBreakdown>,
-  'GET /v1/apps/:appId/requests/:requestId/timeline':
-    {} as Endpoint<void, ReadonlyArray<RequestTimelineEntry>>,
-  'GET /v1/apps/:appId/requests/:requestId/analytics':
-    {} as Endpoint<{ from?: string; to?: string }, RequestAnalytics>,
-  'GET /v1/apps/:appId/requests/:requestId/audience-spec':
-    {} as Endpoint<void, { audience: AudienceSpec }>,
+  'GET /v1/apps/:appId/requests': {} as Endpoint<
+    ListRequestsQuery,
+    ReadonlyArray<RequestSummary>
+  >,
+  'GET /v1/apps/:appId/requests/:requestId': {} as Endpoint<
+    void,
+    RequestDetail
+  >,
+  'PATCH /v1/apps/:appId/requests/:requestId/status': {} as Endpoint<
+    UpdateRequestStatusRequest,
+    RequestDetail
+  >,
+  'PUT /v1/apps/:appId/requests/:requestId/response': {} as Endpoint<
+    UpdateRequestResponseRequest,
+    RequestDetail
+  >,
+  'PATCH /v1/apps/:appId/requests/:requestId/moderation': {} as Endpoint<
+    UpdateRequestModerationRequest,
+    RequestDetail
+  >,
+  'POST /v1/apps/:appId/requests/merge': {} as Endpoint<
+    MergeRequestsRequest,
+    { canonicalId: string; mergedCount: number }
+  >,
+  'POST /v1/apps/:appId/requests/bulk/status': {} as Endpoint<
+    BulkUpdateStatusRequest,
+    { updated: number }
+  >,
+  'GET /v1/apps/:appId/requests/:requestId/upvoter-segments': {} as Endpoint<
+    void,
+    RequestUpvoterSegmentBreakdown
+  >,
+  'GET /v1/apps/:appId/requests/:requestId/timeline': {} as Endpoint<
+    void,
+    ReadonlyArray<RequestTimelineEntry>
+  >,
+  'GET /v1/apps/:appId/requests/:requestId/analytics': {} as Endpoint<
+    { from?: string; to?: string },
+    RequestAnalytics
+  >,
+  'GET /v1/apps/:appId/requests/:requestId/audience-spec': {} as Endpoint<
+    void,
+    { audience: AudienceSpec }
+  >,
   'GET /v1/apps/:appId/request-settings': {} as Endpoint<void, RequestSettings>,
-  'PUT /v1/apps/:appId/request-settings':
-    {} as Endpoint<UpdateRequestSettingsRequest, RequestSettings>,
-  'GET /v1/apps/:appId/request-settings/slug-available':
-    {} as Endpoint<{ slug: string }, { available: boolean }>,
+  'PUT /v1/apps/:appId/request-settings': {} as Endpoint<
+    UpdateRequestSettingsRequest,
+    RequestSettings
+  >,
+  'GET /v1/apps/:appId/request-settings/slug-available': {} as Endpoint<
+    { slug: string },
+    { available: boolean }
+  >,
   /** Multipart `file` field; the processed logo URL is saved into branding.logoUrl. */
-  'POST /v1/apps/:appId/request-settings/logo': {} as Endpoint<{ file: Blob }, RequestSettings>,
-  'DELETE /v1/apps/:appId/request-settings/logo': {} as Endpoint<void, RequestSettings>,
-  'POST /v1/apps/:appId/requests/seed-segments': {} as Endpoint<void, { created: number }>,
+  'POST /v1/apps/:appId/request-settings/logo': {} as Endpoint<
+    { file: Blob },
+    RequestSettings
+  >,
+  'DELETE /v1/apps/:appId/request-settings/logo': {} as Endpoint<
+    void,
+    RequestSettings
+  >,
+  'POST /v1/apps/:appId/requests/seed-segments': {} as Endpoint<
+    void,
+    { created: number }
+  >,
 
   // ---------- feature requests — SDK (write-key) ----------
   'GET /v1/sdk/requests': {} as Endpoint<
@@ -1028,10 +1560,8 @@ export const endpoints = {
     void,
     { items: ReadonlyArray<RequestComment> }
   >,
-  'DELETE /v1/apps/:appId/requests/:requestId/comments/:commentId': {} as Endpoint<
-    void,
-    { ok: true }
-  >,
+  'DELETE /v1/apps/:appId/requests/:requestId/comments/:commentId':
+    {} as Endpoint<void, { ok: true }>,
 
   // SDK (write-key)
   'GET /v1/sdk/requests/:requestId/comments': {} as Endpoint<
@@ -1054,7 +1584,10 @@ export const endpoints = {
   // ---------- billing (Paddle) ----------
   'GET /v1/workspaces/:wid/billing/plans': {} as Endpoint<
     void,
-    { plans: ReadonlyArray<BillingPlan>; foundingOffer: BillingOfferAvailability }
+    {
+      plans: ReadonlyArray<BillingPlan>
+      foundingOffer: BillingOfferAvailability
+    }
   >,
   'GET /v1/workspaces/:wid/billing/subscription': {} as Endpoint<
     void,
@@ -1085,7 +1618,10 @@ export const endpoints = {
 
   // ---------- super admin ----------
   'GET /v1/admin/session': {} as Endpoint<void, AdminSession>,
-  'GET /v1/admin/feature-flags': {} as Endpoint<void, ReadonlyArray<GlobalFeatureFlag>>,
+  'GET /v1/admin/feature-flags': {} as Endpoint<
+    void,
+    ReadonlyArray<GlobalFeatureFlag>
+  >,
   'PATCH /v1/admin/feature-flags/:key': {} as Endpoint<
     UpdateGlobalFeatureFlagRequest,
     GlobalFeatureFlag
@@ -1094,7 +1630,10 @@ export const endpoints = {
     AdminCustomerListRequest,
     AdminCustomerListResponse
   >,
-  'GET /v1/admin/customers/:workspaceId': {} as Endpoint<void, AdminCustomerDetail>,
+  'GET /v1/admin/customers/:workspaceId': {} as Endpoint<
+    void,
+    AdminCustomerDetail
+  >,
   'POST /v1/admin/customers/:workspaceId/permanent-deletion': {} as Endpoint<
     DeleteAdminWorkspaceRequest,
     { job: AdminDeletionJob }
@@ -1107,27 +1646,30 @@ export const endpoints = {
     DeleteAdminDashboardUserRequest,
     { job: AdminDeletionJob }
   >,
-  'GET /v1/admin/deletion-jobs/:jobId': {} as Endpoint<void, { job: AdminDeletionJob }>,
+  'GET /v1/admin/deletion-jobs/:jobId': {} as Endpoint<
+    void,
+    { job: AdminDeletionJob }
+  >,
   'POST /v1/admin/deletion-jobs/:jobId/retry': {} as Endpoint<
     Record<string, never>,
     { job: AdminDeletionJob }
   >,
-  'POST /v1/admin/customers/:workspaceId/billing-events/:eventId/replay': {} as Endpoint<
-    Record<string, never>,
-    { replayed: true }
-  >,
+  'POST /v1/admin/customers/:workspaceId/billing-events/:eventId/replay':
+    {} as Endpoint<Record<string, never>, { replayed: true }>,
   'POST /v1/admin/customers/:workspaceId/grants': {} as Endpoint<
     CreateWorkspacePlanGrantRequest,
     { grant: WorkspacePlanGrant }
   >,
-  'POST /v1/admin/customers/:workspaceId/grants/:grantId/extend': {} as Endpoint<
-    ExtendWorkspacePlanGrantRequest,
-    { grant: WorkspacePlanGrant }
-  >,
-  'POST /v1/admin/customers/:workspaceId/grants/:grantId/revoke': {} as Endpoint<
-    RevokeWorkspacePlanGrantRequest,
-    { grant: WorkspacePlanGrant }
-  >,
+  'POST /v1/admin/customers/:workspaceId/grants/:grantId/extend':
+    {} as Endpoint<
+      ExtendWorkspacePlanGrantRequest,
+      { grant: WorkspacePlanGrant }
+    >,
+  'POST /v1/admin/customers/:workspaceId/grants/:grantId/revoke':
+    {} as Endpoint<
+      RevokeWorkspacePlanGrantRequest,
+      { grant: WorkspacePlanGrant }
+    >,
   'GET /v1/admin/activity': {} as Endpoint<
     { workspaceId?: string; action?: string; cursor?: string; limit?: number },
     { entries: ReadonlyArray<AdminActivityEntry>; nextCursor: string | null }
@@ -1179,48 +1721,156 @@ export const endpoints = {
 
   // ---------- feature requests — public web roadmap (no auth) ----------
   'GET /v1/public/roadmap/:slug': {} as Endpoint<
-    { status?: RequestStatus | ReadonlyArray<RequestStatus>; sort?: 'top' | 'newest' | 'recently_updated'; page?: number; limit?: number },
+    {
+      status?: RequestStatus | ReadonlyArray<RequestStatus>
+      sort?: 'top' | 'newest' | 'recently_updated'
+      page?: number
+      limit?: number
+    },
     { items: ReadonlyArray<RequestPublicSummary>; total: number }
   >,
-  'GET /v1/public/roadmap/:slug/r/:requestId': {} as Endpoint<void, RequestPublicDetail>,
-  'GET /v1/public/roadmap/:slug/branding': {} as Endpoint<void, RequestPublicBranding>,
+  'GET /v1/public/roadmap/:slug/r/:requestId': {} as Endpoint<
+    void,
+    RequestPublicDetail
+  >,
+  'GET /v1/public/roadmap/:slug/branding': {} as Endpoint<
+    void,
+    RequestPublicBranding
+  >,
 
-  'GET /v1/apps/:appId/help/articles': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.PortalDocument>>,
-  'POST /v1/apps/:appId/help/articles': {} as Endpoint<Content.CreateDocument, Content.PortalDocument>,
-  'GET /v1/apps/:appId/help/articles/:documentId': {} as Endpoint<void, Content.PortalDocument>,
-  'PUT /v1/apps/:appId/help/articles/:documentId': {} as Endpoint<Content.SaveDocument, Content.PortalDocument>,
-  'POST /v1/apps/:appId/help/articles/:documentId/lifecycle': {} as Endpoint<Content.ContentAction, Content.PortalDocument>,
-  'GET /v1/apps/:appId/changelog': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.PortalDocument>>,
-  'POST /v1/apps/:appId/changelog': {} as Endpoint<Content.CreateDocument, Content.PortalDocument>,
-  'GET /v1/apps/:appId/changelog/:documentId': {} as Endpoint<void, Content.PortalDocument>,
-  'PUT /v1/apps/:appId/changelog/:documentId': {} as Endpoint<Content.SaveDocument, Content.PortalDocument>,
-  'POST /v1/apps/:appId/changelog/:documentId/lifecycle': {} as Endpoint<Content.ContentAction, Content.PortalDocument>,
-  'GET /v1/apps/:appId/help/collections': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.HelpCollection>>,
-  'POST /v1/apps/:appId/help/collections': {} as Endpoint<Content.CreateCollection, Content.HelpCollection>,
-  'PATCH /v1/apps/:appId/help/collections/:collectionId': {} as Endpoint<Content.UpdateCollection, Content.HelpCollection>,
-  'POST /v1/apps/:appId/help/collections/:collectionId/position': {} as Endpoint<Content.ReorderContent, { updated: boolean }>,
-  'POST /v1/apps/:appId/help/articles/:documentId/position': {} as Endpoint<Content.ReorderContent, { updated: boolean }>,
-  'GET /v1/apps/:appId/roadmap': {} as Endpoint<Content.RoadmapQuery, Content.ContentPage<Content.RoadmapCard>>,
-  'POST /v1/apps/:appId/roadmap': {} as Endpoint<Content.CreateRoadmapItem, Content.RoadmapItem>,
-  'GET /v1/apps/:appId/roadmap/:itemId': {} as Endpoint<void, Content.RoadmapItem>,
-  'PUT /v1/apps/:appId/roadmap/:itemId': {} as Endpoint<Content.SaveRoadmapItem, Content.RoadmapItem>,
-  'POST /v1/apps/:appId/roadmap/:itemId/status': {} as Endpoint<Content.MoveRoadmapItem, Content.RoadmapItem>,
-  'POST /v1/apps/:appId/roadmap/:itemId/lifecycle': {} as Endpoint<Content.ContentAction, Content.RoadmapItem>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/help/collections': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.HelpCollection>>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/help/collections/:collectionId': {} as Endpoint<void, Content.HelpCollection>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/help/articles': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.PublicDocumentSummary>>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/help/articles/:documentId': {} as Endpoint<void, Content.PublicPortalDocument>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/changelog': {} as Endpoint<Content.ContentQuery, Content.ContentPage<Content.PublicDocumentSummary>>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/changelog/:documentId': {} as Endpoint<void, Content.PublicPortalDocument>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/roadmap': {} as Endpoint<Content.RoadmapQuery, Content.ContentPage<Content.RoadmapCard>>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/roadmap/:itemId': {} as Endpoint<void, Content.PublicRoadmapItem>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId/changelog': {} as Endpoint<Content.ContentPageQuery, Content.ContentPage<Content.PublicDocumentSummary>>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/roadmap/:itemId/changelog': {} as Endpoint<Content.ContentPageQuery, Content.ContentPage<Content.PublicDocumentSummary>>,
-  'GET /v1/apps/:appId/portal-content/link-targets': {} as Endpoint<Content.ContentLinkQuery, Content.ContentPage<Content.ContentLinkTarget>>,
+  'GET /v1/apps/:appId/help/articles': {} as Endpoint<
+    Content.ContentQuery,
+    Content.ContentPage<Content.PortalDocument>
+  >,
+  'POST /v1/apps/:appId/help/articles': {} as Endpoint<
+    Content.CreateDocument,
+    Content.PortalDocument
+  >,
+  'GET /v1/apps/:appId/help/articles/:documentId': {} as Endpoint<
+    void,
+    Content.PortalDocument
+  >,
+  'PUT /v1/apps/:appId/help/articles/:documentId': {} as Endpoint<
+    Content.SaveDocument,
+    Content.PortalDocument
+  >,
+  'POST /v1/apps/:appId/help/articles/:documentId/lifecycle': {} as Endpoint<
+    Content.ContentAction,
+    Content.PortalDocument
+  >,
+  'GET /v1/apps/:appId/changelog': {} as Endpoint<
+    Content.ContentQuery,
+    Content.ContentPage<Content.PortalDocument>
+  >,
+  'POST /v1/apps/:appId/changelog': {} as Endpoint<
+    Content.CreateDocument,
+    Content.PortalDocument
+  >,
+  'GET /v1/apps/:appId/changelog/:documentId': {} as Endpoint<
+    void,
+    Content.PortalDocument
+  >,
+  'PUT /v1/apps/:appId/changelog/:documentId': {} as Endpoint<
+    Content.SaveDocument,
+    Content.PortalDocument
+  >,
+  'POST /v1/apps/:appId/changelog/:documentId/lifecycle': {} as Endpoint<
+    Content.ContentAction,
+    Content.PortalDocument
+  >,
+  'GET /v1/apps/:appId/help/collections': {} as Endpoint<
+    Content.ContentQuery,
+    Content.ContentPage<Content.HelpCollection>
+  >,
+  'POST /v1/apps/:appId/help/collections': {} as Endpoint<
+    Content.CreateCollection,
+    Content.HelpCollection
+  >,
+  'PATCH /v1/apps/:appId/help/collections/:collectionId': {} as Endpoint<
+    Content.UpdateCollection,
+    Content.HelpCollection
+  >,
+  'POST /v1/apps/:appId/help/collections/:collectionId/position':
+    {} as Endpoint<Content.ReorderContent, { updated: boolean }>,
+  'POST /v1/apps/:appId/help/articles/:documentId/position': {} as Endpoint<
+    Content.ReorderContent,
+    { updated: boolean }
+  >,
+  'GET /v1/apps/:appId/roadmap': {} as Endpoint<
+    Content.RoadmapQuery,
+    Content.ContentPage<Content.RoadmapCard>
+  >,
+  'POST /v1/apps/:appId/roadmap': {} as Endpoint<
+    Content.CreateRoadmapItem,
+    Content.RoadmapItem
+  >,
+  'GET /v1/apps/:appId/roadmap/:itemId': {} as Endpoint<
+    void,
+    Content.RoadmapItem
+  >,
+  'PUT /v1/apps/:appId/roadmap/:itemId': {} as Endpoint<
+    Content.SaveRoadmapItem,
+    Content.RoadmapItem
+  >,
+  'POST /v1/apps/:appId/roadmap/:itemId/status': {} as Endpoint<
+    Content.MoveRoadmapItem,
+    Content.RoadmapItem
+  >,
+  'POST /v1/apps/:appId/roadmap/:itemId/lifecycle': {} as Endpoint<
+    Content.ContentAction,
+    Content.RoadmapItem
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/help/collections': {} as Endpoint<
+    Content.ContentQuery,
+    Content.ContentPage<Content.HelpCollection>
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/help/collections/:collectionId':
+    {} as Endpoint<void, Content.HelpCollection>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/help/articles': {} as Endpoint<
+    Content.ContentQuery,
+    Content.ContentPage<Content.PublicDocumentSummary>
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/help/articles/:documentId':
+    {} as Endpoint<void, Content.PublicPortalDocument>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/changelog': {} as Endpoint<
+    Content.ContentQuery,
+    Content.ContentPage<Content.PublicDocumentSummary>
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/changelog/:documentId':
+    {} as Endpoint<void, Content.PublicPortalDocument>,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/roadmap': {} as Endpoint<
+    Content.RoadmapQuery,
+    Content.ContentPage<Content.RoadmapCard>
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/roadmap/:itemId': {} as Endpoint<
+    void,
+    Content.PublicRoadmapItem
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/requests/:requestId/changelog':
+    {} as Endpoint<
+      Content.ContentPageQuery,
+      Content.ContentPage<Content.PublicDocumentSummary>
+    >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/roadmap/:itemId/changelog':
+    {} as Endpoint<
+      Content.ContentPageQuery,
+      Content.ContentPage<Content.PublicDocumentSummary>
+    >,
+  'GET /v1/apps/:appId/portal-content/link-targets': {} as Endpoint<
+    Content.ContentLinkQuery,
+    Content.ContentPage<Content.ContentLinkTarget>
+  >,
   // Binary routes use multipart/stream transports, not the JSON client helper.
-  'POST /v1/apps/:appId/portal-content/assets/:kind/:documentId': {} as Endpoint<Content.PortalAssetUpload, Content.PortalAsset>,
-  'GET /v1/apps/:appId/portal-content/assets/:assetId': {} as Endpoint<void, Blob>,
-  'GET /v1/portal/:portalSlug/apps/:appSlug/assets/:assetId': {} as Endpoint<void, Blob>,
+  'POST /v1/apps/:appId/portal-content/assets/:kind/:documentId':
+    {} as Endpoint<Content.PortalAssetUpload, Content.PortalAsset>,
+  'GET /v1/apps/:appId/portal-content/assets/:assetId': {} as Endpoint<
+    void,
+    Blob
+  >,
+  'GET /v1/portal/:portalSlug/apps/:appSlug/assets/:assetId': {} as Endpoint<
+    void,
+    Blob
+  >,
 } as const
 
 export type EndpointKey = keyof typeof endpoints

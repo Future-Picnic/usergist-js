@@ -11,36 +11,49 @@ import type {
   ClientPrompt,
   ArmedInAppMessage,
 } from '@usergist/sdk-core/mobile'
-import { APP_OPEN_EVENT_NAME, APP_VERSION_CHANGED_EVENT_NAME } from '@usergist/sdk-core/mobile'
+import {
+  APP_OPEN_EVENT_NAME,
+  APP_VERSION_CHANGED_EVENT_NAME,
+} from '@usergist/sdk-core/mobile'
 import {
   STORAGE_KEYS,
   createStorageScope,
   type StorageScope,
 } from './storage.js'
-import { createIdentityManager, generateEventId, type IdentityManager } from './identity.js'
+import {
+  createIdentityManager,
+  generateEventId,
+  type IdentityManager,
+} from './identity.js'
 import { createConsentManager, type ConsentManager } from './consent.js'
 import { createEventQueue, type EventQueue } from './queue.js'
-import { createTransport, PermanentHttpError, type Transport } from './transport.js'
+import {
+  createTransport,
+  PermanentHttpError,
+  type Transport,
+} from './transport.js'
 import { createRulesCache, type RulesCache } from './rules-cache.js'
 import {
   createSurveyRulesCache,
   type SurveyRulesCache,
 } from './survey-rules-cache.js'
-import { createFrequencyCapManager, type FrequencyCapManager } from './frequency-cap.js'
+import {
+  createFrequencyCapManager,
+  type FrequencyCapManager,
+} from './frequency-cap.js'
 import { createUserStateStore, type UserStateStore } from './user-state.js'
 import { createTriggerMatcher, type TriggerMatcher } from './trigger-matcher.js'
 import { createSurveyMatcher, type SurveyMatcher } from './survey-matcher.js'
-import { createInAppRulesCache, type InAppRulesCache } from './inapp-rules-cache.js'
+import {
+  createInAppRulesCache,
+  type InAppRulesCache,
+} from './inapp-rules-cache.js'
 import { createInAppMatcher, type InAppMatcher } from './inapp-matcher.js'
 import { createLifecycleManager, type LifecycleManager } from './lifecycle.js'
 import { createContextProvider, type ContextProvider } from './context.js'
 import { createEventBus, type EventBus } from './events.js'
 import { setDebugEnabled, reportError, debugLog } from './debug.js'
-import type {
-  QueuedEvent,
-  ResolvedConfig,
-  ResponseEmission,
-} from './types.js'
+import type { QueuedEvent, ResolvedConfig, ResponseEmission } from './types.js'
 import type { ResolvedTheme } from '../ui/theme.js'
 import { createMutationQueue, type MutationQueue } from './mutation-queue.js'
 import {
@@ -107,7 +120,11 @@ export interface Engine {
 }
 
 export function resolveConfig(config: SdkConfig): ResolvedConfig {
-  if (!config || typeof config.writeKey !== 'string' || config.writeKey.length === 0) {
+  if (
+    !config ||
+    typeof config.writeKey !== 'string' ||
+    config.writeKey.length === 0
+  ) {
     throw new Error('UserGist.init requires a writeKey')
   }
   const environment = config.environment ?? DEFAULTS.environment
@@ -122,7 +139,8 @@ export function resolveConfig(config: SdkConfig): ResolvedConfig {
     flushIntervalMs: config.flushIntervalMs ?? DEFAULTS.flushIntervalMs,
     flushBatchSize: config.flushBatchSize ?? DEFAULTS.flushBatchSize,
     maxQueueSize: config.maxQueueSize ?? DEFAULTS.maxQueueSize,
-    triggerSyncIntervalMs: config.triggerSyncIntervalMs ?? DEFAULTS.triggerSyncIntervalMs,
+    triggerSyncIntervalMs:
+      config.triggerSyncIntervalMs ?? DEFAULTS.triggerSyncIntervalMs,
     debug: config.debug ?? DEFAULTS.debug,
     appVersion: config.appVersion?.trim() || null,
   }
@@ -138,8 +156,15 @@ export function createEngine(config: SdkConfig): Engine {
   const queue = createEventQueue(storage, resolved.maxQueueSize)
   const mutations = createMutationQueue(storage)
   const localInstructionDedupe = createLocalInstructionDedupe(storage)
-  const transport = createTransport({ writeKey: resolved.writeKey, apiUrl: resolved.apiUrl })
-  const rules = createRulesCache(storage, transport, resolved.triggerSyncIntervalMs)
+  const transport = createTransport({
+    writeKey: resolved.writeKey,
+    apiUrl: resolved.apiUrl,
+  })
+  const rules = createRulesCache(
+    storage,
+    transport,
+    resolved.triggerSyncIntervalMs,
+  )
   const surveyRules = createSurveyRulesCache(
     storage,
     transport,
@@ -251,7 +276,10 @@ export function createEngine(config: SdkConfig): Engine {
     matcher.recordShown(payload.promptId, payload.shownAt)
   })
   consent.subscribe((s) => {
-    if (!s.analytics) engine.queue.removePurpose('analytics')
+    if (!s.analytics) {
+      engine.queue.removePurpose('analytics')
+      void engine.mutations.removePurpose('analytics')
+    }
     if (!s.feedback) {
       engine.queue.removePurpose('feedback')
       void engine.mutations.removePurpose('feedback')
@@ -283,7 +311,9 @@ export async function ensureHydrated(engine: Engine): Promise<void> {
         engine.surveyRules.hydrate(),
         engine.inAppRules.hydrate(),
         engine.localInstructionDedupe.hydrate(),
-        engine.storage.getJson<string>(STORAGE_KEYS.pushToken).then(token => { if (typeof token === 'string') engine.lastPushToken = token }),
+        engine.storage.getJson<string>(STORAGE_KEYS.pushToken).then((token) => {
+          if (typeof token === 'string') engine.lastPushToken = token
+        }),
       ])
       await ensureSubjectSession(engine)
       engine.hydrated = true
@@ -304,7 +334,9 @@ export async function ensureSubjectSession(engine: Engine): Promise<void> {
   if (engine.sessionPromise) return engine.sessionPromise
   engine.sessionPromise = (async () => {
     const id = engine.identity.get()
-    const persisted = await engine.storage.getJson<string>(STORAGE_KEYS.subjectToken)
+    const persisted = await engine.storage.getJson<string>(
+      STORAGE_KEYS.subjectToken,
+    )
     try {
       const session = await engine.transport.session({
         anonymousId: id.anonymousId,
@@ -312,9 +344,13 @@ export async function ensureSubjectSession(engine: Engine): Promise<void> {
       })
       engine.subjectToken = session.subjectToken
       engine.transport.setSubjectToken(session.subjectToken)
-      await engine.storage.setJson(STORAGE_KEYS.subjectToken, session.subjectToken)
+      await engine.storage.setJson(
+        STORAGE_KEYS.subjectToken,
+        session.subjectToken,
+      )
     } catch (error) {
-      const mayRotate = error instanceof PermanentHttpError &&
+      const mayRotate =
+        error instanceof PermanentHttpError &&
         (error.status === 401 || error.status === 403 || error.status === 409)
       if (!mayRotate) throw error
       // A lost/expired credential must never be replaced for the same known
@@ -322,10 +358,15 @@ export async function ensureSubjectSession(engine: Engine): Promise<void> {
       // new server-bound subject instead.
       if (persisted) await engine.storage.remove(STORAGE_KEYS.subjectToken)
       const rotated = await engine.identity.rotate()
-      const session = await engine.transport.session({ anonymousId: rotated.anonymousId })
+      const session = await engine.transport.session({
+        anonymousId: rotated.anonymousId,
+      })
       engine.subjectToken = session.subjectToken
       engine.transport.setSubjectToken(session.subjectToken)
-      await engine.storage.setJson(STORAGE_KEYS.subjectToken, session.subjectToken)
+      await engine.storage.setJson(
+        STORAGE_KEYS.subjectToken,
+        session.subjectToken,
+      )
     }
   })().finally(() => {
     engine.sessionPromise = null
@@ -396,7 +437,8 @@ export async function emitAppVersionChanged(engine: Engine): Promise<void> {
   if (!current) return
   const previous = await engine.storage.getJson<string>(STORAGE_KEYS.appVersion)
   await engine.storage.setJson(STORAGE_KEYS.appVersion, current)
-  if (!previous || previous === current || !engine.consent.allowsAnalytics()) return
+  if (!previous || previous === current || !engine.consent.allowsAnalytics())
+    return
   enqueueAndEvaluate(engine, APP_VERSION_CHANGED_EVENT_NAME, {
     old_version: previous,
     new_version: current,
@@ -434,19 +476,24 @@ async function performFlush(engine: Engine): Promise<void> {
     await ensureHydrated(engine)
     while (engine.queue.size() > 0) {
       const consent = engine.consent.get()
-      const allowed = engine.queue.snapshot().filter((event) =>
-        event.purpose === 'analytics' ? consent.analytics : consent.feedback,
-      )
+      const allowed = engine.queue
+        .snapshot()
+        .filter((event) =>
+          event.purpose === 'analytics' ? consent.analytics : consent.feedback,
+        )
       const firstAllowed = allowed[0]
       if (!firstAllowed) break
       // An identify transition can leave pre-identify events queued beside
       // post-identify events. The API deliberately rejects a batch whose
       // event identities differ from its context, so drain one identity at a
       // time while retaining FIFO order within that identity.
-      const batch = allowed.filter((event) =>
-        event.anonymousId === firstAllowed.anonymousId &&
-        event.externalId === firstAllowed.externalId,
-      ).slice(0, engine.config.flushBatchSize)
+      const batch = allowed
+        .filter(
+          (event) =>
+            event.anonymousId === firstAllowed.anonymousId &&
+            event.externalId === firstAllowed.externalId,
+        )
+        .slice(0, engine.config.flushBatchSize)
       if (batch.length === 0) break
       const ingestEvents: ReadonlyArray<IngestEvent> = batch.map((e) => ({
         eventId: e.eventId,
@@ -494,10 +541,13 @@ async function performFlush(engine: Engine): Promise<void> {
           } catch (singleError) {
             if (singleError instanceof PermanentHttpError) {
               engine.queue.remove([first.eventId])
-              reportError('ingest event quarantined after permanent rejection', {
-                eventId: first.eventId,
-                status: singleError.status,
-              })
+              reportError(
+                'ingest event quarantined after permanent rejection',
+                {
+                  eventId: first.eventId,
+                  status: singleError.status,
+                },
+              )
               continue
             }
             reportError('ingest failed', singleError)
@@ -527,7 +577,9 @@ export interface MutationFlushResult {
   readonly permanentlyRejectedIds: ReadonlySet<string>
 }
 
-export async function flushMutations(engine: Engine): Promise<MutationFlushResult> {
+export async function flushMutations(
+  engine: Engine,
+): Promise<MutationFlushResult> {
   if (engine.resetting) return { permanentlyRejectedIds: new Set() }
   if (engine.mutationFlushPromise) return engine.mutationFlushPromise
   engine.mutationFlushPromise = performMutationFlush(engine).finally(() => {
@@ -536,7 +588,9 @@ export async function flushMutations(engine: Engine): Promise<MutationFlushResul
   return engine.mutationFlushPromise
 }
 
-async function performMutationFlush(engine: Engine): Promise<MutationFlushResult> {
+async function performMutationFlush(
+  engine: Engine,
+): Promise<MutationFlushResult> {
   const permanentlyRejectedIds = new Set<string>()
   while (engine.mutations.size() > 0) {
     if (engine.resetting) break
@@ -544,23 +598,37 @@ async function performMutationFlush(engine: Engine): Promise<MutationFlushResult
     if (!mutation) break
     const deliveryGeneration = engine.resetGeneration
     const consent = engine.consent.get()
+    if (mutation.purpose === 'analytics' && !consent.analytics) break
     if (mutation.purpose === 'feedback' && !consent.feedback) break
     if (mutation.purpose === 'survey' && !consent.survey) break
     try {
-      if (mutation.kind === 'feedback-response') {
+      if (mutation.kind === 'user-properties') {
+        const result = await engine.transport.userProperties(
+          mutation.payload as unknown as import('@usergist/sdk-core/mobile').UserPropertiesUpdate & {
+            anonymousId: string
+          },
+        )
+        if (result.filteredKeys.length)
+          reportError(
+            'User properties filtered by app privacy settings',
+            result.filteredKeys,
+          )
+      } else if (mutation.kind === 'feedback-response') {
         await engine.transport.submitResponse(
           mutation.payload as unknown as SubmitResponsePayload,
         )
       } else if (mutation.kind === 'survey-complete') {
         const attemptId = mutation.payload.attemptId
-        if (typeof attemptId !== 'string') throw new Error('invalid-survey-mutation')
+        if (typeof attemptId !== 'string')
+          throw new Error('invalid-survey-mutation')
         await engine.transport.surveyComplete(
           attemptId,
           mutation.payload.body as unknown as CompleteSurveyAttemptRequest,
         )
       } else if (mutation.kind === 'survey-abandon') {
         const attemptId = mutation.payload.attemptId
-        if (typeof attemptId !== 'string') throw new Error('invalid-survey-mutation')
+        if (typeof attemptId !== 'string')
+          throw new Error('invalid-survey-mutation')
         await engine.transport.surveyAbandon(attemptId)
       } else {
         const subjectToken = mutation.payload.subjectToken
@@ -571,26 +639,38 @@ async function performMutationFlush(engine: Engine): Promise<MutationFlushResult
           typeof subjectToken !== 'string' ||
           typeof anonymousId !== 'string' ||
           typeof externalId !== 'string'
-        ) throw new Error('invalid-identify-mutation')
+        )
+          throw new Error('invalid-identify-mutation')
         try {
           await engine.transport.identify(
             {
               anonymousId,
               externalId,
               ...(properties && typeof properties === 'object'
-                ? { properties: properties as Readonly<Record<string, EventPropertyValue>> }
+                ? {
+                    properties: properties as Readonly<
+                      Record<string, EventPropertyValue>
+                    >,
+                  }
                 : {}),
             },
             subjectToken,
           )
-          if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
-          await engine.storage.setJsonStrict(STORAGE_KEYS.subjectToken, subjectToken)
-          if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
+          if (engine.resetting || engine.resetGeneration !== deliveryGeneration)
+            break
+          await engine.storage.setJsonStrict(
+            STORAGE_KEYS.subjectToken,
+            subjectToken,
+          )
+          if (engine.resetting || engine.resetGeneration !== deliveryGeneration)
+            break
           engine.subjectToken = subjectToken
           engine.transport.setSubjectToken(subjectToken)
           await engine.identity.setExternalId(externalId)
           if (properties && typeof properties === 'object') {
-            const clean = properties as Readonly<Record<string, EventPropertyValue>>
+            const clean = properties as Readonly<
+              Record<string, EventPropertyValue>
+            >
             engine.userState.mergeProperties(clean)
             if (engine.consent.allowsAnalytics()) {
               enqueueAndEvaluate(engine, '$identify', clean)
@@ -602,10 +682,12 @@ async function performMutationFlush(engine: Engine): Promise<MutationFlushResult
           throw error
         }
       }
-      if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
+      if (engine.resetting || engine.resetGeneration !== deliveryGeneration)
+        break
       await engine.mutations.remove(mutation.id)
     } catch (error) {
-      if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
+      if (engine.resetting || engine.resetGeneration !== deliveryGeneration)
+        break
       if (error instanceof PermanentHttpError) {
         await engine.mutations.remove(mutation.id)
         permanentlyRejectedIds.add(mutation.id)
@@ -648,7 +730,9 @@ export async function pollSurveyOffers(engine: Engine): Promise<void> {
     const surveys = res.surveys ?? []
     if (surveys.length === 0) return
 
-    const seen = (await engine.storage.getJson<ReadonlyArray<string>>(SEEN_OFFERS_KEY)) ?? []
+    const seen =
+      (await engine.storage.getJson<ReadonlyArray<string>>(SEEN_OFFERS_KEY)) ??
+      []
     const seenSet = new Set(seen)
     const localIds = surveys
       .map((survey) => survey.id)
@@ -692,12 +776,19 @@ export async function pollInstructions(engine: Engine): Promise<void> {
 async function performInstructionPoll(engine: Engine): Promise<void> {
   try {
     await ensureHydrated(engine)
-    const after = (await engine.storage.getJson<number>(STORAGE_KEYS.instructionCursor)) ?? 0
-    const seen = (await engine.storage.getJson<ReadonlyArray<number>>(
-      STORAGE_KEYS.seenInstructions,
-    )) ?? []
+    const after =
+      (await engine.storage.getJson<number>(STORAGE_KEYS.instructionCursor)) ??
+      0
+    const seen =
+      (await engine.storage.getJson<ReadonlyArray<number>>(
+        STORAGE_KEYS.seenInstructions,
+      )) ?? []
     const seenSet = new Set(seen)
-    const result = await engine.transport.instructions(after, { anonymousId: engine.identity.get().anonymousId, platform: engine.context.platform(), sdkVersion: engine.context.sdkVersion() })
+    const result = await engine.transport.instructions(after, {
+      anonymousId: engine.identity.get().anonymousId,
+      platform: engine.context.platform(),
+      sdkVersion: engine.context.sdkVersion(),
+    })
     if (result.instructions.length === 0) return
 
     const handledIds: number[] = []
@@ -730,7 +821,8 @@ function dispatchInstruction(
     if (!engine.consent.allowsFeedback()) return
     const promptId = payload.promptId
     const prompt = payload.prompt
-    if (typeof promptId !== 'string' || !prompt || typeof prompt !== 'object') return
+    if (typeof promptId !== 'string' || !prompt || typeof prompt !== 'object')
+      return
     const triggerEventId = payload.triggerEventId
     if (
       typeof triggerEventId === 'string' &&
@@ -751,16 +843,21 @@ function dispatchInstruction(
       prompt: typedPrompt,
       theme: typedPrompt.theme,
       shownAt,
-      triggerEventName: typeof payload.triggerEventName === 'string'
-        ? payload.triggerEventName
-        : 'server',
+      triggerEventName:
+        typeof payload.triggerEventName === 'string'
+          ? payload.triggerEventName
+          : 'server',
     }
     engine.events.emit('showPrompt', emission)
     return
   }
   if (type === 'survey.offer') {
     if (!engine.consent.allowsSurvey()) return
-    if (typeof payload.surveyId !== 'string' || typeof payload.name !== 'string') return
+    if (
+      typeof payload.surveyId !== 'string' ||
+      typeof payload.name !== 'string'
+    )
+      return
     const triggerEventId = payload.triggerEventId
     if (
       typeof triggerEventId === 'string' &&
@@ -775,6 +872,13 @@ function dispatchInstruction(
       return
     }
     engine.events.emit('surveyInvite', {
+      survey:
+        payload.survey && typeof payload.survey === 'object'
+          ? ({
+              ...payload.survey,
+              presentationId: payload.presentationId,
+            } as import('@usergist/sdk-core/mobile').SurveyCampaignWithFlow)
+          : undefined,
       surveyId: payload.surveyId,
       name: payload.name,
       source: typeof payload.source === 'string' ? payload.source : 'triggered',
@@ -803,9 +907,10 @@ function dispatchInstruction(
       messageId: typed.messageId,
       message: typed,
       shownAt: Date.now(),
-      triggerEventName: typeof payload.triggerEventName === 'string'
-        ? payload.triggerEventName
-        : 'server',
+      triggerEventName:
+        typeof payload.triggerEventName === 'string'
+          ? payload.triggerEventName
+          : 'server',
     })
     return
   }
@@ -856,7 +961,8 @@ export function enqueueAndEvaluate(
     engine.queue.enqueue(base)
     engine.userState.recordEvent(eventName, now)
     evaluateLocally(engine, eventName, base.eventId)
-    if (engine.queue.size() >= engine.config.flushBatchSize) void flushNow(engine)
+    if (engine.queue.size() >= engine.config.flushBatchSize)
+      void flushNow(engine)
     else scheduleFlush(engine)
     return
   }
@@ -870,20 +976,28 @@ export function enqueueAndEvaluate(
     engine.queue.enqueue(withId)
     engine.userState.recordEvent(eventName, now)
     evaluateLocally(engine, eventName, withId.eventId)
-    if (engine.queue.size() >= engine.config.flushBatchSize) void flushNow(engine)
+    if (engine.queue.size() >= engine.config.flushBatchSize)
+      void flushNow(engine)
     else scheduleFlush(engine)
   })
 }
 
 /** Record an event for immediate on-device matching when the server mutation
  * has already persisted the canonical event transactionally. */
-export function recordServerBackedEventLocally(engine: Engine, eventName: string): void {
+export function recordServerBackedEventLocally(
+  engine: Engine,
+  eventName: string,
+): void {
   const now = Date.now()
   engine.userState.recordEvent(eventName, now)
   evaluateLocally(engine, eventName, generateEventId())
 }
 
-function evaluateLocally(engine: Engine, eventName: string, eventId: string): void {
+function evaluateLocally(
+  engine: Engine,
+  eventName: string,
+  eventId: string,
+): void {
   const promptId = engine.matcher.evaluate(eventName)
   if (promptId) {
     rememberLocalInstruction(
@@ -924,17 +1038,24 @@ export async function submitResponse(
     promptId: payload.promptId,
     anonymousId: id.anonymousId,
     externalId: id.externalId,
-    answers: payload.answers.map((a) => ({ questionId: a.questionId, value: a.value })),
+    answers: payload.answers.map((a) => ({
+      questionId: a.questionId,
+      value: a.value,
+    })),
     dismissed: payload.dismissed,
     latencyMs: payload.latencyMs,
   }
   engine.events.emit('response', payload)
-  trackInternal('$feedback_response', {
-    promptId: payload.promptId,
-    dismissed: payload.dismissed,
-    latencyMs: payload.latencyMs,
-    triggerEventName,
-  }, 'feedback')
+  trackInternal(
+    '$feedback_response',
+    {
+      promptId: payload.promptId,
+      dismissed: payload.dismissed,
+      latencyMs: payload.latencyMs,
+      triggerEventName,
+    },
+    'feedback',
+  )
   debugLog('[usergist:analyze] response-submit', {
     promptId: payload.promptId,
     answersCount: payload.answers.length,

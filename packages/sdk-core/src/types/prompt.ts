@@ -1,3 +1,4 @@
+import type { PersonalizationSpec } from './personalization.js'
 import type { ThemeMode } from './brand.js'
 
 export type QuestionType = 'rating' | 'nps' | 'multiple_choice' | 'short_text'
@@ -82,7 +83,10 @@ export interface FrequencyCaps {
 export type PromptStatus = 'draft' | 'active' | 'paused' | 'archived'
 
 export interface Prompt {
-  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly personalization?: PersonalizationSpec | null
+  readonly deliveryPlatforms?: ReadonlyArray<
+    import('./web.js').DeliveryPlatform
+  >
   readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly id: string
   readonly appId: string
@@ -122,7 +126,10 @@ export interface ArmedTrigger {
 }
 
 export interface ClientPrompt {
-  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly personalization?: PersonalizationSpec | null
+  readonly deliveryPlatforms?: ReadonlyArray<
+    import('./web.js').DeliveryPlatform
+  >
   readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly id: string
   readonly questions: ReadonlyArray<Question>

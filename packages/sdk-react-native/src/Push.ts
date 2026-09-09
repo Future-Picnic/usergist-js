@@ -1,3 +1,4 @@
+import type { PushOpenAction } from '@usergist/sdk-core/mobile'
 import { acceptPushEvent } from './internal/push-dedupe.js'
 /**
  * UserGist Push — React Native public surface.
@@ -30,6 +31,7 @@ export type PushPermissionStatus =
   | 'ephemeral'
 
 export interface UserGistPushMessage {
+  readonly openAction?: PushOpenAction
   readonly campaignId?: string
   readonly variantId?: string
   readonly deliveryId?: string
@@ -43,20 +45,51 @@ export interface UserGistPushMessage {
 }
 
 export interface PushHandlers {
-  readonly onReceive?: (message: UserGistPushMessage, raw: Record<string, unknown>) => void
+  readonly onReceive?: (
+    message: UserGistPushMessage,
+    raw: Record<string, unknown>,
+  ) => void
   readonly onOpen?: (message: UserGistPushMessage) => void
-  readonly onAction?: (message: UserGistPushMessage, actionButton: string) => void
+  readonly onAction?: (
+    message: UserGistPushMessage,
+    actionButton: string,
+  ) => void
   /** Executes host-defined structured actions after the button tap is tracked. */
-  readonly onJsonAction?: (action: JsonAction, context: {
-    readonly source: 'push'
-    readonly message: UserGistPushMessage
-    readonly actionButton: string
-  }) => void
+  readonly onJsonAction?: (
+    action: JsonAction,
+    context: {
+      readonly source: 'push'
+      readonly message: UserGistPushMessage
+      readonly actionButton: string
+    },
+  ) => void
   readonly onDismiss?: (message: UserGistPushMessage) => void
   readonly onSilent?: (pingId: string) => void
 }
 
 let handlers: PushHandlers = {}
+
+function parseOpenAction(raw: unknown): PushOpenAction | undefined {
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      !['open_app', 'deep_link', 'url', 'json'].includes(value.action)
+    )
+      return undefined
+    if (
+      value.action === 'json' &&
+      (!value.actionJson ||
+        typeof value.actionJson !== 'object' ||
+        Array.isArray(value.actionJson))
+    )
+      return undefined
+    return value as PushOpenAction
+  } catch {
+    return undefined
+  }
+}
 
 function parseActionButtons(value: unknown): ReadonlyArray<PushActionButton> {
   let candidate = value
@@ -81,11 +114,14 @@ export function jsonActionForButton(
 ): JsonAction | undefined {
   const indexed = /^usergist_action_(\d+)$/.exec(actionIdentifier)
   const byIndex = indexed ? buttons[Number(indexed[1])] : undefined
-  const button = byIndex ?? buttons.find((candidate) => candidate.label === actionIdentifier)
+  const button =
+    byIndex ?? buttons.find((candidate) => candidate.label === actionIdentifier)
   return button?.action === 'json' ? button.actionJson : undefined
 }
 
-export function parseIosPayload(userInfo: Record<string, unknown>): UserGistPushMessage | null {
+export function parseIosPayload(
+  userInfo: Record<string, unknown>,
+): UserGistPushMessage | null {
   const usergist = userInfo?.['usergist'] as Record<string, unknown> | undefined
   if (!usergist) return null
   const aps = userInfo?.['aps'] as Record<string, unknown> | undefined
@@ -96,6 +132,7 @@ export function parseIosPayload(userInfo: Record<string, unknown>): UserGistPush
     variantId: usergist['variantId'] as string | undefined,
     deliveryId: usergist['deliveryId'] as string | undefined,
     language: usergist['language'] as string | undefined,
+    openAction: parseOpenAction(usergist['openAction']),
     deepLink: usergist['deepLink'] as string | undefined,
     title: alert?.['title'] as string | undefined,
     body: alert?.['body'] as string | undefined,
@@ -114,6 +151,7 @@ export function parseFcmData(
     variantId: data.usergist_variant_id,
     deliveryId: data.usergist_delivery_id,
     language: data.usergist_language,
+    openAction: parseOpenAction(data.usergist_open_action),
     deepLink: data.usergist_deep_link,
     title: notification?.title ?? data.usergist_title,
     body: notification?.body ?? data.usergist_body,
@@ -196,7 +234,10 @@ export const Push = {
     return UserGist.pushFetchChannels()
   },
 
-  async setChannelSubscription(channelId: string, subscribed: boolean): Promise<void> {
+  async setChannelSubscription(
+    channelId: string,
+    subscribed: boolean,
+  ): Promise<void> {
     await UserGist.pushSetChannelSubscription(channelId, subscribed)
   },
 
@@ -245,7 +286,10 @@ export const Push = {
     if (!msg) return
     if (!acceptPushEvent('$push_received', msg.deliveryId)) return
     emitEvent('$push_received', msg)
-    handlers.onReceive?.(msg, (args.userInfo ?? args.data ?? {}) as Record<string, unknown>)
+    handlers.onReceive?.(
+      msg,
+      (args.userInfo ?? args.data ?? {}) as Record<string, unknown>,
+    )
   },
 
   handleDisplayed(args: PushHandlerArgs): void {
@@ -268,15 +312,21 @@ export const Push = {
   handleOpened(args: PushHandlerArgs & { actionIdentifier?: string }): void {
     const msg = parsePushArgs(args)
     if (!msg) return
-    if (!acceptPushEvent('$push_opened', msg.deliveryId, args.actionIdentifier)) return
+    if (!acceptPushEvent('$push_opened', msg.deliveryId, args.actionIdentifier))
+      return
     if (args.actionIdentifier) {
-      emitEvent('$push_action_clicked', msg, { action_button: args.actionIdentifier })
+      emitEvent('$push_action_clicked', msg, {
+        action_button: args.actionIdentifier,
+      })
       try {
         handlers.onAction?.(msg, args.actionIdentifier)
       } catch {
         // A host observer cannot prevent the configured action from running.
       }
-      const actionJson = jsonActionForButton(msg.actionButtons, args.actionIdentifier)
+      const actionJson = jsonActionForButton(
+        msg.actionButtons,
+        args.actionIdentifier,
+      )
       if (actionJson) {
         try {
           handlers.onJsonAction?.(actionJson, {
@@ -290,7 +340,22 @@ export const Push = {
       }
     } else {
       emitEvent('$push_opened', msg)
-      handlers.onOpen?.(msg)
+      try {
+        handlers.onOpen?.(msg)
+      } catch {
+        /* Observer cannot prevent the configured action. */
+      }
+      if (msg.openAction?.action === 'json' && msg.openAction.actionJson) {
+        try {
+          handlers.onJsonAction?.(msg.openAction.actionJson, {
+            source: 'push',
+            message: msg,
+            actionButton: 'usergist_default',
+          })
+        } catch {
+          /* App callbacks must not escape the SDK. */
+        }
+      }
     }
   },
 }

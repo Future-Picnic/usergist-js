@@ -29,6 +29,7 @@ export interface SdkEvents {
   }
   readonly dismissSurvey: { readonly surveyId: string }
   readonly surveyInvite: {
+    readonly survey?: import('@usergist/sdk-core/mobile').SurveyCampaignWithFlow
     readonly surveyId: string
     readonly name: string
     readonly source: string
@@ -114,7 +115,10 @@ export function createEventBus(): EventBus {
       if (!s || s.size === 0) {
         if (BUFFERED_EVENTS.includes(name)) {
           const buffered = pending.get(name) ?? []
-          pending.set(name, [...buffered, payload].slice(-MAX_BUFFERED_PER_EVENT))
+          pending.set(
+            name,
+            [...buffered, payload].slice(-MAX_BUFFERED_PER_EVENT),
+          )
         }
         return
       }

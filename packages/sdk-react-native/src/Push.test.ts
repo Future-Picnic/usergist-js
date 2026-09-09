@@ -7,28 +7,80 @@ vi.mock('./UserGist.js', () => ({
   },
 }))
 
-import { Push, jsonActionForButton, parseFcmData, parseIosPayload } from './Push.js'
+import {
+  Push,
+  jsonActionForButton,
+  parseFcmData,
+  parseIosPayload,
+} from './Push.js'
 
 const actionJson = { type: 'enable_feature', feature: 'priority_checkout' }
 
 afterEach(() => Push.setHandlers({}))
 
 describe('push JSON actions', () => {
+  it('routes the default notification tap once with typed movie JSON', () => {
+    const onJsonAction = vi.fn()
+    const movie = {
+      type: 'open_show',
+      show_id: '00123',
+      position_seconds: 1234,
+    }
+    Push.setHandlers({
+      onOpen: () => {
+        throw new Error('observer failed')
+      },
+      onJsonAction,
+    })
+    const payload = {
+      aps: { alert: { title: 'Continue Midnight Orbit' } },
+      usergist: {
+        campaignId: 'movie-campaign',
+        deliveryId: 'movie-default-tap',
+        openAction: { action: 'json', actionJson: movie },
+      },
+    }
+    Push.handleOpened({ userInfo: payload })
+    Push.handleOpened({ userInfo: payload })
+    expect(onJsonAction).toHaveBeenCalledOnce()
+    expect(onJsonAction).toHaveBeenCalledWith(
+      movie,
+      expect.objectContaining({
+        source: 'push',
+        actionButton: 'usergist_default',
+      }),
+    )
+    expect(
+      parseFcmData({
+        usergist_campaign_id: 'movie-campaign',
+        usergist_open_action: JSON.stringify({
+          action: 'json',
+          actionJson: movie,
+        }),
+      })?.openAction?.actionJson,
+    ).toEqual(movie)
+  })
   it('parses action JSON from APNs and FCM payloads', () => {
     const buttons = [{ label: 'Enable', action: 'json' as const, actionJson }]
-    expect(parseIosPayload({
-      aps: { alert: { title: 'Title', body: 'Body' } },
-      usergist: { campaignId: 'campaign', actionButtons: buttons },
-    })?.actionButtons).toEqual(buttons)
-    expect(parseFcmData({
-      usergist_campaign_id: 'campaign',
-      usergist_actions: JSON.stringify(buttons),
-    })?.actionButtons).toEqual(buttons)
+    expect(
+      parseIosPayload({
+        aps: { alert: { title: 'Title', body: 'Body' } },
+        usergist: { campaignId: 'campaign', actionButtons: buttons },
+      })?.actionButtons,
+    ).toEqual(buttons)
+    expect(
+      parseFcmData({
+        usergist_campaign_id: 'campaign',
+        usergist_actions: JSON.stringify(buttons),
+      })?.actionButtons,
+    ).toEqual(buttons)
   })
 
   it('resolves stable action indexes and labels', () => {
     const buttons = [{ label: 'Enable', action: 'json' as const, actionJson }]
-    expect(jsonActionForButton(buttons, 'usergist_action_0')).toEqual(actionJson)
+    expect(jsonActionForButton(buttons, 'usergist_action_0')).toEqual(
+      actionJson,
+    )
     expect(jsonActionForButton(buttons, 'Enable')).toEqual(actionJson)
   })
 
@@ -51,7 +103,10 @@ describe('push JSON actions', () => {
     expect(onAction).toHaveBeenCalledOnce()
     expect(onJsonAction).toHaveBeenCalledWith(
       actionJson,
-      expect.objectContaining({ source: 'push', actionButton: 'usergist_action_0' }),
+      expect.objectContaining({
+        source: 'push',
+        actionButton: 'usergist_action_0',
+      }),
     )
     expect(order).toEqual(['tap', 'json'])
   })
@@ -59,19 +114,23 @@ describe('push JSON actions', () => {
   it('isolates host observers so they cannot block JSON execution', () => {
     const onJsonAction = vi.fn()
     Push.setHandlers({
-      onAction: () => { throw new Error('host observer failed') },
+      onAction: () => {
+        throw new Error('host observer failed')
+      },
       onJsonAction,
     })
 
-    expect(() => Push.handleOpened({
-      data: {
-        usergist_campaign_id: 'campaign',
-        usergist_actions: JSON.stringify([
-          { label: 'Enable', action: 'json', actionJson },
-        ]),
-      },
-      actionIdentifier: 'usergist_action_0',
-    })).not.toThrow()
+    expect(() =>
+      Push.handleOpened({
+        data: {
+          usergist_campaign_id: 'campaign',
+          usergist_actions: JSON.stringify([
+            { label: 'Enable', action: 'json', actionJson },
+          ]),
+        },
+        actionIdentifier: 'usergist_action_0',
+      }),
+    ).not.toThrow()
     expect(onJsonAction).toHaveBeenCalledOnce()
   })
 })
