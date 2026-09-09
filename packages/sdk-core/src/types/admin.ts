@@ -10,7 +10,11 @@ import type { WorkspaceRole } from './workspace.js'
 
 export type AdminGrantStatus = 'active' | 'expired' | 'revoked'
 
-export type GlobalFeatureFlagKey = 'onboarding_finish_later'
+export type GlobalFeatureFlagKey = 'onboarding_finish_later' | 'public_signup'
+
+export interface PublicSignupStatus {
+  readonly enabled: boolean
+}
 
 export interface GlobalFeatureFlag {
   readonly key: GlobalFeatureFlagKey

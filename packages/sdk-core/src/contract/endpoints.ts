@@ -93,6 +93,7 @@ import type {
   WorkspacePlanGrant,
   GlobalFeatureFlag,
   ProductFeatureFlags,
+  PublicSignupStatus,
   UpdateGlobalFeatureFlagRequest,
 } from '../types/admin.js'
 import type {
@@ -535,6 +536,7 @@ export const endpoints = {
   'PATCH /v1/me': {} as Endpoint<UpdateCurrentUserRequest, User>,
   'PATCH /v1/me/onboarding': {} as Endpoint<DeferCurrentUserOnboardingRequest, User>,
   'GET /v1/features': {} as Endpoint<void, ProductFeatureFlags>,
+  'GET /v1/signup-status': {} as Endpoint<void, PublicSignupStatus>,
 
   'GET /v1/workspaces': {} as Endpoint<void, ReadonlyArray<Workspace>>,
   'POST /v1/workspaces': {} as Endpoint<CreateWorkspaceRequest, Workspace>,
