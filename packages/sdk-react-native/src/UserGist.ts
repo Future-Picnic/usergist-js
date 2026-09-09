@@ -1,3 +1,4 @@
+import { userPropertiesUpdateSchema } from '@usergist/sdk-core/mobile'
 import { hydratePushDedupe } from './internal/push-dedupe.js'
 // UserGist — public singleton facade.
 //
@@ -75,7 +76,10 @@ import {
 import { Push } from './Push.js'
 import type { NotificationPayload } from './native/events.js'
 import { AppState, Platform } from 'react-native'
-import { generateEventId, validateIdentifyTransition } from './internal/identity.js'
+import {
+  generateEventId,
+  validateIdentifyTransition,
+} from './internal/identity.js'
 import {
   configureStorageAdapter,
   STORAGE_KEYS,
@@ -125,17 +129,22 @@ export interface InAppHandlers {
     readonly index: number
   }) => void
   /** Executes host-defined structured actions after the CTA tap is tracked. */
-  readonly onJsonAction?: (action: JsonAction, context: {
-    readonly source: 'in_app'
-    readonly messageId: string
-    readonly label: string
-    readonly index: number
-  }) => void
+  readonly onJsonAction?: (
+    action: JsonAction,
+    context: {
+      readonly source: 'in_app'
+      readonly messageId: string
+      readonly label: string
+      readonly index: number
+    },
+  ) => void
 }
 
 let engine: Engine | null = null
 let pushRegistrationQueue: Promise<void> = Promise.resolve()
-function serializePushRegistration(operation: () => Promise<void>): Promise<void> {
+function serializePushRegistration(
+  operation: () => Promise<void>,
+): Promise<void> {
   const task = pushRegistrationQueue.then(operation)
   pushRegistrationQueue = task.catch(() => undefined)
   return task
@@ -155,7 +164,8 @@ function ensureRequestsCache() {
   if (!requestsCache) {
     // Lazy-imported to keep cold-start fast for apps that don't use requests.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('./internal/requests.js') as typeof import('./internal/requests.js')
+    const mod =
+      require('./internal/requests.js') as typeof import('./internal/requests.js')
     requestsCache = mod.createRequestsCache()
   }
   return requestsCache
@@ -165,26 +175,45 @@ function requestSessionIsCurrent(e: Engine): () => boolean {
   const generation = e.resetGeneration
   const consentVersion = e.consent.get().version
   const identity = e.identity.get()
-  return () => !e.resetting && generation === e.resetGeneration &&
-    consentVersion === e.consent.get().version && e.consent.allowsFeedback() &&
+  return () =>
+    !e.resetting &&
+    generation === e.resetGeneration &&
+    consentVersion === e.consent.get().version &&
+    e.consent.allowsFeedback() &&
     identity.anonymousId === e.identity.get().anonymousId &&
     identity.externalId === e.identity.get().externalId
 }
 
-async function syncNativePushState(e: Engine, push = e.consent.allowsPush()): Promise<void> {
+async function syncNativePushState(
+  e: Engine,
+  push = e.consent.allowsPush(),
+): Promise<void> {
   const anonymousId = e.identity.get().anonymousId
   const generation = e.resetGeneration
   const version = e.consent.get().version
   const operation = nativeStateQueue.then(async () => {
-    if (generation !== e.resetGeneration || anonymousId !== e.identity.get().anonymousId || version !== e.consent.get().version) return
-    await UserGistPushNative.syncState({ writeKey: e.config.writeKey, apiUrl: e.config.apiUrl, anonymousId, push: push && !e.resetting })
+    if (
+      generation !== e.resetGeneration ||
+      anonymousId !== e.identity.get().anonymousId ||
+      version !== e.consent.get().version
+    )
+      return
+    await UserGistPushNative.syncState({
+      writeKey: e.config.writeKey,
+      apiUrl: e.config.apiUrl,
+      anonymousId,
+      push: push && !e.resetting,
+    })
   })
   nativeStateQueue = operation.catch(() => undefined)
   await operation
 }
 let nativeStateQueue = Promise.resolve()
 
-async function disableNativePushForConsent(e: Engine, version: number): Promise<void> {
+async function disableNativePushForConsent(
+  e: Engine,
+  version: number,
+): Promise<void> {
   const operation = nativeStateQueue.then(async () => {
     if (e.consent.get().version !== version || e.consent.allowsPush()) return
     await UserGistPushNative.disablePush()
@@ -270,7 +299,8 @@ function attachEnginePushListeners(): void {
     // silent pushes. Token/permission refresh remains throttled separately.
     void UserGist.pushAppOpen()
     const now = Date.now()
-    if (now - lastForegroundPushRefreshAt < FOREGROUND_PUSH_REFRESH_INTERVAL_MS) return
+    if (now - lastForegroundPushRefreshAt < FOREGROUND_PUSH_REFRESH_INTERVAL_MS)
+      return
     lastForegroundPushRefreshAt = now
     void UserGist.enablePush(lastEnablePushOptions).catch(() => undefined)
   })
@@ -278,9 +308,14 @@ function attachEnginePushListeners(): void {
   onTokenReceived((p) => {
     void (async () => {
       try {
-        const platform = (p.platform === 'ios' ? 'ios' : 'android') as 'ios' | 'android'
+        const platform = (p.platform === 'ios' ? 'ios' : 'android') as
+          | 'ios'
+          | 'android'
         await UserGist.registerPushToken(p.token, platform, {
-          environment: lastEnablePushOptions?.environment ?? await UserGistPushNative.defaultEnvironment() ?? defaultEnvironment(),
+          environment:
+            lastEnablePushOptions?.environment ??
+            (await UserGistPushNative.defaultEnvironment()) ??
+            defaultEnvironment(),
         })
       } catch (err) {
         reportError('tokenReceived registration failed', err)
@@ -296,17 +331,24 @@ function attachEnginePushListeners(): void {
     forwardToPushHandler(p, 'received')
   })
 
-  onNotificationDisplayed(p => forwardToPushHandler(p, 'displayed'))
-  onNotificationDismissed(p => forwardToPushHandler(p, 'dismissed'))
+  onNotificationDisplayed((p) => forwardToPushHandler(p, 'displayed'))
+  onNotificationDismissed((p) => forwardToPushHandler(p, 'dismissed'))
   onNotificationOpened((p: NotificationPayload) => {
     forwardToPushHandler(p, 'opened')
   })
 }
 
-function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened' | 'displayed' | 'dismissed'): void {
+function forwardToPushHandler(
+  p: NotificationPayload,
+  kind: 'received' | 'opened' | 'displayed' | 'dismissed',
+): void {
   if (!engine?.consent.allowsPush() || engine.resetting) return
   const data = p.data ?? {}
-  if (data.usergist_anonymous_id && data.usergist_anonymous_id !== engine.identity.get().anonymousId) return
+  if (
+    data.usergist_anonymous_id &&
+    data.usergist_anonymous_id !== engine.identity.get().anonymousId
+  )
+    return
   if (p.deliveryId) {
     ;(data as Record<string, unknown>).usergist_delivery_id = p.deliveryId
   }
@@ -321,7 +363,10 @@ function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened
     }
     Object.assign(userInfo, data)
     if (kind === 'received') {
-      Push.handleReceived({ userInfo, notification: { title: p.title, body: p.body } })
+      Push.handleReceived({
+        userInfo,
+        notification: { title: p.title, body: p.body },
+      })
     } else if (kind === 'displayed') {
       Push.handleDisplayed({ userInfo })
     } else if (kind === 'dismissed') {
@@ -335,7 +380,10 @@ function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened
       dataStr[k] = String(v)
     }
     if (kind === 'received') {
-      Push.handleReceived({ data: dataStr, notification: { title: p.title, body: p.body } })
+      Push.handleReceived({
+        data: dataStr,
+        notification: { title: p.title, body: p.body },
+      })
     } else if (kind === 'displayed') {
       Push.handleDisplayed({ data: dataStr })
     } else if (kind === 'dismissed') {
@@ -368,7 +416,9 @@ export const UserGist = {
     configureStorageAdapter(adapter)
   },
 
-  setDiagnosticHandler(handler: ((diagnostic: SdkDiagnostic) => void) | null): void {
+  setDiagnosticHandler(
+    handler: ((diagnostic: SdkDiagnostic) => void) | null,
+  ): void {
     setDiagnosticHandler(handler)
   },
 
@@ -426,14 +476,18 @@ export const UserGist = {
       const pendingIdentity = e.mutations.peek()
       const transition = validateIdentifyTransition(
         identity.externalId,
-        pendingIdentity?.kind === 'identify' ? pendingIdentity.payload.externalId : null,
+        pendingIdentity?.kind === 'identify'
+          ? pendingIdentity.payload.externalId
+          : null,
         userId,
       )
       if (transition === 'reset_required') {
         reportError('identify rejected: call reset() before switching users')
         return 'rejected'
       }
-      const cleanProps = e.consent.allowsAnalytics() ? asEventProps(properties) : undefined
+      const cleanProps = e.consent.allowsAnalytics()
+        ? asEventProps(properties)
+        : undefined
       if (
         transition === 'already_identified' &&
         (!cleanProps || Object.keys(cleanProps).length === 0)
@@ -444,12 +498,17 @@ export const UserGist = {
         reportError('identify requires a server-minted subject token')
         return 'rejected'
       }
-      const mutationId = await e.mutations.enqueue('identify', 'essential', {
-        subjectToken,
-        anonymousId: identity.anonymousId,
-        externalId: userId,
-        ...(cleanProps ? { properties: cleanProps } : {}),
-      }, `identify:${userId}`)
+      const mutationId = await e.mutations.enqueue(
+        'identify',
+        'essential',
+        {
+          subjectToken,
+          anonymousId: identity.anonymousId,
+          externalId: userId,
+          ...(cleanProps ? { properties: cleanProps } : {}),
+        },
+        `identify:${userId}`,
+      )
       const result = await flushMutations(e)
       if (result.permanentlyRejectedIds.has(mutationId)) {
         reportError('identify was rejected by the server')
@@ -468,7 +527,45 @@ export const UserGist = {
     }
   },
 
-  track(eventName: string, properties?: Record<string, EventPropertyValue>): void {
+  /** Update the current user, including anonymous users. Durable and retried on reconnect. */
+  async setUserProperties(
+    properties: Record<string, EventPropertyValue>,
+    unset: readonly string[] = [],
+  ): Promise<IdentifyResult> {
+    try {
+      const e = requireEngine()
+      const generation = e.resetGeneration
+      await ensureHydrated(e)
+      if (
+        e !== engine ||
+        e.resetting ||
+        e.resetGeneration !== generation ||
+        !e.consent.allowsAnalytics()
+      )
+        return 'rejected'
+      const update = userPropertiesUpdateSchema.parse({
+        mutationId: generateEventId(),
+        set: properties,
+        unset: [...unset],
+      })
+      const mutationId = await e.mutations.enqueue(
+        'user-properties',
+        'analytics',
+        { ...update, anonymousId: e.identity.get().anonymousId },
+      )
+      const result = await flushMutations(e)
+      if (result.permanentlyRejectedIds.has(mutationId)) return 'rejected'
+      return e.mutations.has(mutationId) ? 'queued' : 'synced'
+    } catch (error) {
+      reportError('setUserProperties failed', error)
+      return 'rejected'
+    }
+  },
+
+  track(
+    eventName: string,
+    properties?: Record<string, EventPropertyValue>,
+  ): void {
     try {
       if (typeof eventName !== 'string' || eventName.length === 0) {
         reportError('track requires a non-empty event name')
@@ -498,7 +595,8 @@ export const UserGist = {
       if (purposes.push === false) {
         lastEnablePushOptions = null
         await pushRegistrationQueue
-        if (e.resetting || next.version !== e.consent.get().version) return false
+        if (e.resetting || next.version !== e.consent.get().version)
+          return false
         if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
         await disableNativePushForConsent(e, next.version)
       }
@@ -656,7 +754,10 @@ export const UserGist = {
   },
 
   /** SDK-internal: invoked by Push.ts for every $push_* event. */
-  _notifyPushEvent(name: string, props: Readonly<Record<string, unknown>>): void {
+  _notifyPushEvent(
+    name: string,
+    props: Readonly<Record<string, unknown>>,
+  ): void {
     try {
       engine?.events.emit('pushEvent', { name, props })
     } catch {
@@ -676,9 +777,16 @@ export const UserGist = {
       if (!e.consent.allowsPush() || e.resetting) return
       const generation = e.resetGeneration
       await serializePushRegistration(async () => {
-        if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+        if (
+          e.resetting ||
+          generation !== e.resetGeneration ||
+          !e.consent.allowsPush()
+        )
+          return
         const id = e.identity.get()
-        const environment = opts?.environment ?? await UserGistPushNative.defaultEnvironment() ??
+        const environment =
+          opts?.environment ??
+          (await UserGistPushNative.defaultEnvironment()) ??
           (e.config.environment === 'production' ? 'production' : 'sandbox')
         const registrationKey = [
           id.anonymousId,
@@ -690,8 +798,14 @@ export const UserGist = {
         if (
           e.lastPushRegistrationKey === registrationKey &&
           Date.now() - e.lastPushRegistrationAt < 24 * 60 * 60_000
-        ) return
-        if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+        )
+          return
+        if (
+          e.resetting ||
+          generation !== e.resetGeneration ||
+          !e.consent.allowsPush()
+        )
+          return
         // Persist before the request so logout can invalidate a token even when
         // the response is lost or the process exits after the server accepts it.
         e.lastPushToken = token
@@ -750,7 +864,13 @@ export const UserGist = {
         if (generation !== e.resetGeneration) return
         const id = e.identity.get()
         const token = e.lastPushToken
-        if (!token || e.resetting || !e.consent.allowsPush() || id.externalId !== externalId) return
+        if (
+          !token ||
+          e.resetting ||
+          !e.consent.allowsPush() ||
+          id.externalId !== externalId
+        )
+          return
         await e.transport.pushRebind({
           anonymousId: id.anonymousId,
           externalId,
@@ -808,19 +928,26 @@ export const UserGist = {
   },
 
   /** Fetch the per-app channel registry. */
-  async pushFetchChannels(): Promise<ReadonlyArray<import('@usergist/sdk-core/mobile').PushChannelDef>> {
+  async pushFetchChannels(): Promise<
+    ReadonlyArray<import('@usergist/sdk-core/mobile').PushChannelDef>
+  > {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
       const resp = await e.transport.pushChannelsList()
-      return (resp.channels ?? []) as ReadonlyArray<import('@usergist/sdk-core/mobile').PushChannelDef>
+      return (resp.channels ?? []) as ReadonlyArray<
+        import('@usergist/sdk-core/mobile').PushChannelDef
+      >
     } catch (err) {
       reportError('pushFetchChannels failed', err)
       return []
     }
   },
 
-  async pushSetChannelSubscription(channelId: string, subscribed: boolean): Promise<void> {
+  async pushSetChannelSubscription(
+    channelId: string,
+    subscribed: boolean,
+  ): Promise<void> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
@@ -860,12 +987,34 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsPush() || e.resetting) return { granted: false, status: 'not_determined', platform: Platform.OS === 'ios' ? 'ios' : 'android', error: 'consent_required' }
+      if (!e.consent.allowsPush() || e.resetting)
+        return {
+          granted: false,
+          status: 'not_determined',
+          platform: Platform.OS === 'ios' ? 'ios' : 'android',
+          error: 'consent_required',
+        }
       const generation = e.resetGeneration
       const consentVersion = e.consent.get().version
-      const current = () => !e.resetting && generation === e.resetGeneration && consentVersion === e.consent.get().version && e.consent.allowsPush()
-      const cancelled = () => ({ granted: false, status: 'not_determined' as const, platform: Platform.OS === 'ios' ? 'ios' as const : 'android' as const, error: 'session_changed' })
-      opts = { ...opts, environment: opts?.environment ?? await UserGistPushNative.defaultEnvironment() ?? defaultEnvironment() }
+      const current = () =>
+        !e.resetting &&
+        generation === e.resetGeneration &&
+        consentVersion === e.consent.get().version &&
+        e.consent.allowsPush()
+      const cancelled = () => ({
+        granted: false,
+        status: 'not_determined' as const,
+        platform:
+          Platform.OS === 'ios' ? ('ios' as const) : ('android' as const),
+        error: 'session_changed',
+      })
+      opts = {
+        ...opts,
+        environment:
+          opts?.environment ??
+          (await UserGistPushNative.defaultEnvironment()) ??
+          defaultEnvironment(),
+      }
       await syncNativePushState(e)
       if (!current()) return cancelled()
       if (!enginePushListenersAttached) attachEnginePushListeners()
@@ -883,9 +1032,11 @@ export const UserGist = {
       // Server-side registration runs on the tokenReceived event; if the
       // native module already had a cached token it surfaces here.
       if (result.granted && result.token) {
-        const platform = (result.platform === 'ios' ? 'ios' : 'android') as 'ios' | 'android'
+        const platform = (result.platform === 'ios' ? 'ios' : 'android') as
+          | 'ios'
+          | 'android'
         await UserGist.registerPushToken(result.token, platform, {
-          environment: opts?.environment ?? (defaultEnvironment()),
+          environment: opts?.environment ?? defaultEnvironment(),
         })
       }
       return result as Awaited<ReturnType<typeof UserGist.enablePush>>
@@ -959,7 +1110,10 @@ export const UserGist = {
 
   async openSurvey(
     surveyId: string,
-    context?: { readonly language?: string; readonly source?: SurveyAttemptSource },
+    context?: {
+      readonly language?: string
+      readonly source?: SurveyAttemptSource
+    },
   ): Promise<void> {
     try {
       const e = requireEngine()
@@ -991,7 +1145,9 @@ export const UserGist = {
       const e = requireEngine()
       await ensureHydrated(e)
       // Accept URLs of the shape `*://*/s/<token>` or `*survey=<token>`.
-      const match = url.match(/\/s\/([A-Za-z0-9._-]+)/) ?? url.match(/[?&]survey=([A-Za-z0-9._-]+)/)
+      const match =
+        url.match(/\/s\/([A-Za-z0-9._-]+)/) ??
+        url.match(/[?&]survey=([A-Za-z0-9._-]+)/)
       if (!match || !match[1]) return false
       const token = match[1]
       const id = e.identity.get()
@@ -1004,7 +1160,10 @@ export const UserGist = {
         debugLog('survey link resolved but consent required — awaiting consent')
         return false
       }
-      e.events.emit('showSurvey', { surveyId: resolved.surveyId, source: 'link' })
+      e.events.emit('showSurvey', {
+        surveyId: resolved.surveyId,
+        source: 'link',
+      })
       return true
     } catch (err) {
       reportError('handleSurveyDeepLink failed', err)
@@ -1083,7 +1242,10 @@ export const UserGist = {
       return null
     }
   },
-  async __internal_fetchSurvey(surveyId: string, language?: string): Promise<SurveyCampaignWithFlow | null> {
+  async __internal_fetchSurvey(
+    surveyId: string,
+    language?: string,
+  ): Promise<SurveyCampaignWithFlow | null> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
@@ -1103,7 +1265,15 @@ export const UserGist = {
     surveyId: string,
     source: SurveyAttemptSource,
     language?: string,
-  ): Promise<{ attemptId: string; startQuestionId: string; currentQuestionId: string | null; snapshot: SurveyAnswerRecord; resumed: boolean } | null> {
+    presentationId?: string,
+  ): Promise<{
+    attemptId: string
+    startQuestionId: string
+    currentQuestionId: string | null
+    snapshot: SurveyAnswerRecord
+    resumed: boolean
+    resolvedContent?: SurveyCampaignWithFlow
+  } | null> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
@@ -1112,6 +1282,7 @@ export const UserGist = {
       await flushMutations(e)
       const id = e.identity.get()
       const res = await e.transport.surveyCreateAttempt(surveyId, {
+        presentationId,
         anonymousId: id.anonymousId,
         externalId: id.externalId ?? null,
         source,
@@ -1132,6 +1303,7 @@ export const UserGist = {
         currentQuestionId: res.currentQuestionId,
         snapshot: (res.progressSnapshot ?? {}) as unknown as SurveyAnswerRecord,
         resumed: res.resumed,
+        resolvedContent: res.resolvedContent,
       }
     } catch (err) {
       reportError('createAttempt failed', err)
@@ -1174,17 +1346,25 @@ export const UserGist = {
   },
   async __internal_completeAttempt(
     attemptId: string,
-    finalAnswers: ReadonlyArray<{ questionId: string; value: SurveyAnswerValue }> = [],
+    finalAnswers: ReadonlyArray<{
+      questionId: string
+      value: SurveyAnswerValue
+    }> = [],
   ): Promise<void> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
       if (e.resetting) throw new Error('Survey submission cancelled by reset')
       const resetGeneration = e.resetGeneration
-      const mutationId = await e.mutations.enqueue('survey-complete', 'survey', {
-        attemptId,
-        body: { finalAnswers },
-      }, `survey-complete:${attemptId}`)
+      const mutationId = await e.mutations.enqueue(
+        'survey-complete',
+        'survey',
+        {
+          attemptId,
+          body: { finalAnswers },
+        },
+        `survey-complete:${attemptId}`,
+      )
       const result = await flushMutations(e)
       if (e.resetting || e.resetGeneration !== resetGeneration) {
         throw new Error('Survey submission cancelled by reset')
@@ -1194,7 +1374,9 @@ export const UserGist = {
         throw new Error('Survey submission was rejected by the server')
       }
       if (outcome === 'deferred') {
-        debugLog('survey completion saved locally; delivery deferred', { attemptId })
+        debugLog('survey completion saved locally; delivery deferred', {
+          attemptId,
+        })
       }
       // Once the completion is durably queued, the attempt must not reopen as
       // resumable work. The mutation queue owns delivery from this point.
@@ -1238,7 +1420,8 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (e.resetting || !e.consent.allowsFeedback()) return { items: [], nextCursor: null }
+      if (e.resetting || !e.consent.allowsFeedback())
+        return { items: [], nextCursor: null }
       const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const result = await e.transport.requestsList({
@@ -1288,7 +1471,11 @@ export const UserGist = {
   ): void {
     try {
       const e = requireEngine()
-      if (typeof title !== 'string' || title.length === 0 || title.length > 120) {
+      if (
+        typeof title !== 'string' ||
+        title.length === 0 ||
+        title.length > 120
+      ) {
         callback?.(new Error('title required, max 120 chars'))
         return
       }
@@ -1316,7 +1503,12 @@ export const UserGist = {
             title,
             description,
           })
-          if (!current()) { callback?.(new Error('Request cancelled by identity or consent change')); return }
+          if (!current()) {
+            callback?.(
+              new Error('Request cancelled by identity or consent change'),
+            )
+            return
+          }
           ensureRequestsCache().upsert(req)
           recordServerBackedEventLocally(e, '$request_submitted')
           requestsHandlers.onSubmit?.(req)
@@ -1347,9 +1539,15 @@ export const UserGist = {
           externalId: id.externalId ?? null,
           vote,
         })
-        if (!current()) { rollback(); return }
+        if (!current()) {
+          rollback()
+          return
+        }
         cache.commitVote(requestId, result)
-        recordServerBackedEventLocally(e, vote ? '$request_upvoted' : '$request_unupvoted')
+        recordServerBackedEventLocally(
+          e,
+          vote ? '$request_upvoted' : '$request_unupvoted',
+        )
         requestsHandlers.onVote?.(result)
       } catch (err) {
         rollback()
@@ -1376,9 +1574,15 @@ export const UserGist = {
           externalId: id.externalId ?? null,
           follow,
         })
-        if (!current()) { rollback(); return }
+        if (!current()) {
+          rollback()
+          return
+        }
         cache.commitFollow(requestId, result)
-        recordServerBackedEventLocally(e, follow ? '$request_followed' : '$request_unfollowed')
+        recordServerBackedEventLocally(
+          e,
+          follow ? '$request_followed' : '$request_unfollowed',
+        )
         requestsHandlers.onFollow?.(result)
       } catch (err) {
         rollback()
@@ -1463,7 +1667,9 @@ export const UserGist = {
     }
   },
 
-  setRequestsHandlers(handlers: import('@usergist/sdk-core/mobile').RequestsHandlers): void {
+  setRequestsHandlers(
+    handlers: import('@usergist/sdk-core/mobile').RequestsHandlers,
+  ): void {
     requestsHandlers = { ...handlers }
   },
 
@@ -1472,7 +1678,9 @@ export const UserGist = {
   /** List comments for a request, ordered oldest-first. */
   async getComments(
     requestId: string,
-  ): Promise<ReadonlyArray<import('@usergist/sdk-core/mobile').RequestComment>> {
+  ): Promise<
+    ReadonlyArray<import('@usergist/sdk-core/mobile').RequestComment>
+  > {
     try {
       const e = requireEngine()
       await ensureHydrated(e)

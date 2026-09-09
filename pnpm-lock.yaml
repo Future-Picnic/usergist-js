@@ -81,6 +81,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@usergist/demo-fixtures':
+        specifier: workspace:*
+        version: link:../../packages/demo-fixtures
       '@asteasolutions/zod-to-openapi':
         specifier: ^7.3.0
         version: 7.3.4(zod@3.25.76)
@@ -432,6 +435,9 @@ importers:
 
   apps/demo-react-native:
     dependencies:
+      '@usergist/demo-fixtures':
+        specifier: workspace:*
+        version: link:../../packages/demo-fixtures
       '@amplitude/analytics-react-native':
         specifier: 1.8.0
         version: 1.8.0(react-native@0.74.0(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0)
@@ -520,6 +526,9 @@ importers:
 
   apps/demo-web:
     dependencies:
+      '@usergist/demo-fixtures':
+        specifier: workspace:*
+        version: link:../../packages/demo-fixtures
       '@usergist/feedback-web':
         specifier: workspace:^
         version: link:../../packages/sdk-web
@@ -682,6 +691,16 @@ importers:
       eslint-config-next:
         specifier: ^15.0.0
         version: 15.5.15(eslint@8.57.1)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
+  packages/demo-fixtures:
+    dependencies:
+      '@usergist/sdk-core':
+        specifier: workspace:*
+        version: link:../sdk-core
+    devDependencies:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3

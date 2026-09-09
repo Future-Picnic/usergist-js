@@ -38,12 +38,15 @@ function safeInAppHandlers(): {
     label: string
     index: number
   }) => void
-  onJsonAction?: (action: JsonAction, context: {
-    source: 'in_app'
-    messageId: string
-    label: string
-    index: number
-  }) => void
+  onJsonAction?: (
+    action: JsonAction,
+    context: {
+      source: 'in_app'
+      messageId: string
+      label: string
+      index: number
+    },
+  ) => void
 } {
   try {
     return UserGist.__internal_inAppHandlers()
@@ -92,7 +95,9 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
   const currentRef = useRef<ShowPromptPayload | null>(null)
 
   const [surveyState, setSurveyState] = useState<SurveyState | null>(null)
-  const [inAppMessage, setInAppMessage] = useState<ArmedInAppMessage | null>(null)
+  const [inAppMessage, setInAppMessage] = useState<ArmedInAppMessage | null>(
+    null,
+  )
   const modalQueueRef = useRef(createModalQueue())
   const promptReleaseRef = useRef<(() => void) | null>(null)
   const surveyReleaseRef = useRef<(() => void) | null>(null)
@@ -200,6 +205,8 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
             void openSurvey(
               invite.surveyId,
               invite.source as SurveyAttemptSource,
+              undefined,
+              invite.survey,
             ).then((shown) => {
               if (!shown) releaseSurvey()
             })
@@ -227,6 +234,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       surveyId: string,
       source: SurveyAttemptSource,
       language?: string,
+      authorizedSurvey?: SurveyCampaignWithFlow,
     ): Promise<boolean> => {
       try {
         // Local-fire fast-path: when the survey-matcher just fired,
@@ -234,16 +242,27 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
         // it instead of round-tripping to the server. Falls back to
         // a fetch for offer-ledger / on-demand opens that arrive
         // through the polling path.
-        const cached = language ? null : UserGist.__internal_armedSurveyById(surveyId)
-        const survey = cached ?? (await UserGist.__internal_fetchSurvey(surveyId, language))
+        const cached = language
+          ? null
+          : UserGist.__internal_armedSurveyById(surveyId)
+        const survey =
+          authorizedSurvey ??
+          cached ??
+          (await UserGist.__internal_fetchSurvey(surveyId, language))
         if (!survey) return false
-        const attempt = await UserGist.__internal_createAttempt(surveyId, source, language)
+        const attempt = await UserGist.__internal_createAttempt(
+          surveyId,
+          source,
+          language,
+          survey.presentationId,
+        )
         if (!attempt) return false
         setSurveyState({
-          survey,
+          survey: attempt.resolvedContent ?? survey,
           attemptId: attempt.attemptId,
           source,
-          initialQuestionId: attempt.currentQuestionId ?? attempt.startQuestionId,
+          initialQuestionId:
+            attempt.currentQuestionId ?? attempt.startQuestionId,
           initialSnapshot: attempt.snapshot ?? {},
         })
         return true
@@ -315,7 +334,10 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
         cta_index: index,
         cta_label: cta.label,
       })
-    } else if ((cta.action === 'open_url' || cta.action === 'deep_link') && cta.target) {
+    } else if (
+      (cta.action === 'open_url' || cta.action === 'deep_link') &&
+      cta.target
+    ) {
       void Linking.openURL(cta.target).catch(() => undefined)
     } else if (cta.action === 'json' && cta.actionJson) {
       try {
@@ -346,14 +368,20 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     UserGist.__internal_reportSurveyShown(surveyId)
     safeSurveyHandlers().onShow?.(surveyId)
   }, [])
-  const handleSurveyComplete = useCallback((surveyId: string, attemptId: string): void => {
-    safeSurveyHandlers().onComplete?.(surveyId, attemptId)
-  }, [])
-  const handleSurveyAbandon = useCallback((surveyId: string, attemptId: string): void => {
-    safeSurveyHandlers().onAbandon?.(surveyId, attemptId)
-    setSurveyState(null)
-    releaseSurvey()
-  }, [])
+  const handleSurveyComplete = useCallback(
+    (surveyId: string, attemptId: string): void => {
+      safeSurveyHandlers().onComplete?.(surveyId, attemptId)
+    },
+    [],
+  )
+  const handleSurveyAbandon = useCallback(
+    (surveyId: string, attemptId: string): void => {
+      safeSurveyHandlers().onAbandon?.(surveyId, attemptId)
+      setSurveyState(null)
+      releaseSurvey()
+    },
+    [],
+  )
 
   return (
     <>
@@ -377,7 +405,9 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
         onCompleteAttempt={(attemptId, answers) =>
           UserGist.__internal_completeAttempt(attemptId, answers)
         }
-        onAbandonAttempt={(attemptId) => UserGist.__internal_abandonAttempt(attemptId)}
+        onAbandonAttempt={(attemptId) =>
+          UserGist.__internal_abandonAttempt(attemptId)
+        }
         onDismissRequest={() => {
           setSurveyState(null)
           releaseSurvey()

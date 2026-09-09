@@ -1,3 +1,4 @@
+import type { UserPropertiesUpdate } from '@usergist/sdk-core/mobile'
 // HTTPS transport with retry + exponential backoff + jitter.
 //
 // We do NOT gzip in JS for v0 — RN does not ship zlib. This is noted in the
@@ -149,7 +150,10 @@ export interface Transport {
     readonly currentToken?: string
   }) => Promise<SdkSessionResponse>
   readonly revokeSession: () => Promise<{ ok: true }>
-  readonly instructions: (after: number, client?: {anonymousId:string;platform:string;sdkVersion:string}) => Promise<{
+  readonly instructions: (
+    after: number,
+    client?: { anonymousId: string; platform: string; sdkVersion: string },
+  ) => Promise<{
     readonly instructions: ReadonlyArray<{
       readonly id: number
       readonly type: string
@@ -158,7 +162,9 @@ export interface Transport {
       readonly expiresAt: string
     }>
   }>
-  readonly acknowledgeInstructions: (ids: ReadonlyArray<number>) => Promise<{ acknowledged: number }>
+  readonly acknowledgeInstructions: (
+    ids: ReadonlyArray<number>,
+  ) => Promise<{ acknowledged: number }>
   readonly ingest: (batch: IngestBatch) => Promise<SdkIngestResponse>
   readonly armedTriggers: (p: {
     readonly anonymousId: string
@@ -173,20 +179,27 @@ export interface Transport {
     readonly externalId: string | null
   }) => Promise<SdkArmedInAppMessagesResponse>
   readonly consent: (p: SdkConsentPayload) => Promise<{ ok: true }>
+  readonly userProperties: (
+    p: UserPropertiesUpdate & { anonymousId: string },
+  ) => Promise<{ applied: boolean; filteredKeys: string[] }>
   readonly identify: (
     p: SdkIdentifyPayload,
     subjectToken: string,
   ) => Promise<{ ok: true }>
   readonly submitResponse: (p: SubmitResponsePayload) => Promise<{ ok: true }>
   readonly pushRegisterToken: (p: PushRegisterTokenPayload) => Promise<unknown>
-  readonly pushInvalidateToken: (p: PushInvalidateTokenPayload) => Promise<unknown>
+  readonly pushInvalidateToken: (
+    p: PushInvalidateTokenPayload,
+  ) => Promise<unknown>
   readonly pushRebind: (p: PushRebindPayload) => Promise<unknown>
   readonly pushDelivered: (p: PushDeliveryBeaconPayload) => Promise<unknown>
   readonly pushDisplayed: (p: PushDeliveryBeaconPayload) => Promise<unknown>
   readonly pushDismissed: (p: PushDeliveryBeaconPayload) => Promise<unknown>
   readonly pushSilentAck: (p: PushSilentAckPayload) => Promise<unknown>
   readonly pushAppOpen: (p: PushAppOpenPayload) => Promise<unknown>
-  readonly pushChannelSubscription: (p: PushChannelSubscriptionPayload) => Promise<unknown>
+  readonly pushChannelSubscription: (
+    p: PushChannelSubscriptionPayload,
+  ) => Promise<unknown>
   readonly pushChannelsList: () => Promise<{ channels: ReadonlyArray<unknown> }>
   readonly surveysAvailable: (p: {
     readonly anonymousId: string
@@ -215,7 +228,9 @@ export interface Transport {
     body: CompleteSurveyAttemptRequest,
   ) => Promise<{ ok: true }>
   readonly surveyAbandon: (attemptId: string) => Promise<{ ok: true }>
-  readonly surveyResolveLink: (body: ResolveSurveyLinkRequest) => Promise<ResolveSurveyLinkResponse>
+  readonly surveyResolveLink: (
+    body: ResolveSurveyLinkRequest,
+  ) => Promise<ResolveSurveyLinkResponse>
   // ---------- feature requests (5th pillar) ----------
   readonly requestBranding: () => Promise<{
     readonly entryLabel: string
@@ -351,7 +366,10 @@ export function createTransport(cfg: TransportConfig): Transport {
         const timeoutCtrl = new AbortController()
         const onParentAbort = (): void => timeoutCtrl.abort()
         abortController.signal.addEventListener('abort', onParentAbort)
-        const timeoutId = setTimeout(() => timeoutCtrl.abort(), REQUEST_TIMEOUT_MS)
+        const timeoutId = setTimeout(
+          () => timeoutCtrl.abort(),
+          REQUEST_TIMEOUT_MS,
+        )
         let res: Response
         try {
           res = await fetch(url, {
@@ -360,6 +378,7 @@ export function createTransport(cfg: TransportConfig): Transport {
               Authorization: `Bearer ${cfg.writeKey}`,
               'Content-Type': 'application/json',
               Accept: 'application/json',
+              'X-UserGist-Capabilities': 'personalization.v1,push.json-open.v1',
               'X-UserGist-SDK-Version': `rn-${USERGIST_SDK_VERSION}`,
               ...(requestSubjectToken
                 ? { 'X-UserGist-Subject-Token': requestSubjectToken }
@@ -403,7 +422,10 @@ export function createTransport(cfg: TransportConfig): Transport {
         recordFailure(res.status)
         if (!opts.idempotent) throw new Error(`http-${res.status}`)
         if (attempt >= MAX_ATTEMPTS - 1) throw new Error(`http-${res.status}`)
-        await sleep(retryAfterMs(res.headers.get('Retry-After')) ?? backoff(attempt), abortController.signal)
+        await sleep(
+          retryAfterMs(res.headers.get('Retry-After')) ?? backoff(attempt),
+          abortController.signal,
+        )
         attempt += 1
       } catch (e) {
         if (e instanceof PermanentHttpError) throw e
@@ -427,30 +449,44 @@ export function createTransport(cfg: TransportConfig): Transport {
     setSubjectToken(token): void {
       subjectToken = token
     },
-    session: ({ anonymousId, currentToken }) => request<SdkSessionResponse>({
-      method: 'POST',
-      path: '/v1/sdk/session',
-      body: { anonymousId },
-      idempotent: false,
-      requiresSubject: false,
-      ...(currentToken ? { subjectTokenOverride: currentToken } : {}),
-    }),
-    revokeSession: () => request<{ ok: true }>({
-      method: 'POST',
-      path: '/v1/sdk/session/revoke',
-      idempotent: true,
-    }),
-    instructions: (after, client) => request({
-      method: 'GET',
-      path: `/v1/sdk/instructions?after=${encodeURIComponent(String(after))}&limit=100${client ? `&protocolVersion=2&anonymousId=${encodeURIComponent(client.anonymousId)}&platform=${encodeURIComponent(client.platform)}&sdkVersion=${encodeURIComponent(client.sdkVersion)}` : ''}`,
-      idempotent: true,
-    }),
-    acknowledgeInstructions: (ids) => request({
-      method: 'POST',
-      path: '/v1/sdk/instructions/ack',
-      body: { ids },
-      idempotent: true,
-    }),
+    session: ({ anonymousId, currentToken }) =>
+      request<SdkSessionResponse>({
+        method: 'POST',
+        path: '/v1/sdk/session',
+        body: { anonymousId },
+        idempotent: false,
+        requiresSubject: false,
+        ...(currentToken ? { subjectTokenOverride: currentToken } : {}),
+      }),
+    revokeSession: () =>
+      request<{ ok: true }>({
+        method: 'POST',
+        path: '/v1/sdk/session/revoke',
+        idempotent: true,
+      }),
+    instructions: (after, client) =>
+      request({
+        method: 'GET',
+        path: `/v1/sdk/instructions?after=${encodeURIComponent(
+          String(after),
+        )}&limit=100${
+          client
+            ? `&protocolVersion=2&anonymousId=${encodeURIComponent(
+                client.anonymousId,
+              )}&platform=${encodeURIComponent(
+                client.platform,
+              )}&sdkVersion=${encodeURIComponent(client.sdkVersion)}`
+            : ''
+        }`,
+        idempotent: true,
+      }),
+    acknowledgeInstructions: (ids) =>
+      request({
+        method: 'POST',
+        path: '/v1/sdk/instructions/ack',
+        body: { ids },
+        idempotent: true,
+      }),
     ingest: (batch) =>
       request<SdkIngestResponse>({
         method: 'POST',
@@ -489,6 +525,13 @@ export function createTransport(cfg: TransportConfig): Transport {
       request<{ ok: true }>({
         method: 'POST',
         path: '/v1/sdk/consent',
+        body: p,
+        idempotent: true,
+      }),
+    userProperties: (p) =>
+      request({
+        method: 'POST',
+        path: '/v1/sdk/user-properties',
         body: p,
         idempotent: true,
       }),
@@ -648,7 +691,16 @@ export function createTransport(cfg: TransportConfig): Transport {
         path: '/v1/sdk/request-branding',
         idempotent: true,
       }),
-    requestsList: ({ anonymousId, externalId, sort, statuses, mine, q, cursor, limit }) => {
+    requestsList: ({
+      anonymousId,
+      externalId,
+      sort,
+      statuses,
+      mine,
+      q,
+      cursor,
+      limit,
+    }) => {
       const params = new URLSearchParams({ anonymousId })
       if (externalId) params.append('externalId', externalId)
       if (sort) params.append('sort', sort)
@@ -682,7 +734,13 @@ export function createTransport(cfg: TransportConfig): Transport {
         idempotent: true,
       })
     },
-    requestSubmit: ({ idempotencyKey, anonymousId, externalId, title, description }) =>
+    requestSubmit: ({
+      idempotencyKey,
+      anonymousId,
+      externalId,
+      title,
+      description,
+    }) =>
       request<RequestDto>({
         method: 'POST',
         path: '/v1/sdk/requests',
@@ -712,7 +770,13 @@ export function createTransport(cfg: TransportConfig): Transport {
         idempotent: true,
       })
     },
-    requestCommentPost: ({ requestId, idempotencyKey, anonymousId, externalId, body }) =>
+    requestCommentPost: ({
+      requestId,
+      idempotencyKey,
+      anonymousId,
+      externalId,
+      body,
+    }) =>
       request<RequestCommentDto>({
         method: 'POST',
         path: `/v1/sdk/requests/${requestId}/comments`,

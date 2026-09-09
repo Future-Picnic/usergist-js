@@ -64,7 +64,9 @@ export interface App {
   readonly workspaceId: string
   readonly name: string
   readonly slug: string
-  readonly platforms: ReadonlyArray<'ios' | 'android' | 'react-native' | 'expo' | 'flutter' | 'web'>
+  readonly platforms: ReadonlyArray<
+    'ios' | 'android' | 'react-native' | 'expo' | 'flutter' | 'web'
+  >
   readonly webConfig?: import('./web.js').WebAppConfig
   readonly piiAllowList: ReadonlyArray<string>
   readonly lifecycleEventsEnabled: boolean
@@ -74,9 +76,19 @@ export interface App {
   readonly updatedAt: string
 }
 
-export type OnboardingGoal = 'feedback' | 'survey' | 'inapp' | 'push' | 'requests'
+export type OnboardingGoal =
+  | 'feedback'
+  | 'survey'
+  | 'inapp'
+  | 'push'
+  | 'requests'
 export type OnboardingStatus = 'in_progress' | 'deferred' | 'completed'
-export type OnboardingStep = 'connect' | 'verify' | 'experience' | 'push' | 'launch'
+export type OnboardingStep =
+  | 'connect'
+  | 'verify'
+  | 'experience'
+  | 'push'
+  | 'launch'
 export type OnboardingPushChoice = 'pending' | 'configured' | 'skipped'
 
 export interface AppOnboarding {
@@ -158,7 +170,10 @@ export interface CreatedWriteKey extends WriteKey {
   readonly plaintext: string // only returned on creation
 }
 
-export type ApiTokenScope = 'sdk:subjects' | 'push.transactional'
+export type ApiTokenScope =
+  | 'sdk:subjects'
+  | 'push.transactional'
+  | 'users.properties.write'
 
 /**
  * Metadata for a workspace-scoped server credential. The plaintext secret is

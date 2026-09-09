@@ -40,3 +40,6 @@ export type {
 } from './contract/endpoints.js'
 
 export * from './types/web.js'
+
+export * from './types/personalization.js'
+export * from './personalization.js'
