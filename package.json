@@ -25,6 +25,7 @@
     "lint": "pnpm -r lint",
     "test": "pnpm -r --if-present test",
     "check:services": "pnpm --filter @usergist/api check:services",
+    "check:auth": "node scripts/check-auth-redirects.mjs",
     "smoke:launch": "pnpm --filter @usergist/api smoke:launch",
     "load:launch": "pnpm --filter @usergist/api load:launch",
     "acceptance:non-push": "pnpm --filter @usergist/api acceptance:non-push",
