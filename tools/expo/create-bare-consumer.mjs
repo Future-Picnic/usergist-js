@@ -11,7 +11,7 @@ console.log(`Bare React Native consumer retained: ${root}`)
 writeFileSync(join(root, 'package.json'), JSON.stringify({
   name: 'usergist-bare-consumer', version: '1.0.0', private: true,
   scripts: { start: 'react-native start --port 28913' },
-  dependencies: { react: '18.2.0', 'react-native': '0.74.0', '@usergist/feedback-react-native': archive, '@react-native-async-storage/async-storage': '1.24.0', 'react-native-safe-area-context': '4.10.9' },
+  dependencies: { ...(process.env.USERGIST_CORE_ARCHIVE ? { '@usergist/sdk-core': resolve(process.env.USERGIST_CORE_ARCHIVE) } : {}), react: '18.2.0', 'react-native': '0.74.0', '@usergist/feedback-react-native': archive, '@react-native-async-storage/async-storage': '1.24.0', 'react-native-safe-area-context': '4.10.9' },
   devDependencies: { '@react-native-community/cli': '13.6.4', '@react-native-community/cli-platform-ios': '13.6.4', '@react-native-community/cli-platform-android': '13.6.4', '@react-native/babel-preset': '0.74.81', '@react-native/metro-config': '0.74.81', '@babel/core': '7.29.0' },
 }, null, 2))
 execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: root, stdio: 'inherit' })
