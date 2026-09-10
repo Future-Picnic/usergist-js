@@ -28,7 +28,7 @@ writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'usergist-expo-
 run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'])
 const bundled = JSON.parse(readFileSync(join(root, 'node_modules/expo/bundledNativeModules.json')))
 const packages = ['@react-native-async-storage/async-storage', 'react-native-safe-area-context', 'expo-dev-client', ...(mode === 'expo-notifications' ? ['expo-notifications'] : [])]
-run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', archive, ...packages.map(p => `${p}@${bundled[p]}`)])
+run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', archive, ...(process.env.USERGIST_CORE_ARCHIVE ? [resolve(process.env.USERGIST_CORE_ARCHIVE)] : []), ...packages.map(p => `${p}@${bundled[p]}`)])
 run('npm', ['install', '--save-dev', '--ignore-scripts', '--no-audit', '--no-fund', 'typescript@5.5.4', '@types/react@19.2.3'])
 if (mode === 'expo-notifications') {
   writeFileSync(join(root, 'expo-types.ts'), "import * as Notifications from 'expo-notifications';\nimport { configureExpoNotifications } from '@usergist/feedback-react-native/expo';\nconst dispose: () => void = configureExpoNotifications(Notifications);\n")
