@@ -36,6 +36,8 @@ export type {
   SdkConsentPayload,
   SdkIdentifyPayload,
   SdkIngestResponse,
+  SdkIngestRequest,
+  SdkDeliveryInstruction,
   SdkSessionResponse,
 } from './contract/endpoints.js'
 

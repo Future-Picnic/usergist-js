@@ -167,6 +167,50 @@ describe('explicit browser activation', () => {
 })
 
 describe('web delivery regressions', () => {
+  it('binds anonymous queued delivery to the identified client without changing the event', async () => {
+    const c = await client({ allowAnonymous: true })
+    await c.setConsent({ analytics: true })
+    await c.startAnonymous()
+    const oldClient = c.getSnapshot().clientId
+    c.track('offline-watch', { show_id: '00123' })
+    await (c as any).writes
+    const original = structuredClone((c as any).queue.find((w: any) =>
+      w.body?.events?.some((e: any) => e.name === 'offline-watch'),
+    ).body)
+    await c.identify('movie-viewer', {}, 'identified-token')
+    expect(c.getSnapshot().clientId).not.toBe(oldClient)
+    await c.flush()
+    const sent = calls.find(call => call.path.endsWith('/ingest') &&
+      call.body.events.some((event: any) => event.name === 'offline-watch'))!.body
+    expect(sent.events).toEqual(original.events)
+    expect(sent.delivery.clientId).toBe(c.getSnapshot().clientId)
+    expect(c.getSnapshot().queueSize).toBe(0)
+  })
+
+  it('rebinds immediate delivery when an ingest retry refreshes authentication', async () => {
+    const c = await client({ getSubjectToken: async () => 'refreshed-token' })
+    await c.setConsent({ analytics: true })
+    await c.identify('viewer', {}, 'initial-token')
+    await c.flush()
+    const originalFetch = fetch
+    const sent: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/ingest')) {
+        const body = JSON.parse(String(init.body))
+        sent.push(body)
+        if (sent.length === 1) return new Response('{}', { status: 401 })
+        expect(body.delivery.clientId).toBe(new Headers(init.headers).get('X-UserGist-Client-Id'))
+      }
+      return originalFetch(url, init)
+    }))
+    c.track('refresh-watch', { show_id: '00123' })
+    await c.flush()
+    expect(sent).toHaveLength(2)
+    expect(sent[1].events).toEqual(sent[0].events)
+    expect(sent[1].delivery.clientId).not.toBe(sent[0].delivery.clientId)
+    expect(c.getSnapshot().queueSize).toBe(0)
+  })
+
   it('retries an older committed vote before sending the newer choice', async () => {
     const c = await client()
     await c.setConsent({ feedback: true })
@@ -205,7 +249,7 @@ describe('web delivery regressions', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
       if (url.endsWith('/vote')) {
         sent++
-        return new Promise<Response>(r => { resolve = r })
+        return new Promise<Response>((r) => { resolve = r })
       }
       return original(url, init)
     }))
@@ -271,7 +315,8 @@ describe('web delivery regressions', () => {
         const body = JSON.parse(String(init.body))
         if (body.campaignId === 'consumed') return ok({ status: 'unavailable' })
         keys.push(body.idempotencyKey)
-        if (loseResponse) { loseResponse = false; throw new TypeError('Response lost') }
+        if (loseResponse) { loseResponse = false
+            throw new TypeError('Response lost') }
         return ok({ status: 'authorized', presentationId: 'presentation', content: { questions: [{ id: 'q', type: 'rating', title: 'Feedback' }] } })
       }
       return original(url, init)
@@ -311,4 +356,123 @@ it('continues a large inbox on the next tick, then revisits earlier work', async
   expect(cursors.at(-1)).toBe(250)
   await poll()
   expect(cursors[6]).toBe(0)
+})
+
+it('renders a triggered survey from the ingest response without authorization or attempt round trips', async () => {
+  const c = await client()
+  await c.setConsent({ analytics: true, survey: true })
+  await c.identify('immediate-customer', {}, 'token')
+  await c.flush()
+  c.setPageContext({ screenName: 'Movies' })
+  const original = fetch
+  const eventBodies: any[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init: RequestInit) => {
+      if (new URL(url).pathname.endsWith('/ingest')) {
+        eventBodies.push(JSON.parse(String(init.body)))
+        return ok({
+          accepted: 1,
+          rejected: 0,
+          instructions: [
+            {
+              id: 99,
+              type: 'survey.offer',
+              payload: {
+                surveyId: 'survey',
+                authorized: {
+                  status: 'authorized',
+                  presentationId: 'prepared-survey',
+                  content: {
+                    flow: {
+                      startQuestionId: 'q1',
+                      questions: [
+                        {
+                          id: 'q1',
+                          type: 'rating',
+                          title: 'Ready immediately',
+                          scale: 5,
+                        },
+                      ],
+                      branches: [],
+                    },
+                  },
+                  attempt: {
+                    attemptId: 'attempt',
+                    startQuestionId: 'q1',
+                    currentQuestionId: 'q1',
+                    progressSnapshot: {},
+                    resumed: false,
+                  },
+                },
+              },
+            },
+          ],
+        })
+      }
+      return original(url, init)
+    })
+  )
+  c.track('movie-opened')
+  await c.flush()
+  expect(eventBodies[0].delivery).toEqual({
+    eventIds: [eventBodies[0].events[0].eventId],
+    clientId: c.getSnapshot().clientId,
+    screenName: 'Movies',
+  })
+  expect(
+    document.querySelector('[data-usergist]')!.shadowRoot!.textContent
+  ).toContain('Ready immediately')
+  expect(
+    calls.filter(
+      (v) => v.path.endsWith('/authorize') || v.path.endsWith('/attempts')
+    )
+  ).toEqual([])
+})
+
+it('discards an immediate response delivered after the user withdraws survey consent', async () => {
+  const c = await client()
+  await c.setConsent({ analytics: true, survey: true })
+  await c.identify('late-customer', {}, 'token')
+  await c.flush()
+  const original = fetch
+  let release!: (response: Response) => void
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string, init: RequestInit) =>
+      new URL(url).pathname.endsWith('/ingest')
+        ? new Promise<Response>((resolve) => {
+            release = resolve
+          })
+        : original(url, init)
+    )
+  )
+  c.track('movie-opened')
+  const pending = c.flush()
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+  await c.setConsent({ survey: false })
+  release(
+    ok({
+      instructions: [
+        {
+          id: 99,
+          type: 'survey.offer',
+          payload: {
+            surveyId: 'survey',
+            authorized: {
+              status: 'authorized',
+              presentationId: 'late',
+              content: {},
+            },
+          },
+        },
+      ],
+    })
+  )
+  await pending
+  expect(
+    document
+      .querySelector('[data-usergist]')
+      ?.shadowRoot?.querySelector('[role=dialog]')
+  ).toBeFalsy()
 })

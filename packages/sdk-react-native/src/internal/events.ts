@@ -29,6 +29,7 @@ export interface SdkEvents {
   }
   readonly dismissSurvey: { readonly surveyId: string }
   readonly surveyInvite: {
+    readonly attempt?: import('@usergist/sdk-core/mobile').CreateSurveyAttemptResponse
     readonly survey?: import('@usergist/sdk-core/mobile').SurveyCampaignWithFlow
     readonly surveyId: string
     readonly name: string

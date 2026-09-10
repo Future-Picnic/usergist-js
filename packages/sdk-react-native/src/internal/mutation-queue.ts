@@ -2,12 +2,16 @@ import { generateEventId } from './identity.js'
 import { STORAGE_KEYS, type StorageScope } from './storage.js'
 import { reportError } from './debug.js'
 
-export type MutationPurpose = 'essential' | 'feedback' | 'survey' | 'analytics'
+export type MutationPurpose =
+  | 'essential' | 'feedback' | 'survey' | 'analytics'
 export type MutationKind =
   | 'identify'
+  | 'instruction-ack'
   | 'user-properties'
   | 'feedback-response'
   | 'survey-complete'
+  | 'survey-start'
+  | 'survey-progress'
   | 'survey-abandon'
 
 export interface PendingMutation {

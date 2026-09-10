@@ -330,6 +330,12 @@ export interface SurveyOfferInstruction {
 }
 
 export interface CreateSurveyAttemptRequest {
+  /** Stable ID for an explicitly new attempt; retained across offline retries. */
+  readonly clientAttemptId?: string
+  readonly localStart?: {
+    readonly token: string
+    readonly startedAt: string
+  }
   readonly presentationId?: string
   readonly anonymousId: string
   readonly externalId?: string | null
@@ -488,6 +494,11 @@ export interface SurveyAnalytics {
 // on a match without a follow-up content fetch.
 
 export interface ArmedSurvey {
+  /** Server-signed, non-personalized content for a safe local start. */
+  readonly localStart?: {
+    readonly token: string
+    readonly expiresAt: string
+  }
   readonly campaignId: string
   readonly eventName: string
   readonly segmentRules?: SerializedSegmentRules | null

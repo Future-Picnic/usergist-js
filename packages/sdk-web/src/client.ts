@@ -11,6 +11,7 @@ import type {
   SurveyAnswerRecord,
   SurveyCampaignWithFlow,
   SurveySummary,
+  SdkIngestRequest,
 } from '@usergist/sdk-core/client'
 import { WebStore } from './storage.js'
 import { WebRenderer, el, safeUrl, type RenderExperience } from './renderer.js'
@@ -185,9 +186,22 @@ export class UserGistClient {
     path: string,
     body?: unknown,
     method = body === undefined ? 'GET' : 'POST',
-    refresh = true,
+    refresh = true
   ): Promise<T> {
     if (!this.config) throw new WebSdkError('Initialize UserGist first')
+    if (path === '/v1/sdk/ingest' && body) {
+      const batch = body as SdkIngestRequest
+      if (batch.delivery) {
+        // Client registration can change after a reload, identify or 401
+        // refresh. Event identity is immutable; presentation uses this tab now.
+        body = {
+          ...batch,
+          delivery: this.clientId
+            ? { ...batch.delivery, clientId: this.clientId, screenName: this.screenName }
+            : undefined,
+        }
+      }
+    }
     const generation = this.generation
     const controller = new AbortController()
     this.requests.add(controller)
@@ -236,7 +250,7 @@ export class UserGistClient {
         throw new WebSdkError(
           result.error?.message ?? 'Request failed',
           response.status,
-          result.error?.code,
+          result.error?.code
         )
       }
       return result.data as T
@@ -267,13 +281,13 @@ export class UserGistClient {
   identify(
     userId: string,
     properties?: Properties,
-    subjectToken?: string,
+    subjectToken?: string
   ): Promise<IdentifyResult> {
     if (this.activating) return this.activating
     return (this.activating = this.activate(
       userId,
       properties,
-      subjectToken,
+      subjectToken
     ).finally(() => {
       this.activating = undefined
     }))
@@ -282,7 +296,7 @@ export class UserGistClient {
     if (!this.config?.allowAnonymous) {
       this.diagnostic(
         'anonymous_disabled',
-        'Enable allowAnonymous before starting an anonymous session',
+        'Enable allowAnonymous before starting an anonymous session'
       )
       return 'rejected'
     }
@@ -291,7 +305,7 @@ export class UserGistClient {
   private async activate(
     userId: string,
     properties?: Properties,
-    subjectToken?: string,
+    subjectToken?: string
   ): Promise<IdentifyResult> {
     if (this.resetWork) await this.resetWork
     if (!this.config || this.state === 'destroyed') return 'rejected'
@@ -304,7 +318,7 @@ export class UserGistClient {
       if (this.externalId) {
         this.diagnostic(
           'reset_required',
-          'Call reset() before switching accounts',
+          'Call reset() before switching accounts'
         )
         return 'rejected'
       }
@@ -335,7 +349,7 @@ export class UserGistClient {
     try {
       this.credentialKey = `usergist:${namespace}:credential`
       this.store = new WebStore(namespace, (message) =>
-        this.diagnostic('storage_fallback', message),
+        this.diagnostic('storage_fallback', message)
       )
       // Preserve explicitly activated anonymous history when it is identified.
       const alias =
@@ -353,13 +367,13 @@ export class UserGistClient {
         this.token = token
         if (!this.token)
           throw new WebSdkError(
-            'identify() requires a server-minted subject token',
+            'identify() requires a server-minted subject token'
           )
         await this.api(
           '/v1/sdk/identify',
           { ...this.identity(), properties: clean(properties) },
           'POST',
-          false,
+          false
         )
       } else {
         let saved: string | null = null
@@ -371,7 +385,7 @@ export class UserGistClient {
           '/v1/sdk/session',
           { anonymousId: this.anonymousId },
           'POST',
-          false,
+          false
         )
         assertCurrent()
         this.token = session.subjectToken
@@ -385,7 +399,7 @@ export class UserGistClient {
       assertCurrent()
       this.queue = [
         ...new Map(
-          [...savedQueue, ...previousQueue].map((work) => [work.id, work]),
+          [...savedQueue, ...previousQueue].map((work) => [work.id, work])
         ).values(),
       ].filter((work) => Date.now() - work.createdAt < 7 * 86400000)
       this.state = userId ? 'active-identified' : 'active-anonymous'
@@ -398,7 +412,7 @@ export class UserGistClient {
         this.channel = new BroadcastChannel(
           `usergist:${scope(this.config.writeKey)}:${encodeURIComponent(
             userId || 'anonymous',
-          )}`,
+          )}`
         )
         this.channel.onmessage = (e) => {
           if (e.data === 'reset') void this.reset(false)
@@ -420,7 +434,7 @@ export class UserGistClient {
       }
       this.diagnostic(
         'activation_failed',
-        error instanceof Error ? error.message : 'Activation failed',
+        error instanceof Error ? error.message : 'Activation failed'
       )
       return 'rejected'
     }
@@ -447,7 +461,7 @@ export class UserGistClient {
         screenName: this.screenName,
       },
       'POST',
-      false,
+      false
     )
     this.clientId = result.clientId
   }
@@ -459,7 +473,7 @@ export class UserGistClient {
     this.consentVersion = Date.now()
     this.consentDirty = true
     this.queue = this.queue.filter(
-      (work) => this.consent[work.purpose] === true,
+      (work) => this.consent[work.purpose] === true
     )
     const displayedPurpose = this.renderer?.consentPurpose
     if (displayedPurpose && !this.consent[displayedPurpose])
@@ -475,7 +489,7 @@ export class UserGistClient {
     } catch (error) {
       this.diagnostic(
         'consent_sync_failed',
-        error instanceof Error ? error.message : 'Consent sync failed',
+        error instanceof Error ? error.message : 'Consent sync failed'
       )
       return false
     }
@@ -492,7 +506,7 @@ export class UserGistClient {
   }
   async setUserProperties(
     properties: Properties,
-    unset: readonly string[] = [],
+    unset: readonly string[] = []
   ): Promise<void> {
     if (!this.active || !this.consent.analytics)
       throw new WebSdkError('Activate a user and grant analytics consent first')
@@ -504,7 +518,7 @@ export class UserGistClient {
     await this.enqueue(
       '/v1/sdk/user-properties',
       { ...update, anonymousId: this.anonymousId },
-      'analytics',
+      'analytics'
     )
     await this.flush()
   }
@@ -512,14 +526,14 @@ export class UserGistClient {
     if (!this.active || !this.consent.analytics) {
       this.diagnostic(
         'track_inactive',
-        'Event ignored: activate a user and grant analytics consent first',
+        'Event ignored: activate a user and grant analytics consent first'
       )
       return
     }
     if (!eventName || eventName.length > 120) {
       this.diagnostic(
         'invalid_event',
-        'Event names must contain 1–120 characters',
+        'Event names must contain 1–120 characters'
       )
       return
     }
@@ -551,8 +565,17 @@ export class UserGistClient {
           },
         ],
         context,
+        ...(this.clientId
+          ? {
+              delivery: {
+                eventIds: [eventId],
+                clientId: this.clientId,
+                screenName: this.screenName,
+              },
+            }
+          : {}),
       },
-      'analytics',
+      'analytics'
     ).catch((error) => this.diagnostic('queue_failed', error.message))
   }
   setPageContext(context: { screenName: string }) {
@@ -568,7 +591,7 @@ export class UserGistClient {
     path: string,
     body: unknown,
     purpose: PersistedWork['purpose'],
-    method = 'POST',
+    method = 'POST'
   ): Promise<void> {
     const generation = this.generation
     const write = this.writes.then(async () => {
@@ -610,6 +633,48 @@ export class UserGistClient {
       if (!this.consent[item.purpose]) continue
       try {
         const result = await this.api(item.path, item.body, item.method)
+        if (generation !== this.generation || !this.active) return
+        if (item.path === '/v1/sdk/ingest') {
+          const instructions =
+            (
+              result as {
+                instructions?: Array<{
+                  id: number
+                  type: string
+                  payload: Record<string, any>
+                }>
+              }
+            ).instructions ?? []
+          for (const instruction of instructions) {
+            if (
+              generation !== this.generation ||
+              document.visibilityState !== 'visible'
+            )
+              break
+            const p = instruction.payload
+            const pillar =
+              instruction.type === 'prompt.show'
+                ? 'feedback'
+                : instruction.type === 'survey.offer'
+                ? 'survey'
+                : instruction.type === 'inapp.show'
+                ? 'inapp'
+                : null
+            const id =
+              p.campaignId ??
+              p.promptId ??
+              p.surveyId ??
+              p.message?.messageId
+            if (pillar && typeof id === 'string' && p.authorized)
+              await this.openExperience(
+                pillar,
+                id,
+                instruction.id,
+                undefined,
+                p.authorized
+              )
+          }
+        }
         if (
           item.path === '/v1/sdk/user-properties' &&
           (result as { filteredKeys?: string[] })?.filteredKeys?.length
@@ -618,7 +683,7 @@ export class UserGistClient {
             'properties_filtered',
             `App privacy settings filtered: ${(
               result as { filteredKeys: string[] }
-            ).filteredKeys.join(', ')}`,
+            ).filteredKeys.join(', ')}`
           )
         const outcome = this.mutationResults.get(item.id)
         if (outcome) Object.assign(outcome, { delivered: true, result })
@@ -627,7 +692,7 @@ export class UserGistClient {
           'delivery_failed',
           error instanceof Error
             ? error.message
-            : 'Unable to deliver pending work',
+            : 'Unable to deliver pending work'
         )
         if (
           !(error instanceof WebSdkError) ||
@@ -662,7 +727,7 @@ export class UserGistClient {
     } catch (error) {
       this.diagnostic(
         'sync_failed',
-        error instanceof Error ? error.message : 'Unable to sync',
+        error instanceof Error ? error.message : 'Unable to sync'
       )
     } finally {
       this.schedule()
@@ -691,7 +756,7 @@ export class UserGistClient {
           }>
           nextCursor?: number | null
         }>(
-          `/v1/sdk/clients/${this.clientId}/instructions?after=${this.inboxCursor}`,
+          `/v1/sdk/clients/${this.clientId}/instructions?after=${this.inboxCursor}`
         )
         for (const instruction of result.instructions) {
           if (
@@ -756,6 +821,12 @@ export class UserGistClient {
     id: string,
     instructionId?: number,
     source?: 'link',
+    prepared?: {
+      status: string
+      presentationId?: string
+      content?: any
+      attempt?: CreateSurveyAttemptResponse
+    }
   ): Promise<OpenResult> {
     const purpose = pillar === 'survey' ? 'survey' : 'feedback'
     const blocked = this.check(purpose)
@@ -764,18 +835,22 @@ export class UserGistClient {
     const generation = this.generation
     const key = instructionId ? `instruction:${instructionId}` : uuid()
     try {
-      const result = await this.api<{
-        status: string
-        presentationId?: string
-        content?: any
-      }>('/v1/sdk/presentations/authorize', {
-        clientId: this.clientId,
-        pillar,
-        campaignId: id,
-        idempotencyKey: key,
-        instructionId,
-        screenName: this.screenName,
-      })
+      const result =
+        prepared ??
+        (await this.api<{
+          status: string
+          presentationId?: string
+          content?: any
+          attempt?: CreateSurveyAttemptResponse
+        }>('/v1/sdk/presentations/authorize', {
+          clientId: this.clientId,
+          pillar,
+          campaignId: id,
+          idempotencyKey: key,
+          instructionId,
+          screenName: this.screenName,
+          prepareSurvey: pillar === 'survey' && instructionId !== undefined,
+        }))
       if (result.status !== 'authorized')
         return {
           status:
@@ -790,31 +865,42 @@ export class UserGistClient {
       )
         return { status: 'inactive' }
       const presentationId = result.presentationId!
+      const shownKey = `presentations:shown`
+      const shown = (await this.store?.get<string[]>(shownKey)) ?? []
+      if (
+        generation !== this.generation ||
+        !this.active ||
+        !this.consent[purpose]
+      )
+        return { status: 'inactive' }
+      if (shown.includes(presentationId)) return { status: 'unavailable' }
       let content = result.content
       const started = Date.now()
       const receipt = (event: string) =>
         this.enqueue(
           `/v1/sdk/presentations/${presentationId}/receipt`,
           { clientId: this.clientId, event },
-          purpose,
+          purpose
         ).catch((error) =>
           this.diagnostic(
             'receipt_pending',
-            error instanceof Error ? error.message : 'Receipt not saved',
-          ),
+            error instanceof Error ? error.message : 'Receipt not saved'
+          )
         )
       if (pillar === 'survey') {
-        const attempt = await this.api<CreateSurveyAttemptResponse>(
-          `/v1/sdk/surveys/${id}/attempts`,
-          {
-            ...this.identity(),
-            source: source ?? (instructionId ? 'triggered' : 'on_demand'),
-            presentationId,
-            resume: true,
-            platform: 'web',
-            sdkVersion: VERSION,
-          },
-        )
+        const attempt =
+          result.attempt ??
+          (await this.api<CreateSurveyAttemptResponse>(
+            `/v1/sdk/surveys/${id}/attempts`,
+            {
+              ...this.identity(),
+              source: source ?? (instructionId ? 'triggered' : 'on_demand'),
+              presentationId,
+              resume: true,
+              platform: 'web',
+              sdkVersion: VERSION,
+            }
+          ))
         if (generation !== this.generation) return { status: 'inactive' }
         if (attempt.resolvedContent) content = attempt.resolvedContent
         const local = await this.store?.get<{
@@ -840,7 +926,7 @@ export class UserGistClient {
             this.handleCta(cta),
           onProgress: async (
             answers: SurveyAnswerRecord,
-            currentQuestionId: string | null,
+            currentQuestionId: string | null
           ) => {
             await this.store?.set(`survey:${attempt.attemptId}`, {
               answers,
@@ -851,7 +937,7 @@ export class UserGistClient {
               `/v1/sdk/surveys/attempts/${attempt.attemptId}`,
               { progressSnapshot: answers, currentQuestionId },
               'survey',
-              'PATCH',
+              'PATCH'
             )
           },
           onSubmit: async (answers: SurveyAnswerRecord) => {
@@ -859,11 +945,11 @@ export class UserGistClient {
               `/v1/sdk/surveys/attempts/${attempt.attemptId}/complete`,
               {
                 finalAnswers: Object.entries(answers).map(
-                  ([questionId, value]) => ({ questionId, value }),
+                  ([questionId, value]) => ({ questionId, value })
                 ),
                 latencyMs: Math.min(3600000, Math.max(0, Date.now() - started)),
               },
-              'survey',
+              'survey'
             )
             await receipt('completed')
             this.emit('surveyComplete', {
@@ -897,7 +983,7 @@ export class UserGistClient {
                 latencyMs: Math.min(3600000, Math.max(0, Date.now() - started)),
                 platform: 'web',
               },
-              'feedback',
+              'feedback'
             )
             await receipt('completed')
             this.emit('response', { promptId: id, answers })
@@ -923,6 +1009,12 @@ export class UserGistClient {
         })
       }
       if (pillar === 'inapp') this.track('$inapp_shown', { message_id: id })
+      await this.store?.set(
+        shownKey,
+        [...shown, presentationId].slice(-200)
+      )
+      if (generation !== this.generation || !this.active)
+        return { status: 'inactive' }
       await receipt('shown')
       this.emit(`${pillar}Show`, { id, presentationId })
       this.schedule(0)
@@ -930,7 +1022,7 @@ export class UserGistClient {
     } catch (error) {
       this.diagnostic(
         'open_failed',
-        error instanceof Error ? error.message : 'Unable to open experience',
+        error instanceof Error ? error.message : 'Unable to open experience'
       )
       return {
         status: 'failed',
@@ -971,7 +1063,7 @@ export class UserGistClient {
     this.requirePurpose('survey')
     return (
       await this.api<{ surveys: SurveySummary[] }>(
-        `/v1/sdk/surveys/available?${this.query()}`,
+        `/v1/sdk/surveys/available?${this.query()}`
       )
     ).surveys
   }
@@ -984,7 +1076,7 @@ export class UserGistClient {
     if (!token) return false
     const result = await this.api<{ surveyId: string }>(
       '/v1/sdk/surveys/resolve-link',
-      { ...this.identity(), token },
+      { ...this.identity(), token }
     )
     return (
       (await this.openExperience('survey', result.surveyId, undefined, 'link'))
@@ -1001,7 +1093,7 @@ export class UserGistClient {
     }>('/v1/sdk/request-branding')
   }
   async getRequests(
-    options: Record<string, string> = {},
+    options: Record<string, string> = {}
   ): Promise<GetRequestsResult> {
     this.requirePurpose('feedback')
     return this.api(`/v1/sdk/requests?${this.query(options)}`)
@@ -1009,13 +1101,13 @@ export class UserGistClient {
   async getRequest(id: string): Promise<RequestDto> {
     this.requirePurpose('feedback')
     return this.api(
-      `/v1/sdk/requests/${encodeURIComponent(id)}?${this.query()}`,
+      `/v1/sdk/requests/${encodeURIComponent(id)}?${this.query()}`
     )
   }
   private async requestMutation<T>(
     path: string,
     body: unknown,
-    method = 'POST',
+    method = 'POST'
   ): Promise<RequestMutationResult<T>> {
     this.requirePurpose('feedback')
     const generation = this.generation
@@ -1027,8 +1119,11 @@ export class UserGistClient {
       purpose: 'feedback',
       createdAt: Date.now(),
     }
-    const outcome: { delivered?: boolean; result?: unknown; error?: unknown } =
-      {}
+    const outcome: {
+      delivered?: boolean
+      result?: unknown
+      error?: unknown
+    } = {}
     const prepare = this.writes.then(async () => {
       if (
         generation !== this.generation ||
@@ -1075,7 +1170,7 @@ export class UserGistClient {
   }
   async submitRequest(
     title: string,
-    description: string,
+    description: string
   ): Promise<RequestMutationResult<RequestDto>> {
     this.requirePurpose('feedback')
     return this.requestMutation<RequestDto>('/v1/sdk/requests', {
@@ -1087,35 +1182,35 @@ export class UserGistClient {
   }
   async voteOnRequest(
     id: string,
-    vote: boolean,
+    vote: boolean
   ): Promise<RequestMutationResult<RequestVote>> {
     this.requirePurpose('feedback')
     return this.requestMutation<RequestVote>(
       `/v1/sdk/requests/${encodeURIComponent(id)}/vote`,
-      { ...this.identity(), vote },
+      { ...this.identity(), vote }
     )
   }
   async followRequest(
     id: string,
-    follow: boolean,
+    follow: boolean
   ): Promise<RequestMutationResult<RequestFollow>> {
     this.requirePurpose('feedback')
     return this.requestMutation<RequestFollow>(
       `/v1/sdk/requests/${encodeURIComponent(id)}/follow`,
-      { ...this.identity(), follow },
+      { ...this.identity(), follow }
     )
   }
   async getComments(id: string): Promise<ReadonlyArray<RequestComment>> {
     this.requirePurpose('feedback')
     return (
       await this.api<{ items: RequestComment[] }>(
-        `/v1/sdk/requests/${encodeURIComponent(id)}/comments?${this.query()}`,
+        `/v1/sdk/requests/${encodeURIComponent(id)}/comments?${this.query()}`
       )
     ).items
   }
   async postComment(
     id: string,
-    body: string,
+    body: string
   ): Promise<RequestMutationResult<RequestComment>> {
     this.requirePurpose('feedback')
     return this.requestMutation<RequestComment>(
@@ -1124,26 +1219,29 @@ export class UserGistClient {
         ...this.identity(),
         body: validText(body, 1000, 'Comment'),
         idempotencyKey: uuid(),
-      },
+      }
     )
   }
   async editComment(
     id: string,
     commentId: string,
-    body: string,
+    body: string
   ): Promise<RequestMutationResult<RequestComment>> {
     this.requirePurpose('feedback')
     return this.requestMutation<RequestComment>(
       `/v1/sdk/requests/${encodeURIComponent(id)}/comments/${encodeURIComponent(
         commentId,
       )}`,
-      { anonymousId: this.anonymousId, body: validText(body, 1000, 'Comment') },
-      'PATCH',
+      {
+        anonymousId: this.anonymousId,
+        body: validText(body, 1000, 'Comment'),
+      },
+      'PATCH'
     )
   }
   async deleteComment(
     id: string,
-    commentId: string,
+    commentId: string
   ): Promise<RequestMutationResult<void>> {
     this.requirePurpose('feedback')
     return this.requestMutation<void>(
@@ -1151,7 +1249,7 @@ export class UserGistClient {
         commentId,
       )}?${this.query()}`,
       undefined,
-      'DELETE',
+      'DELETE'
     )
   }
   openRequestsBoard(): Promise<OpenResult> {
@@ -1183,7 +1281,7 @@ export class UserGistClient {
     } catch (error) {
       this.diagnostic(
         'requests_failed',
-        error instanceof Error ? error.message : 'Unable to open requests',
+        error instanceof Error ? error.message : 'Unable to open requests'
       )
       return { status: 'failed' }
     } finally {
@@ -1222,7 +1320,7 @@ export class UserGistClient {
     const launcher = el(
       'button',
       `ug-launcher ${config.position === 'left' ? 'left' : ''}`,
-      config.label ?? 'Feedback',
+      config.label ?? 'Feedback'
     )
     launcher.setAttribute('aria-expanded', 'false')
     launcher.onclick = () => {
@@ -1258,7 +1356,7 @@ export class UserGistClient {
         'Available surveys',
         surveys.length
           ? 'Choose a survey to share your thoughts.'
-          : 'You’re all caught up.',
+          : 'You’re all caught up.'
       )
       for (const survey of surveys) {
         const button = el('button', 'ug-list-item', survey.name)
@@ -1272,7 +1370,7 @@ export class UserGistClient {
     } catch (error) {
       this.diagnostic(
         'inbox_failed',
-        error instanceof Error ? error.message : 'Unable to load surveys',
+        error instanceof Error ? error.message : 'Unable to load surveys'
       )
     }
   }

@@ -20,6 +20,8 @@ import type {
   SurveyAttemptSource,
   SurveyCampaignWithFlow,
   SurveySummary,
+  CreateSurveyAttemptRequest,
+  CreateSurveyAttemptResponse,
   JsonAction,
   InAppCtaAction,
 } from '@usergist/sdk-core/mobile'
@@ -152,6 +154,15 @@ function serializePushRegistration(
 let runtimeStarted = false
 let runtimeStartPromise: Promise<void> | null = null
 let resetPromise: Promise<void> | null = null
+interface LocalSurveySession {
+  attemptId: string
+  startQuestionId: string
+  currentQuestionId: string | null
+  snapshot: SurveyAnswerRecord
+  resumed: boolean
+  resolvedContent?: SurveyCampaignWithFlow
+}
+const surveyStarts = new Map<string, Promise<LocalSurveySession | null>>()
 let surveyStore: SurveyStore | null = null
 let surveyHandlers: SurveyHandlers = {}
 let inAppHandlers: InAppHandlers = {}
@@ -231,8 +242,12 @@ function requireEngine(): Engine {
 
 function ensureEngine(config: SdkConfig): Engine {
   if (engine) return engine
-  engine = createEngine(config)
-  surveyStore = createSurveyStore(config.writeKey)
+  // A host-owned invitation is not a survey start. Only automatic rendering
+  // requests a session bundled with the delivery authorization.
+  engine = createEngine(config, () => !surveyHandlers.onInvite)
+  surveyStore = createSurveyStore(config.writeKey, () =>
+    engine!.identity.get()
+  )
   return engine
 }
 
@@ -507,7 +522,7 @@ export const UserGist = {
           externalId: userId,
           ...(cleanProps ? { properties: cleanProps } : {}),
         },
-        `identify:${userId}`,
+        `identify:${userId}`
       )
       const result = await flushMutations(e)
       if (result.permanentlyRejectedIds.has(mutationId)) {
@@ -530,7 +545,7 @@ export const UserGist = {
   /** Update the current user, including anonymous users. Durable and retried on reconnect. */
   async setUserProperties(
     properties: Record<string, EventPropertyValue>,
-    unset: readonly string[] = [],
+    unset: readonly string[] = []
   ): Promise<IdentifyResult> {
     try {
       const e = requireEngine()
@@ -551,7 +566,7 @@ export const UserGist = {
       const mutationId = await e.mutations.enqueue(
         'user-properties',
         'analytics',
-        { ...update, anonymousId: e.identity.get().anonymousId },
+        { ...update, anonymousId: e.identity.get().anonymousId }
       )
       const result = await flushMutations(e)
       if (result.permanentlyRejectedIds.has(mutationId)) return 'rejected'
@@ -564,7 +579,7 @@ export const UserGist = {
 
   track(
     eventName: string,
-    properties?: Record<string, EventPropertyValue>,
+    properties?: Record<string, EventPropertyValue>
   ): void {
     try {
       if (typeof eventName !== 'string' || eventName.length === 0) {
@@ -648,7 +663,11 @@ export const UserGist = {
         if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
         await UserGistPushNative.disablePush().catch(() => undefined)
         await clearAllState(e)
-        await hydratePushDedupe(e.config.writeKey, e.identity.get().anonymousId)
+        await surveyStore?.clear()
+        await hydratePushDedupe(
+          e.config.writeKey,
+          e.identity.get().anonymousId
+        )
       })()
       const finalized = operation
         .catch((err: unknown) => reportError('reset failed', err))
@@ -743,7 +762,7 @@ export const UserGist = {
    * Returns an unsubscribe fn.
    */
   onPushEvent(
-    cb: (name: string, props: Readonly<Record<string, unknown>>) => void,
+    cb: (name: string, props: Readonly<Record<string, unknown>>) => void
   ): () => void {
     try {
       return requireEngine().events.on('pushEvent', (p) => cb(p.name, p.props))
@@ -756,7 +775,7 @@ export const UserGist = {
   /** SDK-internal: invoked by Push.ts for every $push_* event. */
   _notifyPushEvent(
     name: string,
-    props: Readonly<Record<string, unknown>>,
+    props: Readonly<Record<string, unknown>>
   ): void {
     try {
       engine?.events.emit('pushEvent', { name, props })
@@ -768,7 +787,7 @@ export const UserGist = {
   async registerPushToken(
     token: string,
     platform: 'ios' | 'android',
-    opts?: { environment?: 'production' | 'sandbox' },
+    opts?: { environment?: 'production' | 'sandbox' }
   ): Promise<void> {
     try {
       if (!token) return
@@ -885,7 +904,7 @@ export const UserGist = {
   /** SDK-internal: emit a delivery beacon. */
   async pushBeacon(
     kind: 'delivered' | 'displayed' | 'dismissed',
-    deliveryId: string,
+    deliveryId: string
   ): Promise<void> {
     try {
       if (!deliveryId) return
@@ -946,7 +965,7 @@ export const UserGist = {
 
   async pushSetChannelSubscription(
     channelId: string,
-    subscribed: boolean,
+    subscribed: boolean
   ): Promise<void> {
     try {
       const e = requireEngine()
@@ -979,7 +998,11 @@ export const UserGist = {
     readonly installDelegateProxy?: boolean
   }): Promise<{
     readonly granted: boolean
-    readonly status: 'authorized' | 'provisional' | 'denied' | 'not_determined'
+    readonly status:
+      | 'authorized'
+      | 'provisional'
+      | 'denied'
+      | 'not_determined'
     readonly token?: string
     readonly platform: 'ios' | 'android'
     readonly error?: string
@@ -1113,7 +1136,7 @@ export const UserGist = {
     context?: {
       readonly language?: string
       readonly source?: SurveyAttemptSource
-    },
+    }
   ): Promise<void> {
     try {
       const e = requireEngine()
@@ -1229,6 +1252,9 @@ export const UserGist = {
       reportError('reportSurveyShown failed', err)
     }
   },
+  __internal_surveyOpenFailed(surveyId: string): void {
+    engine?.surveyMatcher.cancelPending(surveyId)
+  },
   __internal_armedSurveyById(surveyId: string): SurveyCampaignWithFlow | null {
     // Local-fire fast-path. If the survey-rules-cache already has the
     // full survey content (because the matcher just fired), the
@@ -1250,6 +1276,13 @@ export const UserGist = {
       const e = requireEngine()
       await ensureHydrated(e)
       const id = e.identity.get()
+      const pending = await surveyStore?.findForSurvey(surveyId)
+      if (
+        pending?.survey &&
+        Date.now() - pending.startedAt <
+          pending.survey.saveResumeWindowSeconds * 1000
+      )
+        return pending.survey
       return await e.transport.surveyGet({
         surveyId,
         anonymousId: id.anonymousId,
@@ -1266,6 +1299,8 @@ export const UserGist = {
     source: SurveyAttemptSource,
     language?: string,
     presentationId?: string,
+    content?: SurveyCampaignWithFlow,
+    preparedAttempt?: CreateSurveyAttemptResponse
   ): Promise<{
     attemptId: string
     startQuestionId: string
@@ -1274,56 +1309,174 @@ export const UserGist = {
     resumed: boolean
     resolvedContent?: SurveyCampaignWithFlow
   } | null> {
-    try {
-      const e = requireEngine()
-      await ensureHydrated(e)
-      // Give a previously deferred completion a chance to reach the server
-      // before asking it to create or resume another attempt.
-      await flushMutations(e)
-      const id = e.identity.get()
-      const res = await e.transport.surveyCreateAttempt(surveyId, {
-        presentationId,
-        anonymousId: id.anonymousId,
-        externalId: id.externalId ?? null,
-        source,
-        ...(language ? { language } : {}),
-        sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
-      })
-      await surveyStore?.upsert({
-        surveyId,
-        attemptId: res.attemptId,
-        startedAt: Date.now(),
-        currentQuestionId: res.currentQuestionId,
-        snapshot: (res.progressSnapshot ?? {}) as unknown as SurveyAnswerRecord,
-        language: language ?? null,
-      })
-      return {
-        attemptId: res.attemptId,
-        startQuestionId: res.startQuestionId,
-        currentQuestionId: res.currentQuestionId,
-        snapshot: (res.progressSnapshot ?? {}) as unknown as SurveyAnswerRecord,
-        resumed: res.resumed,
-        resolvedContent: res.resolvedContent,
+    const active = requireEngine()
+    const identity = active.identity.get()
+    const key = JSON.stringify([
+      active.resetGeneration,
+      identity.anonymousId,
+      identity.externalId,
+      surveyId,
+      language,
+      preparedAttempt?.attemptId,
+    ])
+    const pending = surveyStarts.get(key)
+    if (pending) return pending
+    const operation = (async () => {
+      try {
+        const e = requireEngine()
+        await ensureHydrated(e)
+        const id = e.identity.get()
+        const generation = e.resetGeneration
+        const consentVersion = e.consent.get().version
+        const current = () =>
+          !e.resetting &&
+          e.resetGeneration === generation &&
+          e.consent.allowsSurvey() &&
+          e.consent.get().version === consentVersion &&
+          e.identity.get().anonymousId === id.anonymousId &&
+          e.identity.get().externalId === id.externalId
+        if (!current()) return null
+        const saved = await surveyStore?.findForSurvey(surveyId)
+        if (!current()) return null
+        // Resuming a durable device session preserves its original content and
+        // answers. Never replace it with a stale network snapshot.
+        if (
+          !preparedAttempt &&
+          saved?.survey &&
+          Date.now() - saved.startedAt <
+            saved.survey.saveResumeWindowSeconds * 1000
+        ) {
+          if (saved.startRequest)
+            await e.mutations.enqueue(
+              'survey-start',
+              'survey',
+              { surveyId, body: saved.startRequest },
+              `survey-start:${saved.attemptId}`
+            )
+          if (!current()) return null
+          void flushMutations(e)
+          return {
+            attemptId: saved.attemptId,
+            startQuestionId: saved.survey.flow.startQuestionId,
+            currentQuestionId: saved.currentQuestionId,
+            snapshot: saved.snapshot,
+            resumed: true,
+            resolvedContent: saved.survey,
+          }
+        }
+        const armed =
+          !language && !presentationId
+            ? e.surveyRules.getById(surveyId)
+            : null
+        const grant =
+          armed?.localStart &&
+          Date.parse(armed.localStart.expiresAt) > Date.now()
+            ? armed.localStart
+            : null
+        const body: CreateSurveyAttemptRequest = {
+          presentationId,
+          anonymousId: id.anonymousId,
+          externalId: id.externalId ?? null,
+          source,
+          ...(language ? { language } : {}),
+          sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
+          platform: e.context.platform(),
+          ...(grant || source === 'triggered' || source === 'scheduled'
+            ? { resume: false, clientAttemptId: generateEventId() }
+            : { resume: true }),
+          ...(grant
+            ? {
+                localStart: {
+                  token: grant.token,
+                  startedAt: new Date().toISOString(),
+                },
+              }
+            : {}),
+        }
+        const res: CreateSurveyAttemptResponse =
+          preparedAttempt ??
+          (grant && armed
+            ? {
+                attemptId: body.clientAttemptId!,
+                startQuestionId: armed.survey.flow.startQuestionId,
+                currentQuestionId: armed.survey.flow.startQuestionId,
+                progressSnapshot: {},
+                resumed: false,
+                resolvedContent: armed.survey,
+              }
+            : await e.transport.surveyCreateAttempt(surveyId, body))
+        if (!current()) return null
+        await surveyStore?.upsert({
+          anonymousId: id.anonymousId,
+          externalId: id.externalId,
+          survey: res.resolvedContent ?? content,
+          ...(grant && !preparedAttempt ? { startRequest: body } : {}),
+          surveyId,
+          attemptId: res.attemptId,
+          startedAt: Date.now(),
+          currentQuestionId: res.currentQuestionId,
+          snapshot: (res.progressSnapshot ??
+            {}) as unknown as SurveyAnswerRecord,
+          language: language ?? null,
+        })
+        if (!current()) return null
+        if (grant && !preparedAttempt) {
+          await e.mutations.enqueue(
+            'survey-start',
+            'survey',
+            { surveyId, body },
+            `survey-start:${res.attemptId}`
+          )
+          if (!current()) return null
+          void flushMutations(e)
+        }
+        return {
+          attemptId: res.attemptId,
+          startQuestionId: res.startQuestionId,
+          currentQuestionId: res.currentQuestionId,
+          snapshot: (res.progressSnapshot ??
+            {}) as unknown as SurveyAnswerRecord,
+          resumed: res.resumed,
+          resolvedContent: res.resolvedContent,
+        }
+      } catch (err) {
+        reportError('createAttempt failed', err)
+        return null
       }
-    } catch (err) {
-      reportError('createAttempt failed', err)
-      return null
+    })()
+    surveyStarts.set(key, operation)
+    try {
+      return await operation
+    } finally {
+      if (surveyStarts.get(key) === operation) surveyStarts.delete(key)
     }
   },
   async __internal_saveProgress(
     attemptId: string,
     currentQuestionId: string | null,
-    snapshot: SurveyAnswerRecord,
+    snapshot: SurveyAnswerRecord
   ): Promise<void> {
     // Persist the resume point before attempting the network. Progress is
     // best-effort transport; losing connectivity must not lose local answers.
-    await surveyStore?.updateProgress(attemptId, currentQuestionId, snapshot)
+    const e = requireEngine()
+    if (e.resetting || !e.consent.allowsSurvey()) return
+    const generation = e.resetGeneration
+    const pending = (await surveyStore?.list())?.find(
+      (a) => a.attemptId === attemptId
+    )
+    if (!pending || e.resetting || e.resetGeneration !== generation) return
+    await surveyStore?.updateProgress(
+      attemptId,
+      currentQuestionId,
+      snapshot
+    )
     try {
-      const e = requireEngine()
-      await e.transport.surveyUpdateProgress(attemptId, {
-        currentQuestionId,
-        progressSnapshot: snapshot,
+      if (e.resetting || e.resetGeneration !== generation) return
+      await e.mutations.enqueue('survey-progress', 'survey', {
+        attemptId,
+        body: { currentQuestionId, progressSnapshot: snapshot },
       })
+      void flushMutations(e)
     } catch (err) {
       // Completion can win a race with an in-flight progress PATCH, making a
       // server-side 404 harmless. Keep this out of React Native's LogBox.
@@ -1335,7 +1488,7 @@ export const UserGist = {
   },
   async __internal_submitAnswers(
     attemptId: string,
-    answers: ReadonlyArray<{ questionId: string; value: SurveyAnswerValue }>,
+    answers: ReadonlyArray<{ questionId: string; value: SurveyAnswerValue }>
   ): Promise<void> {
     try {
       const e = requireEngine()
@@ -1349,7 +1502,7 @@ export const UserGist = {
     finalAnswers: ReadonlyArray<{
       questionId: string
       value: SurveyAnswerValue
-    }> = [],
+    }> = []
   ): Promise<void> {
     try {
       const e = requireEngine()
@@ -1363,7 +1516,7 @@ export const UserGist = {
           attemptId,
           body: { finalAnswers },
         },
-        `survey-complete:${attemptId}`,
+        `survey-complete:${attemptId}`
       )
       const result = await flushMutations(e)
       if (e.resetting || e.resetGeneration !== resetGeneration) {
@@ -1394,7 +1547,7 @@ export const UserGist = {
         'survey-abandon',
         'survey',
         { attemptId },
-        `survey-abandon:${attemptId}`,
+        `survey-abandon:${attemptId}`
       )
       // The modal is already closed. Remove the local resume card now while
       // the durable mutation queue keeps retrying the server transition.
@@ -1415,7 +1568,7 @@ export const UserGist = {
   // `feedback` consent purpose. No new consent migration required.
 
   async getRequests(
-    options: import('@usergist/sdk-core/mobile').GetRequestsOptions = {},
+    options: import('@usergist/sdk-core/mobile').GetRequestsOptions = {}
   ): Promise<import('@usergist/sdk-core/mobile').GetRequestsResult> {
     try {
       const e = requireEngine()
@@ -1452,7 +1605,7 @@ export const UserGist = {
           viewerHasUpvoted: s.viewerHasUpvoted,
           viewerIsFollowing: s.viewerIsFollowing,
           viewerIsSubmitter: false,
-        })),
+        }))
       )
       return result
     } catch (err) {
@@ -1466,8 +1619,8 @@ export const UserGist = {
     description: string,
     callback?: (
       err: Error | null,
-      req?: import('@usergist/sdk-core/mobile').Request,
-    ) => void,
+      req?: import('@usergist/sdk-core/mobile').Request
+    ) => void
   ): void {
     try {
       const e = requireEngine()
@@ -1505,7 +1658,7 @@ export const UserGist = {
           })
           if (!current()) {
             callback?.(
-              new Error('Request cancelled by identity or consent change'),
+              new Error('Request cancelled by identity or consent change')
             )
             return
           }
@@ -1546,7 +1699,7 @@ export const UserGist = {
         cache.commitVote(requestId, result)
         recordServerBackedEventLocally(
           e,
-          vote ? '$request_upvoted' : '$request_unupvoted',
+          vote ? '$request_upvoted' : '$request_unupvoted'
         )
         requestsHandlers.onVote?.(result)
       } catch (err) {
@@ -1581,7 +1734,7 @@ export const UserGist = {
         cache.commitFollow(requestId, result)
         recordServerBackedEventLocally(
           e,
-          follow ? '$request_followed' : '$request_unfollowed',
+          follow ? '$request_followed' : '$request_unfollowed'
         )
         requestsHandlers.onFollow?.(result)
       } catch (err) {
@@ -1625,7 +1778,7 @@ export const UserGist = {
    * call this when rendering a detail view that needs the response.
    */
   async getRequest(
-    requestId: string,
+    requestId: string
   ): Promise<import('@usergist/sdk-core/mobile').Request | null> {
     try {
       const e = requireEngine()
@@ -1668,7 +1821,7 @@ export const UserGist = {
   },
 
   setRequestsHandlers(
-    handlers: import('@usergist/sdk-core/mobile').RequestsHandlers,
+    handlers: import('@usergist/sdk-core/mobile').RequestsHandlers
   ): void {
     requestsHandlers = { ...handlers }
   },
@@ -1677,7 +1830,7 @@ export const UserGist = {
 
   /** List comments for a request, ordered oldest-first. */
   async getComments(
-    requestId: string,
+    requestId: string
   ): Promise<
     ReadonlyArray<import('@usergist/sdk-core/mobile').RequestComment>
   > {
@@ -1702,7 +1855,7 @@ export const UserGist = {
   /** Post a comment on a request. Returns the new row, or null on failure. */
   async postComment(
     requestId: string,
-    body: string,
+    body: string
   ): Promise<import('@usergist/sdk-core/mobile').RequestComment | null> {
     try {
       const e = requireEngine()
@@ -1731,7 +1884,7 @@ export const UserGist = {
   async editComment(
     requestId: string,
     commentId: string,
-    body: string,
+    body: string
   ): Promise<import('@usergist/sdk-core/mobile').RequestComment | null> {
     try {
       const e = requireEngine()

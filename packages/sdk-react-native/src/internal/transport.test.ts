@@ -6,6 +6,26 @@ afterEach(() => {
 })
 
 describe('transport retry classification', () => {
+  it('omits prepared attempts when the host controls survey invitations', async () => {
+    const capabilities: string[] = []
+    let prepare = false
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+      capabilities.push(new Headers(init.headers).get('X-UserGist-Capabilities')!)
+      return new Response(JSON.stringify({ instructions: [] }), { status: 200 })
+    }))
+    const transport = createTransport({
+      writeKey: 'rk_dev_test',
+      apiUrl: 'https://api.example.test',
+      prepareSurveys: () => prepare,
+    })
+    transport.setSubjectToken('st_test')
+    await transport.instructions(0)
+    prepare = true
+    await transport.instructions(0)
+    expect(capabilities[0]).not.toContain('survey.attempt.v1')
+    expect(capabilities[1]).toContain('survey.attempt.v1')
+  })
+
   it('does not retry a permanent 4xx response', async () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 422 }))
     vi.stubGlobal('fetch', fetchMock)

@@ -3,7 +3,8 @@
 
 import type {
   EventPropertyValue,
-  IngestBatch,
+  SdkIngestRequest,
+  SdkDeliveryInstruction,
   IngestEvent,
   SdkConfig,
   SubmitResponsePayload,
@@ -106,6 +107,7 @@ export interface Engine {
   subjectToken: string | null
   sessionPromise: Promise<void> | null
   instructionPollPromise: Promise<void> | null
+  instructionDispatchPromise: Promise<void> | null
   resetGeneration: number
   resetting: boolean
   readonly localInstructionDedupe: LocalInstructionDedupe
@@ -146,7 +148,10 @@ export function resolveConfig(config: SdkConfig): ResolvedConfig {
   }
 }
 
-export function createEngine(config: SdkConfig): Engine {
+export function createEngine(
+  config: SdkConfig,
+  prepareSurveys?: () => boolean,
+): Engine {
   const resolved = resolveConfig(config)
   setDebugEnabled(resolved.debug)
 
@@ -159,6 +164,7 @@ export function createEngine(config: SdkConfig): Engine {
   const transport = createTransport({
     writeKey: resolved.writeKey,
     apiUrl: resolved.apiUrl,
+    prepareSurveys,
   })
   const rules = createRulesCache(
     storage,
@@ -258,6 +264,7 @@ export function createEngine(config: SdkConfig): Engine {
     subjectToken: null,
     sessionPromise: null,
     instructionPollPromise: null,
+    instructionDispatchPromise: null,
     resetGeneration: 0,
     resetting: false,
     localInstructionDedupe,
@@ -454,6 +461,17 @@ function rememberLocalInstruction(engine: Engine, key: string): void {
   engine.localInstructionDedupe.remember(key)
 }
 
+function needsImmediateDelivery(
+  engine: Engine,
+  eventName: string
+): boolean {
+  return !!(
+    engine.rules?.needsServer?.(eventName) ||
+    engine.surveyRules?.needsServer?.(eventName) ||
+    engine.inAppRules?.needsServer?.(eventName)
+  )
+}
+
 export function scheduleFlush(engine: Engine): void {
   if (engine.flushTimer) return
   engine.flushTimer = setTimeout(() => {
@@ -472,6 +490,7 @@ export async function flushNow(engine: Engine): Promise<void> {
 }
 
 async function performFlush(engine: Engine): Promise<void> {
+  let requestedImmediateDelivery = false
   try {
     await ensureHydrated(engine)
     while (engine.queue.size() > 0) {
@@ -479,7 +498,9 @@ async function performFlush(engine: Engine): Promise<void> {
       const allowed = engine.queue
         .snapshot()
         .filter((event) =>
-          event.purpose === 'analytics' ? consent.analytics : consent.feedback,
+          event.purpose === 'analytics'
+            ? consent.analytics
+            : consent.feedback
         )
       const firstAllowed = allowed[0]
       if (!firstAllowed) break
@@ -487,13 +508,20 @@ async function performFlush(engine: Engine): Promise<void> {
       // post-identify events. The API deliberately rejects a batch whose
       // event identities differ from its context, so drain one identity at a
       // time while retaining FIFO order within that identity.
-      const batch = allowed
+      const candidates = allowed
         .filter(
           (event) =>
             event.anonymousId === firstAllowed.anonymousId &&
-            event.externalId === firstAllowed.externalId,
+            event.externalId === firstAllowed.externalId
         )
         .slice(0, engine.config.flushBatchSize)
+      let deliveryCount = 0
+      const overflow = candidates.findIndex(event =>
+        needsImmediateDelivery(engine, event.name) && ++deliveryCount > 20,
+      )
+      // Limit authorization work, not ordinary analytics rows. Keep earlier
+      // watch/property events in order without shrinking every batch to 20.
+      const batch = overflow < 0 ? candidates : candidates.slice(0, overflow)
       if (batch.length === 0) break
       const ingestEvents: ReadonlyArray<IngestEvent> = batch.map((e) => ({
         eventId: e.eventId,
@@ -506,7 +534,16 @@ async function performFlush(engine: Engine): Promise<void> {
         sdkVersion: engine.context.sdkVersion(),
         platform: engine.context.platform(),
       }))
-      const payload: IngestBatch = {
+      const deliveryEventIds = batch
+        .filter((event) => needsImmediateDelivery(engine, event.name))
+        .map((event) => event.eventId)
+      requestedImmediateDelivery ||= deliveryEventIds.length > 0
+      const deliveryGeneration = engine.resetGeneration
+      const deliverySubjectToken = engine.subjectToken
+      const payload: SdkIngestRequest = {
+        ...(deliveryEventIds.length
+          ? { delivery: { eventIds: deliveryEventIds } }
+          : {}),
         events: ingestEvents,
         context: engine.context.build({
           anonymousId: batch[0]!.anonymousId,
@@ -514,8 +551,23 @@ async function performFlush(engine: Engine): Promise<void> {
         }),
       }
       try {
-        await engine.transport.ingest(payload)
+        const result = await engine.transport.ingest(payload)
+        if (
+          engine.resetting ||
+          engine.resetGeneration !== deliveryGeneration ||
+          engine.subjectToken !== deliverySubjectToken
+        )
+          return
         engine.queue.remove(batch.map((event) => event.eventId))
+        if (result.instructions?.length) {
+          await consumeInstructions(
+            engine,
+            result.instructions,
+            false,
+            deliveryGeneration,
+            deliverySubjectToken
+          )
+        }
       } catch (e) {
         if (e instanceof PermanentHttpError) {
           if (batch.length === 1) {
@@ -546,7 +598,7 @@ async function performFlush(engine: Engine): Promise<void> {
                 {
                   eventId: first.eventId,
                   status: singleError.status,
-                },
+                }
               )
               continue
             }
@@ -560,14 +612,17 @@ async function performFlush(engine: Engine): Promise<void> {
       }
     }
     // After draining the queue, opportunistically pull pending survey offers.
-    await flushMutations(engine)
+    void flushMutations(engine)
     // Triggered surveys appear in the offer ledger after the server processes
     // the event; the small delay gives NATS + the trigger engine time to
     // run before we ask.
-    setTimeout(() => {
-      void pollSurveyOffers(engine)
-      void pollInstructions(engine)
-    }, 1500)
+    setTimeout(
+      () => {
+        void pollSurveyOffers(engine)
+        void pollInstructions(engine)
+      },
+      requestedImmediateDelivery ? 100 : 1500
+    )
   } catch (e) {
     reportError('flushNow failed', e)
   }
@@ -578,7 +633,7 @@ export interface MutationFlushResult {
 }
 
 export async function flushMutations(
-  engine: Engine,
+  engine: Engine
 ): Promise<MutationFlushResult> {
   if (engine.resetting) return { permanentlyRejectedIds: new Set() }
   if (engine.mutationFlushPromise) return engine.mutationFlushPromise
@@ -589,7 +644,7 @@ export async function flushMutations(
 }
 
 async function performMutationFlush(
-  engine: Engine,
+  engine: Engine
 ): Promise<MutationFlushResult> {
   const permanentlyRejectedIds = new Set<string>()
   while (engine.mutations.size() > 0) {
@@ -602,20 +657,36 @@ async function performMutationFlush(
     if (mutation.purpose === 'feedback' && !consent.feedback) break
     if (mutation.purpose === 'survey' && !consent.survey) break
     try {
-      if (mutation.kind === 'user-properties') {
+      if (mutation.kind === 'instruction-ack') {
+        await engine.transport.acknowledgeInstructions(
+          mutation.payload.ids as number[]
+        )
+      } else if (mutation.kind === 'user-properties') {
         const result = await engine.transport.userProperties(
           mutation.payload as unknown as import('@usergist/sdk-core/mobile').UserPropertiesUpdate & {
             anonymousId: string
-          },
+          }
         )
         if (result.filteredKeys.length)
           reportError(
             'User properties filtered by app privacy settings',
-            result.filteredKeys,
+            result.filteredKeys
           )
       } else if (mutation.kind === 'feedback-response') {
         await engine.transport.submitResponse(
-          mutation.payload as unknown as SubmitResponsePayload,
+          mutation.payload as unknown as SubmitResponsePayload
+        )
+      } else if (mutation.kind === 'survey-start') {
+        await engine.transport.surveyCreateAttempt(
+          String(mutation.payload.surveyId),
+          mutation.payload
+            .body as unknown as import('@usergist/sdk-core/mobile').CreateSurveyAttemptRequest
+        )
+      } else if (mutation.kind === 'survey-progress') {
+        await engine.transport.surveyUpdateProgress(
+          String(mutation.payload.attemptId),
+          mutation.payload
+            .body as unknown as import('@usergist/sdk-core/mobile').UpdateSurveyAttemptProgressRequest
         )
       } else if (mutation.kind === 'survey-complete') {
         const attemptId = mutation.payload.attemptId
@@ -623,7 +694,7 @@ async function performMutationFlush(
           throw new Error('invalid-survey-mutation')
         await engine.transport.surveyComplete(
           attemptId,
-          mutation.payload.body as unknown as CompleteSurveyAttemptRequest,
+          mutation.payload.body as unknown as CompleteSurveyAttemptRequest
         )
       } else if (mutation.kind === 'survey-abandon') {
         const attemptId = mutation.payload.attemptId
@@ -654,13 +725,13 @@ async function performMutationFlush(
                   }
                 : {}),
             },
-            subjectToken,
+            subjectToken
           )
           if (engine.resetting || engine.resetGeneration !== deliveryGeneration)
             break
           await engine.storage.setJsonStrict(
             STORAGE_KEYS.subjectToken,
-            subjectToken,
+            subjectToken
           )
           if (engine.resetting || engine.resetGeneration !== deliveryGeneration)
             break
@@ -740,7 +811,7 @@ export async function pollSurveyOffers(engine: Engine): Promise<void> {
     const fresh = surveys.filter(
       (survey) =>
         !seenSet.has(survey.id) &&
-        !engine.locallyHandledSurveyIds.has(survey.id),
+        !engine.locallyHandledSurveyIds.has(survey.id)
     )
     if (fresh.length === 0 && localIds.length === 0) return
 
@@ -777,45 +848,91 @@ async function performInstructionPoll(engine: Engine): Promise<void> {
   try {
     await ensureHydrated(engine)
     const after =
-      (await engine.storage.getJson<number>(STORAGE_KEYS.instructionCursor)) ??
-      0
-    const seen =
-      (await engine.storage.getJson<ReadonlyArray<number>>(
-        STORAGE_KEYS.seenInstructions,
-      )) ?? []
-    const seenSet = new Set(seen)
+      (await engine.storage.getJson<number>(
+        STORAGE_KEYS.instructionCursor
+      )) ?? 0
+    const generation = engine.resetGeneration
+    const subjectToken = engine.subjectToken
     const result = await engine.transport.instructions(after, {
       anonymousId: engine.identity.get().anonymousId,
       platform: engine.context.platform(),
       sdkVersion: engine.context.sdkVersion(),
     })
-    if (result.instructions.length === 0) return
-
-    const handledIds: number[] = []
-    for (const instruction of result.instructions) {
-      handledIds.push(instruction.id)
-      if (seenSet.has(instruction.id)) continue
-      dispatchInstruction(engine, instruction.type, instruction.payload)
-      seenSet.add(instruction.id)
-      await engine.storage.setJsonStrict(
-        STORAGE_KEYS.seenInstructions,
-        [...seenSet].slice(-200),
-      )
-    }
-    await engine.storage.setJsonStrict(
-      STORAGE_KEYS.instructionCursor,
-      Math.max(after, ...handledIds),
+    await consumeInstructions(
+      engine,
+      result.instructions,
+      true,
+      generation,
+      subjectToken
     )
-    await engine.transport.acknowledgeInstructions(handledIds)
   } catch (error) {
     reportError('instruction poll failed', error)
   }
 }
 
+/** Serializes HTTP responses and polling. Event-scoped responses must never
+ * advance the global inbox cursor past older, still-undelivered instructions. */
+export function consumeInstructions(
+  engine: Engine,
+  instructions: ReadonlyArray<SdkDeliveryInstruction>,
+  advanceCursor: boolean,
+  generation = engine.resetGeneration,
+  subjectToken = engine.subjectToken
+): Promise<void> {
+  const isCurrent = () =>
+    !engine.resetting &&
+    engine.resetGeneration === generation &&
+    engine.subjectToken === subjectToken
+  const work = (engine.instructionDispatchPromise ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(async () => {
+      if (!instructions.length || !isCurrent()) return
+      const seen = new Set(
+        (await engine.storage.getJson<ReadonlyArray<number>>(
+          STORAGE_KEYS.seenInstructions
+        )) ?? []
+      )
+      if (!isCurrent()) return
+      const handled: number[] = []
+      for (const instruction of instructions) {
+        if (!isCurrent()) return
+        handled.push(instruction.id)
+        if (seen.has(instruction.id)) continue
+        dispatchInstruction(engine, instruction.type, instruction.payload)
+        seen.add(instruction.id)
+        await engine.storage.setJsonStrict(
+          STORAGE_KEYS.seenInstructions,
+          [...seen].slice(-200)
+        )
+      }
+      if (!isCurrent()) return
+      // Persist receipts before advancing the cursor. Network retries must not
+      // hold the display/ingest lane or lose cap accounting after a restart.
+      await engine.mutations.enqueue('instruction-ack', 'essential', {
+        ids: handled,
+      })
+      if (!isCurrent()) return
+      if (advanceCursor) {
+        const after =
+          (await engine.storage.getJson<number>(
+            STORAGE_KEYS.instructionCursor
+          )) ?? 0
+        if (!isCurrent()) return
+        await engine.storage.setJsonStrict(
+          STORAGE_KEYS.instructionCursor,
+          Math.max(after, ...handled)
+        )
+      }
+      if (isCurrent()) void flushMutations(engine)
+    })
+  engine.instructionDispatchPromise = work
+  return work
+}
+
 function dispatchInstruction(
   engine: Engine,
   type: string,
-  payload: Readonly<Record<string, unknown>>,
+  payload: Readonly<Record<string, unknown>>
 ): void {
   if (type === 'prompt.show') {
     if (!engine.consent.allowsFeedback()) return
@@ -827,7 +944,7 @@ function dispatchInstruction(
     if (
       typeof triggerEventId === 'string' &&
       engine.localInstructionDedupe.consume(
-        instructionKey('prompt.show', promptId, triggerEventId),
+        instructionKey('prompt.show', promptId, triggerEventId)
       )
     ) {
       debugLog('prompt instruction skipped after immediate local render', {
@@ -862,7 +979,7 @@ function dispatchInstruction(
     if (
       typeof triggerEventId === 'string' &&
       engine.localInstructionDedupe.consume(
-        instructionKey('survey.offer', payload.surveyId, triggerEventId),
+        instructionKey('survey.offer', payload.surveyId, triggerEventId)
       )
     ) {
       debugLog('survey instruction skipped after immediate local render', {
@@ -872,6 +989,9 @@ function dispatchInstruction(
       return
     }
     engine.events.emit('surveyInvite', {
+      attempt: payload.attempt as
+        | import('@usergist/sdk-core/mobile').CreateSurveyAttemptResponse
+        | undefined,
       survey:
         payload.survey && typeof payload.survey === 'object'
           ? ({
@@ -894,7 +1014,7 @@ function dispatchInstruction(
     if (
       typeof triggerEventId === 'string' &&
       engine.localInstructionDedupe.consume(
-        instructionKey('inapp.show', typed.messageId, triggerEventId),
+        instructionKey('inapp.show', typed.messageId, triggerEventId)
       )
     ) {
       debugLog('in-app instruction skipped after immediate local render', {
@@ -923,7 +1043,7 @@ function dispatchInstruction(
 }
 
 export function asEventProps(
-  properties: Record<string, EventPropertyValue> | undefined,
+  properties: Record<string, EventPropertyValue> | undefined
 ): Readonly<Record<string, EventPropertyValue>> | undefined {
   if (!properties) return undefined
   const out: Record<string, EventPropertyValue> = {}
@@ -944,7 +1064,7 @@ export function enqueueAndEvaluate(
   engine: Engine,
   eventName: string,
   properties: Readonly<Record<string, EventPropertyValue>> | undefined,
-  purpose: QueuedEvent['purpose'] = 'analytics',
+  purpose: QueuedEvent['purpose'] = 'analytics'
 ): void {
   const now = Date.now()
   const id = engine.identity.get()
@@ -961,7 +1081,10 @@ export function enqueueAndEvaluate(
     engine.queue.enqueue(base)
     engine.userState.recordEvent(eventName, now)
     evaluateLocally(engine, eventName, base.eventId)
-    if (engine.queue.size() >= engine.config.flushBatchSize)
+    if (
+      needsImmediateDelivery(engine, eventName) ||
+      engine.queue.size() >= engine.config.flushBatchSize
+    )
       void flushNow(engine)
     else scheduleFlush(engine)
     return
@@ -976,7 +1099,10 @@ export function enqueueAndEvaluate(
     engine.queue.enqueue(withId)
     engine.userState.recordEvent(eventName, now)
     evaluateLocally(engine, eventName, withId.eventId)
-    if (engine.queue.size() >= engine.config.flushBatchSize)
+    if (
+      needsImmediateDelivery(engine, eventName) ||
+      engine.queue.size() >= engine.config.flushBatchSize
+    )
       void flushNow(engine)
     else scheduleFlush(engine)
   })
@@ -986,7 +1112,7 @@ export function enqueueAndEvaluate(
  * has already persisted the canonical event transactionally. */
 export function recordServerBackedEventLocally(
   engine: Engine,
-  eventName: string,
+  eventName: string
 ): void {
   const now = Date.now()
   engine.userState.recordEvent(eventName, now)
@@ -996,13 +1122,13 @@ export function recordServerBackedEventLocally(
 function evaluateLocally(
   engine: Engine,
   eventName: string,
-  eventId: string,
+  eventId: string
 ): void {
   const promptId = engine.matcher.evaluate(eventName)
   if (promptId) {
     rememberLocalInstruction(
       engine,
-      instructionKey('prompt.show', promptId, eventId),
+      instructionKey('prompt.show', promptId, eventId)
     )
   }
   const surveyId = engine.surveyMatcher.evaluate(eventName)
@@ -1010,14 +1136,14 @@ function evaluateLocally(
     engine.locallyHandledSurveyIds.add(surveyId)
     rememberLocalInstruction(
       engine,
-      instructionKey('survey.offer', surveyId, eventId),
+      instructionKey('survey.offer', surveyId, eventId)
     )
   }
   const messageId = engine.inAppMatcher.evaluate(eventName)
   if (messageId) {
     rememberLocalInstruction(
       engine,
-      instructionKey('inapp.show', messageId, eventId),
+      instructionKey('inapp.show', messageId, eventId)
     )
   }
 }
@@ -1029,8 +1155,8 @@ export async function submitResponse(
   trackInternal: (
     name: string,
     props: Readonly<Record<string, EventPropertyValue>>,
-    purpose?: QueuedEvent['purpose'],
-  ) => void,
+    purpose?: QueuedEvent['purpose']
+  ) => void
 ): Promise<void> {
   const id = engine.identity.get()
   const submitPayload: SubmitResponsePayload = {
@@ -1054,7 +1180,7 @@ export async function submitResponse(
       latencyMs: payload.latencyMs,
       triggerEventName,
     },
-    'feedback',
+    'feedback'
   )
   debugLog('[usergist:analyze] response-submit', {
     promptId: payload.promptId,
@@ -1065,7 +1191,7 @@ export async function submitResponse(
   await engine.mutations.enqueue(
     'feedback-response',
     'feedback',
-    submitPayload as unknown as Readonly<Record<string, unknown>>,
+    submitPayload as unknown as Readonly<Record<string, unknown>>
   )
   void flushMutations(engine)
 }
@@ -1080,6 +1206,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
     engine.flushPromise ?? Promise.resolve(),
     engine.sessionPromise ?? Promise.resolve(),
     engine.instructionPollPromise ?? Promise.resolve(),
+    engine.instructionDispatchPromise ?? Promise.resolve(),
   ])
   // Reset is a local privacy operation and must not wait on network retries.
   // Revoke the old credential through an isolated transport so failures cannot

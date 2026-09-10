@@ -48,7 +48,12 @@ Your authenticated server calls `POST /v1/apps/:appId/sdk/subject-tokens` with a
 3. In **Design**, use **Web presentation** below the theme settings to choose layout, size, position and backdrop. The preview switcher offers **Native**, **Web desktop** and **Web mobile**; only desktop has **Enlarge preview** below it. Previews send no responses.
 4. Activate the SDK for the intended user, grant analytics consent plus the experience's consent, and call `track()` with the exact configured event name. For page rules, call `setPageContext({ screenName })` first.
 
-Event-triggered feedback opens automatically after event processing and a visible-tab poll; `track()` itself does not immediately open UI. You do not also need `openFeedback()` for that trigger. Direct open methods are available for your own buttons.
+With the immediate-delivery API and SDK release, tracked events can return
+authorized feedback, in-app messages or surveys in the ingest response, without
+waiting for the next visible-tab poll. Polling remains a recovery path. `track()`
+queues work and does not synchronously open UI; an online eligibility decision is
+still required. You do not also need `openFeedback()` for that trigger. Direct
+open methods are available for your own buttons.
 
 The browser waits while another experience is open, and scans past instructions it cannot currently display. If an authorization response is lost, the same client can recover its unshown delivery; another tab cannot claim it. Campaign eligibility and frequency limits still apply.
 
@@ -65,6 +70,34 @@ await anonymousUsergist.startAnonymous()
 ```
 
 Call `await usergist.reset()` on host logout before identifying a different account. It closes UI, cancels in-flight work, clears pending work for the client, ends its server session, and tells other active tabs for that user to reset. It does not withdraw that user's consent or invalidate native push registrations. `destroy()` also releases subscriptions; create a fresh client to use the SDK again.
+
+## User properties and personalization
+
+After explicit activation and analytics consent:
+
+```ts
+await usergist.setUserProperties({ first_name: 'Ava', country: 'IL' })
+usergist.track('show_watched', {
+  show_id: '00123',
+  show_title: 'Midnight Orbit',
+  position_seconds: 1234,
+})
+await usergist.setUserProperties({}, ['first_name']) // Explicit unset
+```
+
+Both anonymous and identified users can have saved properties. Updates accept
+flat strings, finite numbers, booleans or null and use the identity-bound durable
+queue. The method returns a promise, not the React Native status string; queued
+updates need to reach the server before recipient previews can use them.
+Analytics consent and the app's exact privacy allow-list apply.
+
+Use **Insert field** in the dashboard for user properties, latest activity or the
+triggering event. JSON action values can preserve a string show ID and numeric
+playback position; pass `onAction` in `init` to route the received data in your app.
+See the [personalization guide](../../apps/landing/src/app/docs/(content)/guides/personalize-messages/page.mdx)
+for source selection, shared movie fields, fallbacks and preview. New personalized
+experiences require online resolution. The native cached-survey start permission
+does not apply to web.
 
 ## Experiences
 

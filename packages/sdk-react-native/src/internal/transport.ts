@@ -20,6 +20,7 @@ import type {
   SdkConsentPayload,
   SdkIdentifyPayload,
   SdkIngestResponse,
+  SdkIngestRequest,
   SdkSessionResponse,
   SubmitResponsePayload,
   SubmitSurveyAnswersRequest,
@@ -93,6 +94,7 @@ function retryAfterMs(value: string | null): number | null {
 export interface TransportConfig {
   readonly writeKey: string
   readonly apiUrl: string
+  readonly prepareSurveys?: () => boolean
 }
 
 export interface PushRegisterTokenPayload {
@@ -165,7 +167,7 @@ export interface Transport {
   readonly acknowledgeInstructions: (
     ids: ReadonlyArray<number>,
   ) => Promise<{ acknowledged: number }>
-  readonly ingest: (batch: IngestBatch) => Promise<SdkIngestResponse>
+  readonly ingest: (batch: SdkIngestRequest) => Promise<SdkIngestResponse>
   readonly armedTriggers: (p: {
     readonly anonymousId: string
     readonly externalId: string | null
@@ -368,7 +370,7 @@ export function createTransport(cfg: TransportConfig): Transport {
         abortController.signal.addEventListener('abort', onParentAbort)
         const timeoutId = setTimeout(
           () => timeoutCtrl.abort(),
-          REQUEST_TIMEOUT_MS,
+          REQUEST_TIMEOUT_MS
         )
         let res: Response
         try {
@@ -378,7 +380,9 @@ export function createTransport(cfg: TransportConfig): Transport {
               Authorization: `Bearer ${cfg.writeKey}`,
               'Content-Type': 'application/json',
               Accept: 'application/json',
-              'X-UserGist-Capabilities': 'personalization.v1,push.json-open.v1',
+              'X-UserGist-Capabilities':
+                'personalization.v1,push.json-open.v1' +
+                (cfg.prepareSurveys?.() === false ? '' : ',survey.attempt.v1'),
               'X-UserGist-SDK-Version': `rn-${USERGIST_SDK_VERSION}`,
               ...(requestSubjectToken
                 ? { 'X-UserGist-Subject-Token': requestSubjectToken }
@@ -424,7 +428,7 @@ export function createTransport(cfg: TransportConfig): Transport {
         if (attempt >= MAX_ATTEMPTS - 1) throw new Error(`http-${res.status}`)
         await sleep(
           retryAfterMs(res.headers.get('Retry-After')) ?? backoff(attempt),
-          abortController.signal,
+          abortController.signal
         )
         attempt += 1
       } catch (e) {
