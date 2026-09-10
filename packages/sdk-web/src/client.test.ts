@@ -50,6 +50,19 @@ async function client(extra: Record<string, unknown> = {}) {
   return c
 }
 describe('explicit browser activation', () => {
+  it('declares JSON only when sending a body', async () => {
+    const c = await client()
+    await c.setConsent({ feedback: true })
+    await c.identify('customer', {}, 'token')
+    await c.deleteComment('request-a', 'comment-a')
+    const deletion = calls.find((call) => call.path.endsWith('/comments/comment-a'))
+    expect(deletion).toBeDefined()
+    expect(deletion!.body).toBeNull()
+    expect(new Headers(deletion!.headers).has('Content-Type')).toBe(false)
+    const identify = calls.find((call) => call.path.endsWith('/identify'))!
+    expect(new Headers(identify.headers).get('Content-Type')).toBe('application/json')
+  })
+
   it('initializes without requests, storage, timers or UI', async () => {
     const c = await client({ launcher: { enabled: true, requests: true } })
     c.track('visit')
