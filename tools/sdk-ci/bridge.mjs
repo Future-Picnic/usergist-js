@@ -69,6 +69,7 @@ export function snapshot(source, sha, family, env) {
     if (family === 'js' && e.path === 'pnpm-workspace.yaml') return generated(e.path, "packages:\n  - 'packages/*'\n")
     return e
   })
+  accepted.push(generated('.gitignore', 'node_modules/\ndist/\n.ci/\n.gradle/\nbuild/\n.dart_tool/\n'))
   // A fresh index, tree and parentless commit prevent private history, apps and
   // workflow files from becoming reachable from the public snapshot ref.
   const index = join(mkdtempSync(join(tmpdir(), 'usergist-sdk-index-')), 'index')
