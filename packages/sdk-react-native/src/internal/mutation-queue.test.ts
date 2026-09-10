@@ -15,6 +15,40 @@ function memoryStorage(): StorageScope {
 }
 
 describe('durable mutation queue', () => {
+  it('retains the latest typed snapshot while an older PATCH is in flight, including after relaunch', async () => {
+    const storage = memoryStorage()
+    const queue = createMutationQueue(storage)
+    await queue.hydrate()
+    const progress = (text: string) => ({ attemptId: 'attempt-a',
+      body: { currentQuestionId: 'notes', progressSnapshot: { notes: text } } })
+    const inFlightId = await queue.enqueue('survey-progress', 'survey', progress('F'))
+    for (const text of ['Fi', 'Fin', 'Final answer']) {
+      await queue.enqueue('survey-progress', 'survey', progress(text))
+    }
+    await queue.remove(inFlightId)
+    const restored = createMutationQueue(storage)
+    await restored.hydrate()
+    expect(restored.size()).toBe(1)
+    expect(restored.peek()?.payload).toEqual(progress('Final answer'))
+    await restored.enqueue('survey-complete', 'survey', { attemptId: 'attempt-a' })
+    await restored.remove(restored.peek()!.id)
+    expect(restored.peek()?.kind).toBe('survey-complete')
+  })
+
+  it('does not merge progress across attempts or move it across a terminal mutation', async () => {
+    const queue = createMutationQueue(memoryStorage())
+    await queue.hydrate()
+    const first = await queue.enqueue('survey-progress', 'survey', { attemptId: 'a', text: 'old' })
+    const other = await queue.enqueue('survey-progress', 'survey', { attemptId: 'b', text: 'other' })
+    const terminal = await queue.enqueue('survey-complete', 'survey', { attemptId: 'a' })
+    const late = await queue.enqueue('survey-progress', 'survey', { attemptId: 'a', text: 'late' })
+    expect(queue.size()).toBe(4)
+    for (const id of [first, other, terminal, late]) {
+      expect(queue.peek()?.id).toBe(id)
+      await queue.remove(id)
+    }
+  })
+
   it('serializes concurrent duplicate submissions into one mutation', async () => {
     const queue = createMutationQueue(memoryStorage())
     await queue.hydrate()

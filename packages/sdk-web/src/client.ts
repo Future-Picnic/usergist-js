@@ -213,7 +213,7 @@ export class UserGistClient {
         signal: controller.signal,
         headers: {
           Authorization: `Bearer ${this.config.writeKey}`,
-          'Content-Type': 'application/json',
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
           ...(this.token ? { 'X-UserGist-Subject-Token': this.token } : {}),
           ...(this.clientId ? { 'X-UserGist-Client-Id': this.clientId } : {}),
           'X-UserGist-SDK': 'web/' + VERSION,

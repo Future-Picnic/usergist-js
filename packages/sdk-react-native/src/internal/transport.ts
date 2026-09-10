@@ -378,7 +378,7 @@ export function createTransport(cfg: TransportConfig): Transport {
             method: opts.method,
             headers: {
               Authorization: `Bearer ${cfg.writeKey}`,
-              'Content-Type': 'application/json',
+              ...(opts.body == null ? {} : { 'Content-Type': 'application/json' }),
               Accept: 'application/json',
               'X-UserGist-Capabilities':
                 'personalization.v1,push.json-open.v1' +

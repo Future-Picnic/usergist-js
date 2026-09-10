@@ -100,6 +100,19 @@ export function createMutationQueue(storage: StorageScope): MutationQueue {
           createdAt: new Date().toISOString(),
           dedupeKey,
         }
+        if (kind === 'survey-progress' && typeof payload.attemptId === 'string') {
+          // Each keystroke contains the entire resume snapshot. Keep the newest
+          // unsent snapshot per attempt so completion does not wait for every
+          // intermediate text value. A fresh id protects a replacement from
+          // removal when an older in-flight PATCH finishes.
+          for (let index = items.length - 1; index >= 0; index--) {
+            const pending = items[index]!
+            if (pending.payload.attemptId !== payload.attemptId) continue
+            if (pending.kind !== 'survey-progress') break
+            items = items.map((item, position) => position === index ? next : item)
+            return
+          }
+        }
         items = purpose === 'essential' ? [next, ...items] : [...items, next]
       })
       return id
