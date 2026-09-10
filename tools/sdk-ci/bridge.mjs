@@ -22,6 +22,7 @@ export function affected(paths, family) {
   return paths.some(path => selected(path, family) || path.startsWith(`sdk-mirrors/${family}/`) || path.startsWith('sdk-mirrors/js/tools/sdk-ci/') || path.startsWith('tools/sdk-ci/') || path === '.github/workflows/sdk-ci.yml' || (family === 'js' && (path === '.github/workflows/sdk-expo.yml' || path.startsWith('apps/demo-expo/'))))
 }
 export function validateEntry(entry) {
+  if (/[\t\r\n\\]/.test(entry.path)) throw new Error('SDK snapshot contains an unsupported path')
   if (!['100644', '100755'].includes(entry.mode)) throw new Error('SDK snapshot contains a symlink or unsupported file mode')
   if (entry.path.split('/').some(p => ['.github', '.git', 'node_modules', '.env'].includes(p)) || /(^|\/)\.env[.]|\.(pem|p8|p12|pfx|keystore|jks)$/i.test(entry.path)) throw new Error('SDK snapshot contains a forbidden path')
 }
