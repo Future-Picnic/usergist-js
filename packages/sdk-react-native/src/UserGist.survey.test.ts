@@ -69,6 +69,7 @@ beforeEach(() => {
     resetGeneration: 0,
     lifecycle: { start() {} },
     events: { emit: vi.fn() },
+    surveyInvitations: { find: vi.fn(async () => undefined), remove: vi.fn(async () => {}) },
     context: { platform: () => 'ios' },
     surveyRules: {
       getById: () => ({
@@ -96,6 +97,56 @@ async function sdk() {
   await UserGist.initAsync(fixture.engine.config)
   return UserGist
 }
+it('opens a deferred invitation with its original authorization and frozen movie content', async () => {
+  const client = await sdk()
+  const frozen = { ...survey, presentationId: 'presentation', flow: {
+    ...survey.flow, questions: [{ id: 'q1', title: 'How was Midnight Orbit?' }],
+  } }
+  fixture.engine.surveyInvitations.find.mockResolvedValue({
+    surveyId: 'survey', presentationId: 'presentation', source: 'triggered', survey: frozen,
+  })
+  client.setSurveyHandlers({ onInvite: () => {} })
+  await client.openSurvey('survey')
+  expect(fixture.engine.events.emit).toHaveBeenCalledWith('showSurvey', {
+    surveyId: 'survey', source: 'triggered', survey: frozen, attempt: undefined,
+  })
+  fixture.engine.transport.surveyCreateAttempt.mockResolvedValue({
+    attemptId: 'presentation', startQuestionId: 'q1', currentQuestionId: 'q1',
+    progressSnapshot: {}, resumed: false, resolvedContent: frozen,
+  })
+  fixture.pending = [{ surveyId: 'survey', attemptId: 'unrelated-old-attempt',
+    survey, startedAt: Date.now(), snapshot: { q1: 'old answer' } }]
+  const opened = await client.__internal_createAttempt('survey', 'triggered', undefined, 'presentation', frozen as any)
+  expect(opened?.resolvedContent).toEqual(frozen)
+  expect(fixture.engine.transport.surveyCreateAttempt).toHaveBeenCalledWith('survey', expect.objectContaining({
+    presentationId: 'presentation', clientAttemptId: 'presentation', resume: false,
+  }))
+  expect(fixture.pending.some((entry) => entry.attemptId === 'presentation')).toBe(true)
+  expect(fixture.engine.surveyInvitations.remove).toHaveBeenCalledWith('presentation')
+})
+
+it('keeps an invitation and its stable attempt id after a failed start for retry', async () => {
+  const client = await sdk()
+  fixture.engine.transport.surveyCreateAttempt.mockRejectedValueOnce(new Error('offline'))
+  expect(await client.__internal_createAttempt('survey', 'triggered', undefined, 'presentation', survey as any)).toBeNull()
+  expect(fixture.engine.surveyInvitations.remove).not.toHaveBeenCalled()
+  await client.__internal_createAttempt('survey', 'triggered', undefined, 'presentation', survey as any)
+  expect(fixture.engine.transport.surveyCreateAttempt.mock.calls.map((call: any) => call[1].clientAttemptId))
+    .toEqual(['presentation', 'presentation'])
+})
+
+it('does not open a retained invitation after the identity changes during lookup', async () => {
+  const client = await sdk()
+  let release!: (value: any) => void
+  fixture.engine.surveyInvitations.find.mockImplementation(() => new Promise((resolve) => { release = resolve }))
+  const opening = client.openSurvey('survey')
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+  fixture.engine.identity.get = () => ({ anonymousId: 'alias', externalId: 'another-user' })
+  release({ survey, source: 'triggered' })
+  await opening
+  expect(fixture.engine.events.emit).not.toHaveBeenCalledWith('showSurvey', expect.anything())
+})
+
 it('opens a prepared survey with a durable stable attempt without waiting for any HTTP request', async () => {
   const client = await sdk()
   const result = await client.__internal_createAttempt(

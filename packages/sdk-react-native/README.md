@@ -135,8 +135,12 @@ non-personalized surveys can start from a signed cached permission valid for ten
 minutes; already-started sessions can upload for seven days. The SDK saves the
 original content and answers before background synchronization. Persistent storage
 is required for recovery after termination; completion retains its submission/retry
-handling. Custom `onInvite` handlers and on-demand/link resume keep their existing
-behavior. New personalized surveys still need online resolution. See the
+handling. With a custom `onInvite` handler, `openSurvey(surveyId)` retains the
+invitation's authorized questions and triggering-event values. An invitation does
+not start a session until opened; failed starts retry the same attempt ID. Pending
+invitations are identity-bound and expire with the instruction (at most 24 hours);
+reset or survey-consent withdrawal clears them. On-demand/link resume remains
+available. New personalized surveys still need online resolution. See the
 [delivery and rollout notes](../../infra/docs/immediate-engagement.md).
 
 ## Architecture

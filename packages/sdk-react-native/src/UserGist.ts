@@ -1145,10 +1145,19 @@ export const UserGist = {
         debugLog('openSurvey: survey consent not granted; ignoring')
         return
       }
+      const generation = e.resetGeneration
+      const identity = e.identity.get()
+      const consentVersion = e.consent.get().version
+      const invitation = await e.surveyInvitations.find(surveyId)
+      if (e.resetting || e.resetGeneration !== generation ||
+        !e.consent.allowsSurvey() || e.consent.get().version !== consentVersion ||
+        e.identity.get().anonymousId !== identity.anonymousId ||
+        e.identity.get().externalId !== identity.externalId) return
       e.events.emit('showSurvey', {
         surveyId,
-        source: context?.source ?? 'on_demand',
+        source: context?.source ?? invitation?.source ?? 'on_demand',
         ...(context?.language ? { language: context.language } : {}),
+        ...(invitation ? { survey: invitation.survey, attempt: invitation.attempt } : {}),
       })
     } catch (err) {
       reportError('openSurvey failed', err)
@@ -1317,6 +1326,7 @@ export const UserGist = {
       identity.externalId,
       surveyId,
       language,
+      presentationId,
       preparedAttempt?.attemptId,
     ])
     const pending = surveyStarts.get(key)
@@ -1342,6 +1352,7 @@ export const UserGist = {
         // answers. Never replace it with a stale network snapshot.
         if (
           !preparedAttempt &&
+          (!presentationId || saved?.attemptId === presentationId) &&
           saved?.survey &&
           Date.now() - saved.startedAt <
             saved.survey.saveResumeWindowSeconds * 1000
@@ -1381,8 +1392,8 @@ export const UserGist = {
           ...(language ? { language } : {}),
           sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
           platform: e.context.platform(),
-          ...(grant || source === 'triggered' || source === 'scheduled'
-            ? { resume: false, clientAttemptId: generateEventId() }
+          ...(presentationId || grant || source === 'triggered' || source === 'scheduled'
+            ? { resume: false, clientAttemptId: presentationId ?? generateEventId() }
             : { resume: true }),
           ...(grant
             ? {
@@ -1420,6 +1431,10 @@ export const UserGist = {
           language: language ?? null,
         })
         if (!current()) return null
+        if (presentationId) {
+          await e.surveyInvitations.remove(presentationId)
+          if (!current()) return null
+        }
         if (grant && !preparedAttempt) {
           await e.mutations.enqueue(
             'survey-start',

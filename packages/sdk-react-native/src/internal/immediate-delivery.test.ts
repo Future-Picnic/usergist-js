@@ -5,6 +5,7 @@ import {
   type Engine,
 } from './engine.js'
 import { createMutationQueue } from './mutation-queue.js'
+import { createSurveyInvitations } from './survey-invitations.js'
 import type { SdkDeliveryInstruction } from '@usergist/sdk-core/mobile'
 
 function instruction(id: number): SdkDeliveryInstruction {
@@ -36,14 +37,19 @@ function harness() {
       }),
     },
     events: { emit },
+    identity: { get: () => ({ anonymousId: 'alias', externalId: null }) },
     consent: {
       allowsFeedback: () => true,
+      allowsSurvey: () => true,
       get: () => ({ feedback: true }),
     },
     localInstructionDedupe: { consume: () => false },
     transport: { acknowledgeInstructions: acknowledge },
   } as unknown as Engine
-  Object.assign(engine, { mutations: createMutationQueue(engine.storage) })
+  Object.assign(engine, {
+    mutations: createMutationQueue(engine.storage),
+    surveyInvitations: createSurveyInvitations(engine.storage, () => engine.identity.get()),
+  })
   return { engine, data, emit, acknowledge }
 }
 
@@ -52,6 +58,39 @@ afterEach(() => {
 })
 
 describe('immediate instruction reconciliation', () => {
+  it('persists a personalized invitation before notifying the host and survives SDK recreation', async () => {
+    const { engine, emit } = harness()
+    const offer = { ...instruction(9), type: 'survey.offer', payload: {
+      surveyId: 'survey', name: 'Movie survey', presentationId: 'presentation',
+      survey: { id: 'survey', flow: { questions: [{ title: 'How was Midnight Orbit?' }] } },
+    } }
+    emit.mockImplementation((name) => {
+      if (name === 'surveyInvite') expect(engine.storage.setJsonStrict)
+        .toHaveBeenCalledWith('surveys:invitations', expect.any(Array))
+    })
+    await consumeInstructions(engine, [offer], false)
+    const restarted = createSurveyInvitations(engine.storage, () => engine.identity.get())
+    expect(await restarted.find('survey')).toMatchObject({
+      presentationId: 'presentation', survey: { flow: { questions: [{ title: 'How was Midnight Orbit?' }] } },
+    })
+    expect(emit).toHaveBeenCalledOnce()
+    await consumeInstructions(engine, [offer], true)
+    expect(emit).toHaveBeenCalledOnce()
+  })
+
+  it('retries an invitation if durable storage fails before delivery', async () => {
+    const { engine, emit, data } = harness()
+    const offer = { ...instruction(9), type: 'survey.offer', payload: {
+      surveyId: 'survey', name: 'Movie survey', presentationId: 'presentation', survey: { id: 'survey' },
+    } }
+    vi.mocked(engine.storage.setJsonStrict).mockRejectedValueOnce(new Error('disk full'))
+    await expect(consumeInstructions(engine, [offer], false)).rejects.toThrow('disk full')
+    expect(emit).not.toHaveBeenCalled()
+    expect(data.get('seenInstructions')).toBeUndefined()
+    await consumeInstructions(engine, [offer], false)
+    expect(emit).toHaveBeenCalledOnce()
+  })
+
   it('does not skip older inbox work when a newer event is delivered immediately', async () => {
     const { engine, data, emit } = harness()
     await consumeInstructions(engine, [instruction(99)], false)
