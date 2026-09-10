@@ -159,6 +159,8 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
               payload.surveyId,
               payload.source as SurveyAttemptSource,
               payload.language,
+              payload.survey,
+              payload.attempt,
             ).then((shown) => {
               if (!shown) {
                 UserGist.__internal_surveyOpenFailed(payload.surveyId)

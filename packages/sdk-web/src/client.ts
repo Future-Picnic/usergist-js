@@ -628,9 +628,11 @@ export class UserGistClient {
     if (!this.active || Date.now() < this.retryAt) return
     if (this.consentDirty) await this.sendConsent()
     const generation = this.generation
-    for (const item of [...this.queue]) {
+    while (generation === this.generation && this.active) {
+      await this.writes
+      const item = this.queue.find((work) => this.consent[work.purpose])
+      if (!item) break
       if (generation !== this.generation || !this.active) return
-      if (!this.consent[item.purpose]) continue
       try {
         const result = await this.api(item.path, item.body, item.method)
         if (generation !== this.generation || !this.active) return

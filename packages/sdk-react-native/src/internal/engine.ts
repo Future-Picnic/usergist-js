@@ -45,6 +45,7 @@ import {
 import { createUserStateStore, type UserStateStore } from './user-state.js'
 import { createTriggerMatcher, type TriggerMatcher } from './trigger-matcher.js'
 import { createSurveyMatcher, type SurveyMatcher } from './survey-matcher.js'
+import { createSurveyInvitations, type SurveyInvitations } from './survey-invitations.js'
 import {
   createInAppRulesCache,
   type InAppRulesCache,
@@ -95,6 +96,7 @@ export interface Engine {
   readonly userState: UserStateStore
   readonly matcher: TriggerMatcher
   readonly surveyMatcher: SurveyMatcher
+  readonly surveyInvitations: SurveyInvitations
   readonly inAppMatcher: InAppMatcher
   readonly lifecycle: LifecycleManager
   readonly context: ContextProvider
@@ -157,6 +159,7 @@ export function createEngine(
 
   const storage = createStorageScope(resolved.writeKey)
   const identity = createIdentityManager(storage)
+  const surveyInvitations = createSurveyInvitations(storage, () => identity.get())
   const consent = createConsentManager(storage)
   const queue = createEventQueue(storage, resolved.maxQueueSize)
   const mutations = createMutationQueue(storage)
@@ -252,6 +255,7 @@ export function createEngine(
     userState,
     matcher,
     surveyMatcher,
+    surveyInvitations,
     inAppMatcher,
     lifecycle,
     context,
@@ -294,6 +298,7 @@ export function createEngine(
     }
     if (!s.survey) {
       void engine.mutations.removePurpose('survey')
+      void engine.surveyInvitations.clear().catch((error) => reportError('clear survey invitations failed', error))
       engine.surveyMatcher.resetPending()
     }
     if (s.feedback || s.analytics) void flushNow(engine)
@@ -898,6 +903,24 @@ export function consumeInstructions(
         if (!isCurrent()) return
         handled.push(instruction.id)
         if (seen.has(instruction.id)) continue
+        const payload = instruction.payload
+        if (
+          instruction.type === 'survey.offer' && engine.consent.allowsSurvey() &&
+          typeof payload.surveyId === 'string' && typeof payload.name === 'string' &&
+          typeof payload.presentationId === 'string' && payload.survey && typeof payload.survey === 'object'
+        ) {
+          // Persist before invoking the host callback or acknowledging delivery.
+          // A storage failure leaves the instruction available for retry.
+          await engine.surveyInvitations.remember({
+            surveyId: payload.surveyId,
+            presentationId: payload.presentationId,
+            source: typeof payload.source === 'string' ? payload.source : 'triggered',
+            survey: { ...payload.survey, presentationId: payload.presentationId } as import('@usergist/sdk-core/mobile').SurveyCampaignWithFlow,
+            attempt: payload.attempt as import('@usergist/sdk-core/mobile').CreateSurveyAttemptResponse | undefined,
+            expiresAt: Math.min(Date.parse(instruction.expiresAt), Date.now() + 24 * 60 * 60 * 1000),
+          })
+          if (!isCurrent()) return
+        }
         dispatchInstruction(engine, instruction.type, instruction.payload)
         seen.add(instruction.id)
         await engine.storage.setJsonStrict(
@@ -1240,6 +1263,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
     engine.userState.clear(),
     engine.consent.clear(),
     engine.localInstructionDedupe.clear(),
+    engine.surveyInvitations.clear(),
   ])
   await engine.storage.clearAll([
     STORAGE_KEYS.identity,

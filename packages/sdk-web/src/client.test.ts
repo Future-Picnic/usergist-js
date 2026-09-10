@@ -167,6 +167,38 @@ describe('explicit browser activation', () => {
 })
 
 describe('web delivery regressions', () => {
+  it('drains a trigger queued during an in-flight tick without waiting five seconds', async () => {
+    const c = await client()
+    await c.setConsent({ analytics: true, feedback: true })
+    await c.identify('customer', {}, 'token')
+    await c.flush()
+    const original = fetch
+    let release!: () => void
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/ingest') && JSON.parse(String(init.body)).events[0].name === 'first') {
+        await new Promise<void>((resolve) => { release = resolve })
+      }
+      return original(url, init)
+    }))
+    c.track('first')
+    await (c as any).writes
+    const tick = (c as any).tick()
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    c.track('show_feedback')
+    await (c as any).writes
+    // The immediate tick joins the existing flush while its first request waits.
+    const nextTick = (c as any).tick()
+    const started = Date.now()
+    release()
+    await Promise.all([tick, nextTick])
+    expect(Date.now()).toBe(started)
+    expect(calls.filter((call) => call.path.endsWith('/ingest'))
+      .flatMap((call) => call.body.events.map((event: any) => event.name))
+      .filter((name) => name === 'first' || name === 'show_feedback'))
+      .toEqual(['first', 'show_feedback'])
+    expect(c.getSnapshot().queueSize).toBe(0)
+  })
+
   it('binds anonymous queued delivery to the identified client without changing the event', async () => {
     const c = await client({ allowAnonymous: true })
     await c.setConsent({ analytics: true })
