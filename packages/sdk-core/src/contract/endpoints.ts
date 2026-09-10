@@ -367,7 +367,8 @@ export interface CreatePromptRequest {
   readonly deliveryPlatforms?: ReadonlyArray<
     import('../types/web.js').DeliveryPlatform
   >
-  readonly webPresentation?: import('../types/web.js').WebPresentation | null
+  readonly webPresentation?:
+    | import('../types/web.js').WebPresentation | null
   readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
   readonly frequency?: FrequencyCaps
@@ -387,7 +388,8 @@ export interface UpdatePromptRequest {
   readonly deliveryPlatforms?: ReadonlyArray<
     import('../types/web.js').DeliveryPlatform
   >
-  readonly webPresentation?: import('../types/web.js').WebPresentation | null
+  readonly webPresentation?:
+    | import('../types/web.js').WebPresentation | null
   readonly themeMode?: ThemeMode
   readonly theme?: PromptTheme
   readonly frequency?: FrequencyCaps
@@ -428,27 +430,48 @@ export interface PromptAnalytics {
 
 // ---------- SDK-facing ----------
 
-export interface SdkIngestRequest extends IngestBatch {}
+export interface SdkIngestRequest extends IngestBatch {
+  /** Resolve these persisted trigger events in this request, without waiting
+   * for background projection and instruction polling. */
+  readonly delivery?: {
+    readonly eventIds: ReadonlyArray<string>
+    readonly clientId?: string
+    readonly screenName?: string
+  }
+}
+
+export interface SdkDeliveryInstruction {
+  readonly id: number
+  readonly type: string
+  readonly payload: Readonly<Record<string, unknown>>
+  readonly emittedAt: string
+  readonly expiresAt: string
+}
 
 export interface SdkIngestResponse {
   readonly accepted: number
   readonly rejected: number
   readonly errors?: ReadonlyArray<{ index: number; reason: string }>
+  readonly instructions?: ReadonlyArray<SdkDeliveryInstruction>
 }
 
 export interface SdkArmedTriggersResponse {
+  /** Event-name hints only; personalized content is resolved on the server. */
+  readonly deliveryEventNames?: ReadonlyArray<string>
   readonly triggers: ReadonlyArray<ArmedTrigger>
   readonly serverTime: string
   readonly nextSyncMs: number
 }
 
 export interface SdkArmedInAppMessagesResponse {
+  readonly deliveryEventNames?: ReadonlyArray<string>
   readonly messages: ReadonlyArray<ArmedInAppMessage>
   readonly serverTime: string
   readonly nextSyncMs: number
 }
 
 export interface SdkArmedSurveysResponse {
+  readonly deliveryEventNames?: ReadonlyArray<string>
   readonly surveys: ReadonlyArray<ArmedSurvey>
   readonly serverTime: string
   readonly nextSyncMs: number
@@ -526,7 +549,8 @@ export interface GdprExportRequest {
 // This is kept as a literal object so it can be walked at build time
 // to generate a typed client and OpenAPI spec.
 
-export type Endpoint<Req, Res> = { readonly __req?: Req; readonly __res: Res }
+export type Endpoint<Req, Res> = { readonly __req?: Req
+  readonly __res: Res }
 
 export const endpoints = {
   'GET /v1/apps/:appId/search': {} as Endpoint<
@@ -1166,7 +1190,8 @@ export const endpoints = {
       defaultSound?: string | null
       defaultVibrate?: boolean
       defaultBadge?: boolean
-      category?: 'transactional' | 'marketing' | 'silent' | 'digest' | 'alert'
+      category?:
+        | 'transactional' | 'marketing' | 'silent' | 'digest' | 'alert'
     },
     { saved: true }
   >,
@@ -1221,7 +1246,10 @@ export const endpoints = {
   >,
   'POST /v1/apps/:appId/push/webhooks/:webhookId/test': {} as Endpoint<
     void,
-    { success: boolean; statusCode: number; attempts: number; error?: string }
+    { success: boolean
+      statusCode: number
+      attempts: number
+      error?: string }
   >,
 
   // Push device-token registration (SDK-facing, write-key auth)
@@ -1671,8 +1699,12 @@ export const endpoints = {
       { grant: WorkspacePlanGrant }
     >,
   'GET /v1/admin/activity': {} as Endpoint<
-    { workspaceId?: string; action?: string; cursor?: string; limit?: number },
-    { entries: ReadonlyArray<AdminActivityEntry>; nextCursor: string | null }
+    { workspaceId?: string
+      action?: string
+      cursor?: string
+      limit?: number },
+    { entries: ReadonlyArray<AdminActivityEntry>
+      nextCursor: string | null }
   >,
   'GET /v1/admin/workspaces': {} as Endpoint<
     void,

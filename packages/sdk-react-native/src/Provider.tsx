@@ -94,6 +94,8 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
   const [payload, setPayload] = useState<ShowPromptPayload | null>(null)
   const currentRef = useRef<ShowPromptPayload | null>(null)
 
+  const surveyOpenGeneration = useRef(0)
+
   const [surveyState, setSurveyState] = useState<SurveyState | null>(null)
   const [inAppMessage, setInAppMessage] = useState<ArmedInAppMessage | null>(
     null,
@@ -158,7 +160,10 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
               payload.source as SurveyAttemptSource,
               payload.language,
             ).then((shown) => {
-              if (!shown) releaseSurvey()
+              if (!shown) {
+                UserGist.__internal_surveyOpenFailed(payload.surveyId)
+                releaseSurvey()
+              }
             })
           })
         })
@@ -173,6 +178,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
           })
         })
         unsubResetSurfaces = bus.on('resetSurfaces', () => {
+          surveyOpenGeneration.current++
           modalQueueRef.current.clearPending()
           currentRef.current = null
           setPayload(null)
@@ -207,8 +213,12 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
               invite.source as SurveyAttemptSource,
               undefined,
               invite.survey,
+              invite.attempt
             ).then((shown) => {
-              if (!shown) releaseSurvey()
+              if (!shown) {
+                UserGist.__internal_surveyOpenFailed(invite.surveyId)
+                releaseSurvey()
+              }
             })
           })
         })
@@ -218,6 +228,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     }
     attach()
     return () => {
+      surveyOpenGeneration.current++
       if (retryTimer) clearTimeout(retryTimer)
       if (unsubShow) unsubShow()
       if (unsubDismiss) unsubDismiss()
@@ -235,7 +246,9 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       source: SurveyAttemptSource,
       language?: string,
       authorizedSurvey?: SurveyCampaignWithFlow,
+      preparedAttempt?: import('@usergist/sdk-core/mobile').CreateSurveyAttemptResponse
     ): Promise<boolean> => {
+      const generation = ++surveyOpenGeneration.current
       try {
         // Local-fire fast-path: when the survey-matcher just fired,
         // the full survey content is already in the SDK's cache. Use
@@ -249,14 +262,16 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
           authorizedSurvey ??
           cached ??
           (await UserGist.__internal_fetchSurvey(surveyId, language))
-        if (!survey) return false
+        if (!survey || generation !== surveyOpenGeneration.current) return false
         const attempt = await UserGist.__internal_createAttempt(
           surveyId,
           source,
           language,
           survey.presentationId,
+          survey,
+          preparedAttempt
         )
-        if (!attempt) return false
+        if (!attempt || generation !== surveyOpenGeneration.current) return false
         setSurveyState({
           survey: attempt.resolvedContent ?? survey,
           attemptId: attempt.attemptId,

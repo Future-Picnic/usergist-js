@@ -140,10 +140,11 @@ export function SurveyView(props: SurveyViewProps): React.ReactElement | null {
   const scheduleSave = useCallback(
     (qid: string | null, snap: SurveyAnswerRecord) => {
       if (!attemptId) return
-      if (saveTimer.current) clearTimeout(saveTimer.current)
-      saveTimer.current = setTimeout(() => {
-        void onSaveProgress(attemptId, qid, snap)
-      }, 600)
+      // Persist before any debounce: backgrounding immediately after an
+      // answer must retain the latest selection.
+      void onSaveProgress(attemptId, qid, snap).catch(() => {
+        setSubmitError('Your progress could not be saved. Please try again.')
+      })
     },
     [attemptId, onSaveProgress],
   )
