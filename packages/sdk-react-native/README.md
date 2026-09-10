@@ -72,6 +72,7 @@ AppRegistry.registerComponent('app', () => App)
 | `UserGist.init(config)` | Returns synchronously, then hydrates and establishes the anonymous session in the background. |
 | `await UserGist.initAsync(config, initialIdentity?)` | Hydrates and optionally binds a server-proven identity before lifecycle events begin; returns `synced`, `queued`, or `rejected`. |
 | `UserGist.identify(userId, props?, subjectToken)` | Links the anonymous installation using a customer-backend-minted subject token. |
+| `await UserGist.setUserProperties(values, unsetKeys?)` | Saves flat properties for the current anonymous or identified user; returns `synced`, `queued`, or `rejected`. Requires analytics consent. |
 | `await UserGist.identifyAsync(userId, props?, subjectToken)` | Backward-compatible async identity API returning `synced`, `queued`, or `rejected`. |
 | `UserGist.track(name, props?)` | Enqueues a stable event id and immediately evaluates only server-authorized client-side campaigns; all other decisions remain server-authoritative. |
 | `await UserGist.setConsent({ analytics?, feedback?, push?, survey? })` | Persists and synchronizes the transition, refreshes targeting rules, then resolves with `true`; returns `false` when synchronization fails. |
@@ -108,6 +109,35 @@ UserGist.init(config)
 
 The adapter uses the same asynchronous string interface as AsyncStorage, so it
 can wrap the host application's Keychain/Keystore-backed storage.
+
+## Personalization and immediate engagement
+
+Use `await UserGist.setUserProperties({ first_name: 'Ava', country: 'IL' })` for
+current profile values and `UserGist.track('show_watched', { show_id: '00123',
+show_title: 'Midnight Orbit', position_seconds: 1234 })` for activity. Unset a
+property with `await UserGist.setUserProperties({}, ['first_name'])`. Sensitive
+fields follow the app's privacy allow-list. Both anonymous and identified users
+are supported; await reset before switching accounts.
+
+The dashboard's field picker can use a saved property, one latest matching event,
+or the triggering event. Reuse one activity source for related title/ID/position
+fields. Whole-value JSON tokens preserve types; your JSON action handler owns
+navigation. See the [personalization guide](../../apps/landing/src/app/docs/(content)/guides/personalize-messages/page.mdx)
+for authoring, fallbacks, recipient preview and a complete movie example.
+
+With the matching API release, known server-dependent engagement events flush
+immediately and can receive authorized content in the ingest response. Cached
+native feedback/in-app matching remains local. Selecting web plus mobile retains
+server consent/frequency checks while avoiding deliberate batch and polling waits.
+
+Coordinated surveys can carry a prepared attempt. Eligible repeatable, uncapped,
+non-personalized surveys can start from a signed cached permission valid for ten
+minutes; already-started sessions can upload for seven days. The SDK saves the
+original content and answers before background synchronization. Persistent storage
+is required for recovery after termination; completion retains its submission/retry
+handling. Custom `onInvite` handlers and on-demand/link resume keep their existing
+behavior. New personalized surveys still need online resolution. See the
+[delivery and rollout notes](../../infra/docs/immediate-engagement.md).
 
 ## Architecture
 
