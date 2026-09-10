@@ -1,15 +1,19 @@
-# SDK PR checks are coordinated by usergist-js; see infra/docs/public-sdk-ci.md.
-name: Expo SDK consumer builds
+name: Public SDK validation
+run-name: SDK snapshot ${{ inputs.snapshot }}
 on:
   workflow_dispatch:
+    inputs:
+      snapshot:
+        description: Immutable public SDK snapshot commit
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: expo-sdk-${{ github.ref }}
-  cancel-in-progress: true
+  group: public-sdk-${{ inputs.snapshot }}
+  cancel-in-progress: false
 jobs:
   archive:
-    if: github.repository != 'Future-Picnic/usergist'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -17,6 +21,14 @@ jobs:
       sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.snapshot }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: .ci
+          persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
         with:
           version: 9.0.0
@@ -24,12 +36,17 @@ jobs:
         with:
           node-version: 24.15.0
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @usergist/sdk-core build
+      - run: pnpm --filter @usergist/sdk-core typecheck && pnpm --filter @usergist/sdk-core test && pnpm --filter @usergist/sdk-core build
+      - run: pnpm --filter @usergist/feedback-react-native typecheck
+      - run: pnpm --filter @usergist/feedback-web typecheck && pnpm --filter @usergist/feedback-web test && pnpm --filter @usergist/feedback-web build
       - run: pnpm --filter @usergist/feedback-react-native test && pnpm --filter @usergist/feedback-react-native test:plugin
       - id: pack
         name: Build and verify the single release candidate
         run: |
           mkdir -p "$RUNNER_TEMP/sdk-candidate"
+          pnpm --dir packages/sdk-core pack --pack-destination "$RUNNER_TEMP/sdk-candidate"
+          pnpm --dir packages/sdk-web pack --pack-destination "$RUNNER_TEMP/sdk-candidate"
+          node .ci/tools/sdk-ci/check-web-package.mjs "$RUNNER_TEMP/sdk-candidate"
           pnpm --dir packages/sdk-react-native pack --pack-destination "$RUNNER_TEMP/sdk-candidate"
           sdk_version=$(node -p 'require("./packages/sdk-react-native/package.json").version')
           filename="usergist-feedback-react-native-$sdk_version.tgz"
@@ -44,7 +61,6 @@ jobs:
           if-no-files-found: error
           retention-days: 90
   bare-react-native:
-    if: github.repository != 'Future-Picnic/usergist'
     needs: archive
     strategy:
       fail-fast: false
@@ -54,6 +70,14 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.snapshot }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: .ci
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24.15.0
@@ -66,8 +90,10 @@ jobs:
         with:
           name: usergist-react-native-candidate
           path: ${{ runner.temp }}/sdk-candidate
+      - name: Select the matching core archive
+        run: echo "USERGIST_CORE_ARCHIVE=$(find '${{ runner.temp }}/sdk-candidate' -name 'usergist-sdk-core-*.tgz' -print -quit)" >> "$GITHUB_ENV"
       - id: bare
-        run: node tools/expo/create-bare-consumer.mjs '${{ runner.temp }}/sdk-candidate/${{ needs.archive.outputs.filename }}'
+        run: node .ci/tools/expo/create-bare-consumer.mjs '${{ runner.temp }}/sdk-candidate/${{ needs.archive.outputs.filename }}'
       - name: Android baseline without Expo dependencies
         if: runner.os == 'Linux'
         working-directory: ${{ steps.bare.outputs.consumer }}/android
@@ -94,7 +120,6 @@ jobs:
           pod install
           xcodebuild -workspace HelloWorld.xcworkspace -scheme HelloWorld -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
   consumer:
-    if: github.repository != 'Future-Picnic/usergist'
     needs: archive
     strategy:
       fail-fast: false
@@ -106,6 +131,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.snapshot }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: .ci
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24.15.0
@@ -118,10 +151,12 @@ jobs:
         with:
           name: usergist-react-native-candidate
           path: ${{ runner.temp }}/sdk-candidate
+      - name: Select the matching core archive
+        run: echo "USERGIST_CORE_ARCHIVE=$(find '${{ runner.temp }}/sdk-candidate' -name 'usergist-sdk-core-*.tgz' -print -quit)" >> "$GITHUB_ENV"
       - id: fixture
-        run: node tools/expo/create-consumer.mjs '${{ matrix.sdk }}' '${{ matrix.mode }}' '${{ runner.temp }}/sdk-candidate/${{ needs.archive.outputs.filename }}'
-      - run: node tools/expo/verify-consumer.mjs '${{ steps.fixture.outputs.consumer }}'
-      - run: node tools/expo/check-prebuild-conflicts.mjs '${{ steps.fixture.outputs.consumer }}'
+        run: node .ci/tools/expo/create-consumer.mjs '${{ matrix.sdk }}' '${{ matrix.mode }}' '${{ runner.temp }}/sdk-candidate/${{ needs.archive.outputs.filename }}'
+      - run: node .ci/tools/expo/verify-consumer.mjs '${{ steps.fixture.outputs.consumer }}'
+      - run: node .ci/tools/expo/check-prebuild-conflicts.mjs '${{ steps.fixture.outputs.consumer }}'
       - name: Bundle the consumer application
         working-directory: ${{ steps.fixture.outputs.consumer }}
         run: npx expo export --platform ios --platform android
