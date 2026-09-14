@@ -1182,6 +1182,7 @@ export async function submitResponse(
   ) => void
 ): Promise<void> {
   const id = engine.identity.get()
+  const context = engine.context.build(id)
   const submitPayload: SubmitResponsePayload = {
     idempotencyKey: generateEventId(),
     promptId: payload.promptId,
@@ -1193,6 +1194,9 @@ export async function submitResponse(
     })),
     dismissed: payload.dismissed,
     latencyMs: payload.latencyMs,
+    platform: context.platform,
+    sdkVersion: context.sdkVersion,
+    appVersion: context.appVersion,
   }
   engine.events.emit('response', payload)
   trackInternal(
