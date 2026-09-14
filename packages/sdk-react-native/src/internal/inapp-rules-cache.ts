@@ -7,6 +7,7 @@ import { reportError, debugLog } from './debug.js'
 import type { Transport } from './transport.js'
 
 interface StoredInAppCache {
+  readonly deliveryEventNames?: ReadonlyArray<string>
   readonly messages: ReadonlyArray<ArmedInAppMessage>
   readonly fetchedAt: string
   readonly serverTime: string
@@ -14,6 +15,7 @@ interface StoredInAppCache {
 }
 
 export interface InAppRulesCache {
+  readonly needsServer: (eventName: string) => boolean
   readonly hydrate: () => Promise<void>
   readonly refresh: (params: {
     readonly anonymousId: string
@@ -32,6 +34,7 @@ export function createInAppRulesCache(
 ): InAppRulesCache {
   let messages: ReadonlyArray<ArmedInAppMessage> = []
   let byEvent: Readonly<Record<string, ReadonlyArray<ArmedInAppMessage>>> = {}
+  let deliveryEventNames: ReadonlyArray<string> = []
   let fetchedAt = 0
   let hydrated = false
   let inflight: Promise<ReadonlyArray<ArmedInAppMessage>> | null = null
@@ -52,6 +55,7 @@ export function createInAppRulesCache(
   }
 
   return {
+    needsServer: (eventName) => deliveryEventNames.includes(eventName),
     async hydrate(): Promise<void> {
       if (hydrated) return
       try {
@@ -59,6 +63,7 @@ export function createInAppRulesCache(
           STORAGE_KEYS.inAppRulesCache,
         )
         if (stored?.messages) {
+          deliveryEventNames = stored.deliveryEventNames ?? []
           messages = stored.messages
           byEvent = indexByEvent(messages)
           fetchedAt = Date.parse(stored.fetchedAt)
@@ -77,10 +82,12 @@ export function createInAppRulesCache(
       inflight = (async () => {
         try {
           const res = await transport.armedInAppMessages({ anonymousId, externalId })
+          deliveryEventNames = res.deliveryEventNames ?? []
           messages = res.messages
           byEvent = indexByEvent(messages)
           fetchedAt = Date.now()
           const cache: StoredInAppCache = {
+            deliveryEventNames,
             messages,
             fetchedAt: new Date(fetchedAt).toISOString(),
             serverTime: res.serverTime,
@@ -105,6 +112,8 @@ export function createInAppRulesCache(
       byEvent[eventName] ?? [],
     all: (): ReadonlyArray<ArmedInAppMessage> => messages,
     async clear(): Promise<void> {
+      await inflight?.catch(() => undefined)
+      deliveryEventNames = []
       messages = []
       byEvent = {}
       fetchedAt = 0

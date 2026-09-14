@@ -38,12 +38,15 @@ function safeInAppHandlers(): {
     label: string
     index: number
   }) => void
-  onJsonAction?: (action: JsonAction, context: {
-    source: 'in_app'
-    messageId: string
-    label: string
-    index: number
-  }) => void
+  onJsonAction?: (
+    action: JsonAction,
+    context: {
+      source: 'in_app'
+      messageId: string
+      label: string
+      index: number
+    },
+  ) => void
 } {
   try {
     return UserGist.__internal_inAppHandlers()
@@ -91,15 +94,26 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
   const [payload, setPayload] = useState<ShowPromptPayload | null>(null)
   const currentRef = useRef<ShowPromptPayload | null>(null)
 
+  const surfaceGeneration = useRef(0)
+  const surveyOpenGeneration = useRef(0)
+
   const [surveyState, setSurveyState] = useState<SurveyState | null>(null)
-  const [inAppMessage, setInAppMessage] = useState<ArmedInAppMessage | null>(null)
+  const [inAppMessage, setInAppMessage] = useState<ArmedInAppMessage | null>(
+    null,
+  )
   const modalQueueRef = useRef(createModalQueue())
   const promptReleaseRef = useRef<(() => void) | null>(null)
   const surveyReleaseRef = useRef<(() => void) | null>(null)
   const inAppReleaseRef = useRef<(() => void) | null>(null)
 
-  function enqueueModal(task: ModalTask): void {
-    modalQueueRef.current.enqueue(task)
+  function enqueueModal(task: ModalTask, purpose: 'feedback' | 'survey' = 'feedback'): void {
+    const gate = UserGist.__internal_presentationGate()
+    const eligible = gate.validator(purpose)
+    const generation = surfaceGeneration.current
+    const valid = () => eligible() && generation === surfaceGeneration.current
+    modalQueueRef.current.enqueue((release) => {
+      gate.runWhenReady(() => task(release), valid, release)
+    })
   }
 
   function releasePrompt(): void {
@@ -152,10 +166,15 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
               payload.surveyId,
               payload.source as SurveyAttemptSource,
               payload.language,
+              payload.survey,
+              payload.attempt,
             ).then((shown) => {
-              if (!shown) releaseSurvey()
+              if (!shown) {
+                UserGist.__internal_surveyOpenFailed(payload.surveyId)
+                releaseSurvey()
+              }
             })
-          })
+          }, 'survey')
         })
         unsubShowInApp = bus.on('showInAppMessage', (p) => {
           enqueueModal((release) => {
@@ -168,6 +187,8 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
           })
         })
         unsubResetSurfaces = bus.on('resetSurfaces', () => {
+          surfaceGeneration.current++
+          surveyOpenGeneration.current++
           modalQueueRef.current.clearPending()
           currentRef.current = null
           setPayload(null)
@@ -200,10 +221,16 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
             void openSurvey(
               invite.surveyId,
               invite.source as SurveyAttemptSource,
+              undefined,
+              invite.survey,
+              invite.attempt
             ).then((shown) => {
-              if (!shown) releaseSurvey()
+              if (!shown) {
+                UserGist.__internal_surveyOpenFailed(invite.surveyId)
+                releaseSurvey()
+              }
             })
-          })
+          }, 'survey')
         })
       } catch {
         retryTimer = setTimeout(attach, 250)
@@ -211,6 +238,9 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     }
     attach()
     return () => {
+      surfaceGeneration.current++
+      modalQueueRef.current.clearPending()
+      surveyOpenGeneration.current++
       if (retryTimer) clearTimeout(retryTimer)
       if (unsubShow) unsubShow()
       if (unsubDismiss) unsubDismiss()
@@ -227,26 +257,47 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       surveyId: string,
       source: SurveyAttemptSource,
       language?: string,
+      authorizedSurvey?: SurveyCampaignWithFlow,
+      preparedAttempt?: import('@usergist/sdk-core/mobile').CreateSurveyAttemptResponse
     ): Promise<boolean> => {
+      const generation = ++surveyOpenGeneration.current
+      const gate = UserGist.__internal_presentationGate()
+      const eligible = gate.validator('survey')
+      const valid = () => eligible() && generation === surveyOpenGeneration.current
       try {
         // Local-fire fast-path: when the survey-matcher just fired,
         // the full survey content is already in the SDK's cache. Use
         // it instead of round-tripping to the server. Falls back to
         // a fetch for offer-ledger / on-demand opens that arrive
         // through the polling path.
-        const cached = language ? null : UserGist.__internal_armedSurveyById(surveyId)
-        const survey = cached ?? (await UserGist.__internal_fetchSurvey(surveyId, language))
-        if (!survey) return false
-        const attempt = await UserGist.__internal_createAttempt(surveyId, source, language)
-        if (!attempt) return false
-        setSurveyState({
+        const cached = language
+          ? null
+          : UserGist.__internal_armedSurveyById(surveyId)
+        const survey =
+          authorizedSurvey ??
+          cached ??
+          (await UserGist.__internal_fetchSurvey(surveyId, language))
+        if (!survey || generation !== surveyOpenGeneration.current) return false
+        const attempt = await UserGist.__internal_createAttempt(
+          surveyId,
+          source,
+          language,
+          survey.presentationId,
           survey,
+          preparedAttempt
+        )
+        if (!attempt || generation !== surveyOpenGeneration.current) return false
+        return await new Promise<boolean>((resolve) => gate.runWhenReady(() => {
+        setSurveyState({
+          survey: attempt.resolvedContent ?? survey,
           attemptId: attempt.attemptId,
           source,
-          initialQuestionId: attempt.currentQuestionId ?? attempt.startQuestionId,
+          initialQuestionId:
+            attempt.currentQuestionId ?? attempt.startQuestionId,
           initialSnapshot: attempt.snapshot ?? {},
         })
-        return true
+        resolve(true)
+        }, valid, () => resolve(false)))
       } catch {
         return false
       }
@@ -315,7 +366,10 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
         cta_index: index,
         cta_label: cta.label,
       })
-    } else if ((cta.action === 'open_url' || cta.action === 'deep_link') && cta.target) {
+    } else if (
+      (cta.action === 'open_url' || cta.action === 'deep_link') &&
+      cta.target
+    ) {
       void Linking.openURL(cta.target).catch(() => undefined)
     } else if (cta.action === 'json' && cta.actionJson) {
       try {
@@ -346,14 +400,20 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     UserGist.__internal_reportSurveyShown(surveyId)
     safeSurveyHandlers().onShow?.(surveyId)
   }, [])
-  const handleSurveyComplete = useCallback((surveyId: string, attemptId: string): void => {
-    safeSurveyHandlers().onComplete?.(surveyId, attemptId)
-  }, [])
-  const handleSurveyAbandon = useCallback((surveyId: string, attemptId: string): void => {
-    safeSurveyHandlers().onAbandon?.(surveyId, attemptId)
-    setSurveyState(null)
-    releaseSurvey()
-  }, [])
+  const handleSurveyComplete = useCallback(
+    (surveyId: string, attemptId: string): void => {
+      safeSurveyHandlers().onComplete?.(surveyId, attemptId)
+    },
+    [],
+  )
+  const handleSurveyAbandon = useCallback(
+    (surveyId: string, attemptId: string): void => {
+      safeSurveyHandlers().onAbandon?.(surveyId, attemptId)
+      setSurveyState(null)
+      releaseSurvey()
+    },
+    [],
+  )
 
   return (
     <>
@@ -377,7 +437,9 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
         onCompleteAttempt={(attemptId, answers) =>
           UserGist.__internal_completeAttempt(attemptId, answers)
         }
-        onAbandonAttempt={(attemptId) => UserGist.__internal_abandonAttempt(attemptId)}
+        onAbandonAttempt={(attemptId) =>
+          UserGist.__internal_abandonAttempt(attemptId)
+        }
         onDismissRequest={() => {
           setSurveyState(null)
           releaseSurvey()

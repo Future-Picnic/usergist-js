@@ -11,16 +11,51 @@ export const workspaceTimezoneSchema = z
   .max(64)
   .refine(isValidIanaTimeZone, 'Enter a valid IANA timezone')
 
-export const platformSchema = z.enum(['ios', 'android', 'react-native', 'flutter', 'web'])
+export const platformSchema = z.enum([
+  'ios',
+  'android',
+  'react-native',
+  'expo',
+  'flutter',
+  'web',
+])
 
-export const writeKeyEnvironmentSchema = z.enum(['production', 'staging', 'development'])
+export const writeKeyEnvironmentSchema = z.enum([
+  'production',
+  'staging',
+  'development',
+])
 
-export const onboardingGoalSchema = z.enum(['feedback', 'survey', 'inapp', 'push', 'requests'])
-export const onboardingStatusSchema = z.enum(['in_progress', 'deferred', 'completed'])
-export const onboardingStepSchema = z.enum(['connect', 'verify', 'experience', 'push', 'launch'])
-export const onboardingPushChoiceSchema = z.enum(['pending', 'configured', 'skipped'])
+export const onboardingGoalSchema = z.enum([
+  'feedback',
+  'survey',
+  'inapp',
+  'push',
+  'requests',
+])
+export const onboardingStatusSchema = z.enum([
+  'in_progress',
+  'deferred',
+  'completed',
+])
+export const onboardingStepSchema = z.enum([
+  'connect',
+  'verify',
+  'experience',
+  'push',
+  'launch',
+])
+export const onboardingPushChoiceSchema = z.enum([
+  'pending',
+  'configured',
+  'skipped',
+])
 
-export const apiTokenScopeSchema = z.enum(['sdk:subjects', 'push.transactional'])
+export const apiTokenScopeSchema = z.enum([
+  'sdk:subjects',
+  'push.transactional',
+  'users.properties.write',
+])
 
 export const createAppSchema = z.object({
   name: z.string().min(1).max(120),
@@ -29,32 +64,52 @@ export const createAppSchema = z.object({
   environment: writeKeyEnvironmentSchema.default('production'),
   onboardingGoal: onboardingGoalSchema.optional(),
   setupMode: z.enum(['sdk', 'portal']).optional(),
-  portal: z.object({
-    appSlug: portalSlugSchema,
-    company: z.object({ displayName: z.string().trim().min(1).max(100), slug: portalSlugSchema }).strict().optional(),
-  }).strict().optional(),
+  portal: z
+    .object({
+      appSlug: portalSlugSchema,
+      company: z
+        .object({
+          displayName: z.string().trim().min(1).max(100),
+          slug: portalSlugSchema,
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .optional(),
   webConfig: webAppConfigSchema.optional(),
 })
 
 export const updateOnboardingSchema = z
   .object({
-    action: z.enum([
-      'resume',
-      'defer',
-      'create_first_feedback',
-      'first_feedback_completed',
-      'push_configured',
-      'push_skipped',
-      'complete',
-    ]).optional(),
+    action: z
+      .enum([
+        'resume',
+        'defer',
+        'create_first_inapp',
+        'first_inapp_completed',
+        'create_first_feedback',
+        'first_feedback_completed',
+        'push_configured',
+        'push_skipped',
+        'complete',
+      ])
+      .optional(),
     step: onboardingStepSchema.optional(),
     question: z.string().trim().min(1).max(500).optional(),
+    message: z.object({
+      title: z.string().trim().min(1).max(200),
+      body: z.string().trim().min(1).max(500),
+      buttonLabel: z.string().trim().min(1).max(40),
+      format: z.enum(['modal', 'slideup']),
+    }).strict().optional(),
   })
   .refine((value) => Boolean(value.action || value.step), {
     message: 'Provide an onboarding action or step',
   })
   .refine(
-    (value) => value.action !== 'create_first_feedback' || Boolean(value.question),
+    (value) =>
+      value.action !== 'create_first_feedback' || Boolean(value.question),
     { message: 'Provide a question for the first feedback experience' },
   )
 
@@ -70,7 +125,9 @@ export const updateAppSchema = z
     lifecycleEventsEnabled: z.boolean().optional(),
     webConfig: webAppConfigSchema.optional(),
   })
-  .refine((v) => Object.keys(v).length > 0, { message: 'At least one field is required' })
+  .refine((v) => Object.keys(v).length > 0, {
+    message: 'At least one field is required',
+  })
 
 export const createWriteKeySchema = z.object({
   label: z.string().min(1).max(120).optional(),
@@ -84,7 +141,11 @@ export const rotateWriteKeySchema = z.object({
 
 export const createApiTokenSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  scopes: z.array(apiTokenScopeSchema).min(1).max(8).transform((scopes) => [...new Set(scopes)]),
+  scopes: z
+    .array(apiTokenScopeSchema)
+    .min(1)
+    .max(8)
+    .transform((scopes) => [...new Set(scopes)]),
   expiresInDays: z.number().int().min(1).max(365).default(90),
 })
 
@@ -122,4 +183,6 @@ export type CreateApiTokenBody = z.infer<typeof createApiTokenSchema>
 export type CreateWorkspaceBody = z.infer<typeof createWorkspaceSchema>
 export type UpdateWorkspaceBody = z.infer<typeof updateWorkspaceSchema>
 export type InviteMemberBody = z.infer<typeof inviteMemberSchema>
-export type AcceptWorkspaceInviteBody = z.infer<typeof acceptWorkspaceInviteSchema>
+export type AcceptWorkspaceInviteBody = z.infer<
+  typeof acceptWorkspaceInviteSchema
+>

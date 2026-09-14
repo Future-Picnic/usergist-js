@@ -1,10 +1,15 @@
+import type { PersonalizationSpec } from './personalization.js'
 // ============================================================
 // Survey types — shared between API, dashboard, and SDKs.
 // A survey is a Campaign with type='survey'. The multi-step
 // question graph + branching lives here.
 // ============================================================
 
-import type { PromptTheme, FrequencyCaps, SerializedSegmentRules } from './prompt.js'
+import type {
+  PromptTheme,
+  FrequencyCaps,
+  SerializedSegmentRules,
+} from './prompt.js'
 import type { PushFrequencyCap, PushSchedule } from './campaign.js'
 import type { AudienceSpec, TriggerSpec } from './targeting.js'
 import type { ThemeMode } from './brand.js'
@@ -135,7 +140,11 @@ export type SurveyBranchOp =
   | 'answered'
   | 'unanswered'
 
-export type SurveyBranchValue = string | number | boolean | ReadonlyArray<string | number>
+export type SurveyBranchValue =
+  | string
+  | number
+  | boolean
+  | ReadonlyArray<string | number>
 
 export interface SurveyBranchCondition {
   readonly op: SurveyBranchOp
@@ -177,15 +186,21 @@ export interface SurveyEndScreen {
 
 export interface SurveyLocalization {
   readonly defaultLanguage?: string
-  readonly languages?: Readonly<Record<string, {
-    readonly questions?: ReadonlyArray<SurveyQuestion>
-    readonly endScreen?: SurveyEndScreen
-  }>>
+  readonly languages?: Readonly<
+    Record<
+      string,
+      {
+        readonly questions?: ReadonlyArray<SurveyQuestion>
+        readonly endScreen?: SurveyEndScreen
+      }
+    >
+  >
 }
 
 // ---------- Flow ----------
 
 export interface SurveyFlow {
+  readonly personalization?: PersonalizationSpec | null
   readonly startQuestionId: string
   readonly questions: ReadonlyArray<SurveyQuestion>
   readonly branches: ReadonlyArray<SurveyBranch>
@@ -211,14 +226,22 @@ export type SurveyAttemptSource =
   | 'test'
 
 export interface SurveyCampaign {
-  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly deliveryPlatforms?: ReadonlyArray<
+    import('./web.js').DeliveryPlatform
+  >
   readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly id: string
   readonly appId: string
   readonly name: string
   readonly type: 'survey'
   readonly mode: SurveyDeliveryMode
-  readonly status: 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'archived'
+  readonly status:
+    | 'draft'
+    | 'scheduled'
+    | 'active'
+    | 'paused'
+    | 'completed'
+    | 'archived'
   readonly audienceSegmentId: string | null
   readonly triggerEventName: string | null
   // Inline AudienceSpec + TriggerSpec mirroring prompts.audience/trigger.
@@ -244,6 +267,8 @@ export interface SurveyCampaign {
 }
 
 export interface SurveyCampaignWithFlow extends SurveyCampaign {
+  /** Server-authorized content snapshot; present only on an SDK response. */
+  readonly presentationId?: string
   readonly flow: SurveyFlow
 }
 
@@ -305,6 +330,13 @@ export interface SurveyOfferInstruction {
 }
 
 export interface CreateSurveyAttemptRequest {
+  /** Stable ID for an explicitly new attempt; retained across offline retries. */
+  readonly clientAttemptId?: string
+  readonly localStart?: {
+    readonly token: string
+    readonly startedAt: string
+  }
+  readonly presentationId?: string
   readonly anonymousId: string
   readonly externalId?: string | null
   readonly source: SurveyAttemptSource
@@ -316,6 +348,7 @@ export interface CreateSurveyAttemptRequest {
 }
 
 export interface CreateSurveyAttemptResponse {
+  readonly resolvedContent?: SurveyCampaignWithFlow
   readonly attemptId: string
   readonly startQuestionId: string
   readonly progressSnapshot: SurveyAnswerRecord
@@ -379,7 +412,9 @@ export interface SurveyTemplate {
 // ---------- Create / update requests ----------
 
 export interface CreateSurveyRequest {
-  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly deliveryPlatforms?: ReadonlyArray<
+    import('./web.js').DeliveryPlatform
+  >
   readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly name: string
   readonly mode: SurveyDeliveryMode
@@ -401,7 +436,9 @@ export interface CreateSurveyRequest {
 }
 
 export interface UpdateSurveyRequest extends Partial<CreateSurveyRequest> {
-  readonly deliveryPlatforms?: ReadonlyArray<import('./web.js').DeliveryPlatform>
+  readonly deliveryPlatforms?: ReadonlyArray<
+    import('./web.js').DeliveryPlatform
+  >
   readonly webPresentation?: import('./web.js').WebPresentation | null
   readonly status?: SurveyCampaign['status']
 }
@@ -440,7 +477,11 @@ export interface SurveyAnalytics {
   }
   readonly funnel: ReadonlyArray<SurveyFunnelStep>
   readonly perQuestion: ReadonlyArray<SurveyQuestionDistribution>
-  readonly npsOverTime?: ReadonlyArray<{ day: string; score: number; samples: number }>
+  readonly npsOverTime?: ReadonlyArray<{
+    day: string
+    score: number
+    samples: number
+  }>
   readonly perLanguage?: Readonly<Record<string, number>>
 }
 
@@ -453,6 +494,11 @@ export interface SurveyAnalytics {
 // on a match without a follow-up content fetch.
 
 export interface ArmedSurvey {
+  /** Server-signed, non-personalized content for a safe local start. */
+  readonly localStart?: {
+    readonly token: string
+    readonly expiresAt: string
+  }
   readonly campaignId: string
   readonly eventName: string
   readonly segmentRules?: SerializedSegmentRules | null

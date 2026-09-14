@@ -1,3 +1,4 @@
+import type { PortalSection } from './portal-content.js'
 import type { RequestStatus } from './request.js'
 
 export interface PortalApp {
@@ -22,10 +23,11 @@ export interface PortalSettings {
   apps: PortalApp[]
 }
 export interface PublicPortal {
+  contentEnabled?: boolean
   slug: string
   displayName: string
   url: string
-  apps: Pick<PortalApp, 'name' | 'slug' | 'url' | 'branding'>[]
+  apps: (Pick<PortalApp, 'name' | 'slug' | 'url' | 'branding'> & { sections?: PortalSection[]; urls?: Record<PortalSection, string> })[]
 }
 export interface PortalRequest {
   id: string
@@ -44,6 +46,7 @@ export interface PortalRequestList {
   page: number
   hasMore: boolean
 }
+export type PortalRequestCounts = { all: number } & Partial<Record<RequestStatus, number>>
 export interface PortalRequestQuery {
   q?: string
   status?: RequestStatus

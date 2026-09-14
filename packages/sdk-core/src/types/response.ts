@@ -1,3 +1,5 @@
+import type { SdkPlatform } from './event.js'
+
 export type AnswerValue =
   | number
   | string
@@ -29,4 +31,7 @@ export interface SubmitResponsePayload {
   readonly answers?: ReadonlyArray<ResponseAnswer>
   readonly dismissed?: boolean
   readonly latencyMs?: number
+  readonly platform?: SdkPlatform
+  readonly sdkVersion?: string
+  readonly appVersion?: string
 }

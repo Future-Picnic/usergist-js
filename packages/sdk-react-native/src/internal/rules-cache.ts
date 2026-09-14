@@ -10,6 +10,7 @@ import type { Transport } from './transport.js'
 import type { StoredRulesCache } from './types.js'
 
 export interface RulesCache {
+  readonly needsServer: (eventName: string) => boolean
   readonly hydrate: () => Promise<void>
   readonly refresh: (params: {
     readonly anonymousId: string
@@ -28,6 +29,7 @@ export function createRulesCache(
 ): RulesCache {
   let triggers: ReadonlyArray<ArmedTrigger> = []
   let byEvent: Readonly<Record<string, ReadonlyArray<ArmedTrigger>>> = {}
+  let deliveryEventNames: ReadonlyArray<string> = []
   let fetchedAt = 0
   let hydrated = false
   let inflight: Promise<ReadonlyArray<ArmedTrigger>> | null = null
@@ -46,11 +48,13 @@ export function createRulesCache(
   }
 
   return {
+    needsServer: (eventName) => deliveryEventNames.includes(eventName),
     async hydrate(): Promise<void> {
       if (hydrated) return
       try {
         const stored = await storage.getJson<StoredRulesCache>(STORAGE_KEYS.rulesCache)
         if (stored?.triggers) {
+          deliveryEventNames = stored.deliveryEventNames ?? []
           triggers = stored.triggers
           byEvent = indexByEvent(triggers)
           fetchedAt = Date.parse(stored.fetchedAt)
@@ -69,10 +73,12 @@ export function createRulesCache(
       inflight = (async () => {
         try {
           const res = await transport.armedTriggers({ anonymousId, externalId })
+          deliveryEventNames = res.deliveryEventNames ?? []
           triggers = res.triggers
           byEvent = indexByEvent(triggers)
           fetchedAt = Date.now()
           const cache: StoredRulesCache = {
+            deliveryEventNames,
             triggers,
             fetchedAt: new Date(fetchedAt).toISOString(),
             serverTime: res.serverTime,
@@ -93,6 +99,8 @@ export function createRulesCache(
     getForEvent: (eventName): ReadonlyArray<ArmedTrigger> => byEvent[eventName] ?? [],
     all: (): ReadonlyArray<ArmedTrigger> => triggers,
     async clear(): Promise<void> {
+      await inflight?.catch(() => undefined)
+      deliveryEventNames = []
       triggers = []
       byEvent = {}
       fetchedAt = 0

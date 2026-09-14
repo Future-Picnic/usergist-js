@@ -2,11 +2,16 @@ import { generateEventId } from './identity.js'
 import { STORAGE_KEYS, type StorageScope } from './storage.js'
 import { reportError } from './debug.js'
 
-export type MutationPurpose = 'essential' | 'feedback' | 'survey'
+export type MutationPurpose =
+  | 'essential' | 'feedback' | 'survey' | 'analytics'
 export type MutationKind =
   | 'identify'
+  | 'instruction-ack'
+  | 'user-properties'
   | 'feedback-response'
   | 'survey-complete'
+  | 'survey-start'
+  | 'survey-progress'
   | 'survey-abandon'
 
 export interface PendingMutation {
@@ -49,10 +54,13 @@ export function createMutationQueue(storage: StorageScope): MutationQueue {
       const previous = items
       try {
         fn()
-        await storage.setJsonStrict<PersistedMutations>(STORAGE_KEYS.mutationQueue, {
-          version: 1,
-          items,
-        })
+        await storage.setJsonStrict<PersistedMutations>(
+          STORAGE_KEYS.mutationQueue,
+          {
+            version: 1,
+            items,
+          },
+        )
       } catch (error) {
         items = previous
         throw error
@@ -67,8 +75,11 @@ export function createMutationQueue(storage: StorageScope): MutationQueue {
   return {
     async hydrate(): Promise<void> {
       if (hydrated) return
-      const stored = await storage.getJson<PersistedMutations>(STORAGE_KEYS.mutationQueue)
-      if (stored?.version === 1 && Array.isArray(stored.items)) items = stored.items
+      const stored = await storage.getJson<PersistedMutations>(
+        STORAGE_KEYS.mutationQueue,
+      )
+      if (stored?.version === 1 && Array.isArray(stored.items))
+        items = stored.items
       hydrated = true
     },
     async enqueue(kind, purpose, payload, dedupeKey): Promise<string> {
@@ -81,21 +92,47 @@ export function createMutationQueue(storage: StorageScope): MutationQueue {
           id = existing.id
           return
         }
-        const next = { id, kind, purpose, payload, createdAt: new Date().toISOString(), dedupeKey }
+        const next = {
+          id,
+          kind,
+          purpose,
+          payload,
+          createdAt: new Date().toISOString(),
+          dedupeKey,
+        }
+        if (kind === 'survey-progress' && typeof payload.attemptId === 'string') {
+          // Each keystroke contains the entire resume snapshot. Keep the newest
+          // unsent snapshot per attempt so completion does not wait for every
+          // intermediate text value. A fresh id protects a replacement from
+          // removal when an older in-flight PATCH finishes.
+          for (let index = items.length - 1; index >= 0; index--) {
+            const pending = items[index]!
+            if (pending.payload.attemptId !== payload.attemptId) continue
+            if (pending.kind !== 'survey-progress') break
+            items = items.map((item, position) => position === index ? next : item)
+            return
+          }
+        }
         items = purpose === 'essential' ? [next, ...items] : [...items, next]
       })
       return id
     },
     peek: () => items[0] ?? null,
     async remove(id): Promise<void> {
-      await mutate(() => { items = items.filter((item) => item.id !== id) })
+      await mutate(() => {
+        items = items.filter((item) => item.id !== id)
+      })
     },
     async removePurpose(purpose): Promise<void> {
-      await mutate(() => { items = items.filter((item) => item.purpose !== purpose) })
+      await mutate(() => {
+        items = items.filter((item) => item.purpose !== purpose)
+      })
     },
     has: (id): boolean => items.some((item) => item.id === id),
     async clear(): Promise<void> {
-      await mutate(() => { items = [] })
+      await mutate(() => {
+        items = []
+      })
     },
     size: () => items.length,
   }

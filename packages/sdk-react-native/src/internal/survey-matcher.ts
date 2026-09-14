@@ -28,6 +28,7 @@ export interface SurveyMatcher {
   readonly evaluate: (eventName: string) => string | null
   /** Commits cap/cooldown state after the survey route actually appears. */
   readonly recordShown: (campaignId: string, at?: number) => void
+  readonly cancelPending: (campaignId: string) => void
   /** Releases process-local reservations during reset. */
   readonly resetPending: () => void
 }
@@ -102,7 +103,7 @@ export function createSurveyMatcher(params: {
     if (pendingCampaignIds.has(armed.campaignId)) return false
     const cap = frequencyCaps.canShow(
       `survey:${armed.campaignId}`,
-      toPromptCaps(armed.frequencyCap),
+      toPromptCaps(armed.frequencyCap)
     )
     if (!cap.ok) {
       logTrace({
@@ -162,6 +163,9 @@ export function createSurveyMatcher(params: {
     resetPending() {
       pendingCampaignIds.clear()
       cooldownByCampaign.clear()
+    },
+    cancelPending(campaignId) {
+      pendingCampaignIds.delete(campaignId)
     },
   }
 }

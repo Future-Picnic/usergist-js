@@ -16,7 +16,12 @@ Status legend:
 | `init(...)` / `initAsync(...)` | full | full | full | full |
 | `identify(...)` / `identifyAsync(...)` | full | full | full | full |
 | `track(name, properties)` | full | full | full | full |
+| `setUserProperties(properties, unset)` | full | missing | missing | missing |
+| Online dynamic personalization (`personalization.v1`) | full | missing | missing | missing |
+| Primary push tap JSON (`push.json-open.v1`) | full | missing | missing | missing |
 | `setConsent({ analytics, feedback, push, survey })` | full | full | full | full |
+| `pausePresentation()` | full | full | full | full |
+| `resumePresentation()` | full | full | full | full |
 | `reset()` | full | full | full | full |
 | `flush()` | full | full | full | full |
 | `setDebug(enabled)` | full | full | full | full |
@@ -74,6 +79,8 @@ Status legend:
 
 ## Implementation notes
 
+- **Dynamic personalization** — React Native and the web SDK support typed profile updates and online recipient resolution. Native-only iOS, Android and Flutter SDK support is not included in this release; capability gates exclude older clients from versioned personalized delivery. Personalized survey attempts retain server snapshots; offline reopening after a process restart is not part of this capability. The [Movie Lab guide](../tools/demo-fixtures/README.md) describes the tested scope.
+
 - **Native surveys** — iOS (`NativeSurveyView` / `SurveyHost`), Android (`SurveyActivity`), and Flutter (`SurveyPresenter`) render the full question contract, local branching, validation, and relaunch-safe progress. Completion ends as soon as the encrypted mutation queue accepts the answers; transient delivery failures retry in the background without trapping the user on a Retry screen, while permanent rejection or reset still fails the transition. `openSurvey` uses `GET /v1/sdk/surveys/{id}` plus the server-owned attempt endpoints, with cached armed content as the local-fire fast path.
 - **Authenticated subjects and delivery** — every SDK creates or resumes an anonymous session at `/v1/sdk/session`, applies `X-UserGist-Subject-Token` to protected calls, and sends identify with a request-scoped replacement credential so concurrent calls keep the last confirmed subject. Installation identity rotates only after an explicit 401/403/409 credential conflict; transient session failures preserve anonymous identity and retry. All implementations isolate ingest batches by anonymous/external identity and poll the cursor-based instruction inbox only after local dedupe state is persisted.
 - **Client-side campaigns** — only payloads explicitly marked `clientSideEligible` may fire without a server instruction. Prompt and survey segment/frequency rules use persisted identify properties and bounded event history. Matching server instructions are deduplicated by `triggerEventId`, with the latest 200 locally rendered campaign/event pairs persisted across relaunches on every SDK.
@@ -122,3 +129,29 @@ The `--allow` escape hatch remains available for an intentionally staged React N
   the host app's environment (`USERGIST_TLS_PIN_LEAF`,
   `USERGIST_TLS_PIN_BACKUP`) when its threat model requires pinning. Empty pins
   fall back to system trust.
+
+## Startup readiness contract
+
+Initialize with `presentationPaused` enabled at app launch. Analytics, consent,
+identity, and networking continue while campaign UI waits. After the existing
+startup loading and navigation have finished and the loaded screen is visible,
+call `resumePresentation()`. Mount any required UserGist UI provider before that
+callback. Readiness must work for both anonymous and identified users.
+
+Call `pausePresentation()` before another flow that must not be interrupted.
+Pausing does not dismiss an already visible SDK surface. Queued feedback,
+surveys, and in-app messages are discarded if their consent is withdrawn or
+the user changes, even if consent is granted again before resuming. Repeated
+initialization keeps the first readiness setting; repeated resume calls do not
+show the same queued work twice. The option defaults to false for existing
+integrations, so upgrading alone does not enable startup deferral.
+
+Do not resume from a splash screen, an app-root mount that still shows loading,
+a disappearing screen, or a fixed timer. Use the host's existing completion
+callback; the SDK cannot infer when arbitrary startup navigation has finished.
+
+
+The same readiness controls apply to Web and React Native/Expo. Native lifecycle
+checks still apply after the host resumes presentation. A release requires tests
+for startup pause, repeated init/resume, consent revocation and regrant, identity
+changes, and pausing while another SDK surface is active.

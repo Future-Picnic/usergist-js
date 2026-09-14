@@ -41,6 +41,31 @@ if (result === 'synced') {
 
 Analytics is independent of feedback and survey consent. The SDK emits `$app_open` after explicit activation only when analytics consent is granted. It does not collect pageviews, URLs, clicks or form fields automatically. Call `track()` for events and `setPageContext()` for page targeting. No web push, notification permissions, service worker or push credentials are used.
 
+## Startup presentation readiness
+
+Initialize with `presentationPaused` enabled at app launch. Analytics, consent,
+identity, and networking continue while campaign UI waits. After the existing
+startup loading and navigation have finished and the loaded screen is visible,
+call `resumePresentation()`. Mount any required UserGist UI provider before that
+callback. Readiness must work for both anonymous and identified users.
+
+Call `pausePresentation()` before another flow that must not be interrupted.
+Pausing does not dismiss an already visible SDK surface. Queued feedback,
+surveys, and in-app messages are discarded if their consent is withdrawn or
+the user changes, even if consent is granted again before resuming. Repeated
+initialization keeps the first readiness setting; repeated resume calls do not
+show the same queued work twice. The option defaults to false for existing
+integrations, so upgrading alone does not enable startup deferral.
+
+Do not resume from a splash screen, an app-root mount that still shows loading,
+a disappearing screen, or a fixed timer. Use the host's existing completion
+callback; the SDK cannot infer when arbitrary startup navigation has finished.
+
+```ts
+// In the loaded screen’s existing startup/navigation completion callback:
+usergist.resumePresentation()
+```
+
 ## Mint subject tokens on your backend
 
 Your authenticated server calls `POST /v1/apps/:appId/sdk/subject-tokens` with an API token that has the `sdk:subjects` scope. Send `{ "externalId": "your-authenticated-user-id" }`, deriving that ID from your server session. Return `data.subjectToken` to the browser as `{ subjectToken }` from your own `/api/usergist-token` endpoint. A client write key cannot mint identified subject tokens.
@@ -52,7 +77,12 @@ Your authenticated server calls `POST /v1/apps/:appId/sdk/subject-tokens` with a
 3. In **Design**, use **Web presentation** below the theme settings to choose layout, size, position and backdrop. The preview switcher offers **Native**, **Web desktop** and **Web mobile**; only desktop has **Enlarge preview** below it. Previews send no responses.
 4. Activate the SDK for the intended user, grant analytics consent plus the experience's consent, and call `track()` with the exact configured event name. For page rules, call `setPageContext({ screenName })` first.
 
-Event-triggered feedback opens automatically after event processing and a visible-tab poll; `track()` itself does not immediately open UI. You do not also need `openFeedback()` for that trigger. Direct open methods are available for your own buttons.
+With the immediate-delivery API and SDK release, tracked events can return
+authorized feedback, in-app messages or surveys in the ingest response, without
+waiting for the next visible-tab poll. Polling remains a recovery path. `track()`
+queues work and does not synchronously open UI; an online eligibility decision is
+still required. You do not also need `openFeedback()` for that trigger. Direct
+open methods are available for your own buttons.
 
 The browser waits while another experience is open, and scans past instructions it cannot currently display. If an authorization response is lost, the same client can recover its unshown delivery; another tab cannot claim it. Campaign eligibility and frequency limits still apply.
 
@@ -69,6 +99,34 @@ await anonymousUsergist.startAnonymous()
 ```
 
 Call `await usergist.reset()` on host logout before identifying a different account. It closes UI, cancels in-flight work, clears pending work for the client, ends its server session, and tells other active tabs for that user to reset. It does not withdraw that user's consent or invalidate native push registrations. `destroy()` also releases subscriptions; create a fresh client to use the SDK again.
+
+## User properties and personalization
+
+After explicit activation and analytics consent:
+
+```ts
+await usergist.setUserProperties({ first_name: 'Ava', country: 'IL' })
+usergist.track('show_watched', {
+  show_id: '00123',
+  show_title: 'Midnight Orbit',
+  position_seconds: 1234,
+})
+await usergist.setUserProperties({}, ['first_name']) // Explicit unset
+```
+
+Both anonymous and identified users can have saved properties. Updates accept
+flat strings, finite numbers, booleans or null and use the identity-bound durable
+queue. The method returns a promise, not the React Native status string; queued
+updates need to reach the server before recipient previews can use them.
+Analytics consent and the app's exact privacy allow-list apply.
+
+Use **Insert field** in the dashboard for user properties, latest activity or the
+triggering event. JSON action values can preserve a string show ID and numeric
+playback position; pass `onAction` in `init` to route the received data in your app.
+See the [personalization guide](../../apps/landing/src/app/docs/(content)/guides/personalize-messages/page.mdx)
+for source selection, shared movie fields, fallbacks and preview. New personalized
+experiences require online resolution. The native cached-survey start permission
+does not apply to web.
 
 ## Experiences
 

@@ -42,6 +42,7 @@ export interface QueuedEvent {
 }
 
 export interface StoredRulesCache {
+  readonly deliveryEventNames?: ReadonlyArray<string>
   readonly triggers: ReadonlyArray<ArmedTrigger>
   readonly fetchedAt: string
   readonly serverTime: string
@@ -49,6 +50,7 @@ export interface StoredRulesCache {
 }
 
 export interface StoredSurveyRulesCache {
+  readonly deliveryEventNames?: ReadonlyArray<string>
   readonly surveys: ReadonlyArray<import('@usergist/sdk-core/mobile').ArmedSurvey>
   readonly fetchedAt: string
   readonly serverTime: string
@@ -91,7 +93,8 @@ export interface ShowPromptPayload {
 
 export interface ResponseEmission {
   readonly promptId: string
-  readonly answers: ReadonlyArray<{ questionId: string; value: number | string | ReadonlyArray<string> | null }>
+  readonly answers: ReadonlyArray<{ questionId: string
+    value: number | string | ReadonlyArray<string> | null }>
   readonly dismissed: boolean
   readonly latencyMs: number
 }

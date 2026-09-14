@@ -48,3 +48,10 @@ export * as schemas from './schemas/index.js'
 
 export * from './types/web.js'
 export * from './types/portal.js'
+export * from './types/portal-content.js'
+export * from './types/mcp.js'
+
+export * from './types/personalization.js'
+export * from './personalization.js'
+
+export * from './presentation.js'

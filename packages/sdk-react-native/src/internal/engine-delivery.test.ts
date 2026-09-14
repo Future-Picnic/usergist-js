@@ -1,3 +1,4 @@
+import { PresentationGate } from '@usergist/sdk-core/mobile'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   enqueueAndEvaluate,
@@ -52,7 +53,8 @@ describe('survey offer reconciliation', () => {
     const emit = vi.fn()
     const setJson = vi.fn(async () => undefined)
     const engine = {
-      consent: { get: () => ({ survey: true }) },
+      presentation: new PresentationGate(),
+      consent: { get: () => ({ survey: true }), allowsSurvey: () => true },
       identity: { get: () => ({ anonymousId: 'anonymous-a', externalId: null }) },
       transport: {
         surveysAvailable: vi.fn(async () => ({
@@ -71,6 +73,31 @@ describe('survey offer reconciliation', () => {
 
     expect(emit).not.toHaveBeenCalled()
     expect(setJson).toHaveBeenCalledWith('surveys:seen-offers', ['survey-1'])
+  })
+})
+
+describe('survey offer readiness', () => {
+  it('drops an offer fetched before consent was withdrawn and restored', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2030-01-01'))
+    const presentation = new PresentationGate(true)
+    const emit = vi.fn()
+    const engine = {
+      presentation,
+      consent: { get: () => ({ survey: true }), allowsSurvey: () => true },
+      identity: { get: () => ({ anonymousId: 'anonymous-a', externalId: null }) },
+      transport: { surveysAvailable: async () => {
+        presentation.invalidate('survey')
+        return { surveys: [{ id: 'stale', name: 'Survey', source: 'triggered' }] }
+      } },
+      storage: { getJson: async () => [], setJson: vi.fn() },
+      events: { emit },
+      locallyHandledSurveyIds: new Set(),
+    } as unknown as Engine
+    await pollSurveyOffers(engine)
+    presentation.setPaused(false)
+    expect(emit).not.toHaveBeenCalled()
+    expect(engine.storage.setJson).not.toHaveBeenCalled()
   })
 })
 

@@ -10,6 +10,7 @@ import type { Transport } from './transport.js'
 import type { StoredSurveyRulesCache } from './types.js'
 
 export interface SurveyRulesCache {
+  readonly needsServer: (eventName: string) => boolean
   readonly hydrate: () => Promise<void>
   readonly refresh: (params: {
     readonly anonymousId: string
@@ -30,6 +31,7 @@ export function createSurveyRulesCache(
   let surveys: ReadonlyArray<ArmedSurvey> = []
   let byEvent: Readonly<Record<string, ReadonlyArray<ArmedSurvey>>> = {}
   let byId: Readonly<Record<string, ArmedSurvey>> = {}
+  let deliveryEventNames: ReadonlyArray<string> = []
   let fetchedAt = 0
   let hydrated = false
   let inflight: Promise<ReadonlyArray<ArmedSurvey>> | null = null
@@ -50,6 +52,7 @@ export function createSurveyRulesCache(
   }
 
   return {
+    needsServer: (eventName) => deliveryEventNames.includes(eventName),
     async hydrate(): Promise<void> {
       if (hydrated) return
       try {
@@ -57,6 +60,7 @@ export function createSurveyRulesCache(
           STORAGE_KEYS.surveyRulesCache,
         )
         if (stored?.surveys) {
+          deliveryEventNames = stored.deliveryEventNames ?? []
           surveys = stored.surveys
           reindex(surveys)
           fetchedAt = Date.parse(stored.fetchedAt)
@@ -75,10 +79,12 @@ export function createSurveyRulesCache(
       inflight = (async () => {
         try {
           const res = await transport.armedSurveys({ anonymousId, externalId })
+          deliveryEventNames = res.deliveryEventNames ?? []
           surveys = res.surveys
           reindex(surveys)
           fetchedAt = Date.now()
           const cache: StoredSurveyRulesCache = {
+            deliveryEventNames,
             surveys,
             fetchedAt: new Date(fetchedAt).toISOString(),
             serverTime: res.serverTime,
@@ -100,6 +106,8 @@ export function createSurveyRulesCache(
     getById: (campaignId): ArmedSurvey | undefined => byId[campaignId],
     all: (): ReadonlyArray<ArmedSurvey> => surveys,
     async clear(): Promise<void> {
+      await inflight?.catch(() => undefined)
+      deliveryEventNames = []
       surveys = []
       byEvent = {}
       byId = {}

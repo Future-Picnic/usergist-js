@@ -7,6 +7,37 @@ passed end-to-end physical-device validation; each host app still needs its own
 provider credentials, identifiers, native callback setup, and signed-device
 acceptance test.
 
+## Expo
+
+Expo 56/57 development and production build integration is being validated for
+0.2. Use the same package with its config plugin; see [EXPO.md](EXPO.md).
+Expo Go cannot load the native bridge. See [release gates](EXPO-ACCEPTANCE.md).
+
+## Startup presentation readiness
+
+Initialize with `presentationPaused` enabled at app launch. Analytics, consent,
+identity, and networking continue while campaign UI waits. After the existing
+startup loading and navigation have finished and the loaded screen is visible,
+call `resumePresentation()`. Mount any required UserGist UI provider before that
+callback. Readiness must work for both anonymous and identified users.
+
+Call `pausePresentation()` before another flow that must not be interrupted.
+Pausing does not dismiss an already visible SDK surface. Queued feedback,
+surveys, and in-app messages are discarded if their consent is withdrawn or
+the user changes, even if consent is granted again before resuming. Repeated
+initialization keeps the first readiness setting; repeated resume calls do not
+show the same queued work twice. The option defaults to false for existing
+integrations, so upgrading alone does not enable startup deferral.
+
+Do not resume from a splash screen, an app-root mount that still shows loading,
+a disappearing screen, or a fixed timer. Use the host's existing completion
+callback; the SDK cannot infer when arbitrary startup navigation has finished.
+
+```ts
+// In the loaded screen’s existing startup/navigation completion callback:
+UserGist.resumePresentation()
+```
+
 ## Install
 
 ```bash
@@ -35,6 +66,7 @@ const identityResult = await UserGist.initAsync(
     apiUrl: 'https://api.usergist.com',
     environment: 'production',
     debug: __DEV__,
+    presentationPaused: true,
   },
   {
     userId: 'user_42',
@@ -66,6 +98,7 @@ AppRegistry.registerComponent('app', () => App)
 | `UserGist.init(config)` | Returns synchronously, then hydrates and establishes the anonymous session in the background. |
 | `await UserGist.initAsync(config, initialIdentity?)` | Hydrates and optionally binds a server-proven identity before lifecycle events begin; returns `synced`, `queued`, or `rejected`. |
 | `UserGist.identify(userId, props?, subjectToken)` | Links the anonymous installation using a customer-backend-minted subject token. |
+| `await UserGist.setUserProperties(values, unsetKeys?)` | Saves flat properties for the current anonymous or identified user; returns `synced`, `queued`, or `rejected`. Requires analytics consent. |
 | `await UserGist.identifyAsync(userId, props?, subjectToken)` | Backward-compatible async identity API returning `synced`, `queued`, or `rejected`. |
 | `UserGist.track(name, props?)` | Enqueues a stable event id and immediately evaluates only server-authorized client-side campaigns; all other decisions remain server-authoritative. |
 | `await UserGist.setConsent({ analytics?, feedback?, push?, survey? })` | Persists and synchronizes the transition, refreshes targeting rules, then resolves with `true`; returns `false` when synchronization fails. |
@@ -102,6 +135,39 @@ UserGist.init(config)
 
 The adapter uses the same asynchronous string interface as AsyncStorage, so it
 can wrap the host application's Keychain/Keystore-backed storage.
+
+## Personalization and immediate engagement
+
+Use `await UserGist.setUserProperties({ first_name: 'Ava', country: 'IL' })` for
+current profile values and `UserGist.track('show_watched', { show_id: '00123',
+show_title: 'Midnight Orbit', position_seconds: 1234 })` for activity. Unset a
+property with `await UserGist.setUserProperties({}, ['first_name'])`. Sensitive
+fields follow the app's privacy allow-list. Both anonymous and identified users
+are supported; await reset before switching accounts.
+
+The dashboard's field picker can use a saved property, one latest matching event,
+or the triggering event. Reuse one activity source for related title/ID/position
+fields. Whole-value JSON tokens preserve types; your JSON action handler owns
+navigation. See the [personalization guide](../../apps/landing/src/app/docs/(content)/guides/personalize-messages/page.mdx)
+for authoring, fallbacks, recipient preview and a complete movie example.
+
+With the matching API release, known server-dependent engagement events flush
+immediately and can receive authorized content in the ingest response. Cached
+native feedback/in-app matching remains local. Selecting web plus mobile retains
+server consent/frequency checks while avoiding deliberate batch and polling waits.
+
+Coordinated surveys can carry a prepared attempt. Eligible repeatable, uncapped,
+non-personalized surveys can start from a signed cached permission valid for ten
+minutes; already-started sessions can upload for seven days. The SDK saves the
+original content and answers before background synchronization. Persistent storage
+is required for recovery after termination; completion retains its submission/retry
+handling. With a custom `onInvite` handler, `openSurvey(surveyId)` retains the
+invitation's authorized questions and triggering-event values. An invitation does
+not start a session until opened; failed starts retry the same attempt ID. Pending
+invitations are identity-bound and expire with the instruction (at most 24 hours);
+reset or survey-consent withdrawal clears them. On-demand/link resume remains
+available. New personalized surveys still need online resolution. See the
+[delivery and rollout notes](../../infra/docs/immediate-engagement.md).
 
 ## Architecture
 
