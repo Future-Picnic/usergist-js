@@ -114,7 +114,9 @@ existing tag resolves to the exact filtered commit before continuing.
 
 ## Startup presentation readiness release
 
-Core, Web, native iOS, Android, and Flutter advance to 0.1.2. The stable React
+Core, Web, native iOS, and Android advance to 0.1.2. Flutter first shipped
+0.1.2 for presentation readiness, then advances independently to 0.1.3 so
+network warm-up cannot hold the host first frame. The stable React
 Native 0.1.2 patch is backported onto private commit `e6f83c3`, matching published
 `rn-v0.1.1`; it contains readiness controls without promoting Expo. The current
 React Native/Expo development line advances to 0.2.0-beta.1 on npm `next` and
