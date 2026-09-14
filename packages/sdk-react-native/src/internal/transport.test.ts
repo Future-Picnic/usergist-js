@@ -56,7 +56,7 @@ describe('transport retry classification', () => {
       context: {
         anonymousId: 'anonymous-a',
         externalId: null,
-        sdkVersion: '0.1.0',
+        sdkVersion: '0.1.2',
         platform: 'react-native',
       },
       events: [{
@@ -108,7 +108,7 @@ describe('transport retry classification', () => {
     vi.stubGlobal('fetch',fetchMock)
     const transport=createTransport({writeKey:'rk_dev_test',apiUrl:'https://api.example.test'})
     transport.setSubjectToken('st_test')
-    await transport.instructions(42,{anonymousId:'native-alias',platform:'ios',sdkVersion:'0.1.0'})
+    await transport.instructions(42,{anonymousId:'native-alias',platform:'ios',sdkVersion:'0.1.2'})
     const input=(fetchMock.mock.calls as unknown as Array<[string]>)[0]![0]
     const url=new URL(input)
     expect(Object.fromEntries(url.searchParams)).toMatchObject({after:'42',protocolVersion:'2',anonymousId:'native-alias',platform:'ios'})

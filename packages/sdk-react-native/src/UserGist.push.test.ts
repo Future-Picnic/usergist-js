@@ -1,3 +1,4 @@
+import { PresentationGate } from '@usergist/sdk-core/mobile'
 import { beforeEach, expect, it, vi } from 'vitest'
 const fixture = vi.hoisted(() => ({ engine: null as any }))
 vi.mock('react-native', () => ({ Platform: { OS: 'ios' }, AppState: { addEventListener: vi.fn() } }))
@@ -26,6 +27,7 @@ beforeEach(() => {
     identity: { get: () => ({ anonymousId: 'old-account', externalId: null }) },
     consent: { get: () => ({ push, feedback, version }), allowsPush: () => push, allowsFeedback: () => feedback, set: async (v: { push?: boolean; feedback?: boolean }) => { push = v.push ?? push; feedback = v.feedback ?? feedback; version++; return { push, feedback, version } } },
     lifecycle: { start() {} }, events: { emit: vi.fn() }, storage: { setJson: vi.fn(async () => {}) },
+    presentation: new PresentationGate(),
     resetting: false, resetGeneration: 0, lastPushToken: null, lastPushRegistrationKey: null, lastPushRegistrationAt: 0,
     transport: { pushRegisterToken: vi.fn(async () => {}), pushInvalidateToken: vi.fn(async () => {}), consent: vi.fn(async () => {}) },
   }

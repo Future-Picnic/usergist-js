@@ -2,7 +2,7 @@
 
 UserGist normally ships the JavaScript, iOS, Android, and Flutter SDKs as one
 release train. `packages/SDK_VERSION` is the canonical train version, while an
-SDK-specific `SDK_VERSION` file may record a registry-only patch that must not
+SDK-specific `SDK_VERSION` file may record an independent patch that must not
 rewrite an existing public tag. CI rejects drift in package metadata or runtime
 headers.
 
@@ -61,18 +61,20 @@ self-review disabled.
 
 ## Development validation
 
-The complete cross-platform matrix is intentionally **manual** while UserGist
-is under active development. Ordinary pull requests and pushes to `main` do not
-start it or consume its hosted-runner budget.
+Run the relevant package checks locally while developing. Before a coordinated
+release, open a reviewed, non-draft SDK PR and run the public validation bridge:
 
-- During day-to-day work, run the relevant package checks locally.
-- Before a coordinated SDK release or after a shared protocol change, open
-  **Actions → SDK full validation (manual) → Run workflow**, select the exact
-  candidate branch, and enter the reason.
-- The CLI equivalent is
-  `gh workflow run sdk-ci.yml --ref <candidate-branch> -f reason="<reason>"`.
-- Tag-driven release workflows independently revalidate the SDK they are about
-  to publish. A failed check stops before the public mirror or registry changes.
+```sh
+node sdk-mirrors/js/tools/sdk-ci/bridge.mjs --pr <number>
+```
+
+Reconcile after the public builds finish. See `infra/docs/public-sdk-ci.md` for
+snapshot isolation and exact-source checks. The old private full-validation
+jobs are disabled; they do not provide release evidence.
+
+Tag-driven native releases independently revalidate their SDK. `--sdk-only`
+checks package versions without requiring the not-yet-deployed app setup docs.
+The default version check still includes those docs during the product rollout.
 
 ## Release train
 
@@ -80,8 +82,8 @@ start it or consume its hosted-runner budget.
 2. Run `pnpm sdk:set-version X.Y.Z`, then `pnpm install --lockfile-only`.
 3. Run the affected SDK checks locally, then open and review a pull request.
 4. Merge the exact reviewed commit to `main`.
-5. Intentionally run **SDK full validation (manual)** on `main` and wait for all
-   five jobs to pass.
+5. Verify the public SDK checks passed for the reviewed source and that each
+   release-specific archive/native gate passed.
 6. Create annotated tags on that same commit:
 
    ```sh
@@ -109,6 +111,52 @@ source and `vX.Y.Z` tag; that tag triggers the public mirror's `publish.yml`
 workflow, which publishes through pub.dev's short-lived OIDC authentication.
 Release retries never rewrite a public tag: the mirror step verifies that an
 existing tag resolves to the exact filtered commit before continuing.
+
+## Startup presentation readiness release
+
+Core, Web, native iOS, and Android advance to 0.1.2. Flutter first shipped
+0.1.2 for presentation readiness, then advances independently to 0.1.3 so
+network warm-up cannot hold the host first frame. The stable React
+Native 0.1.2 patch is backported onto private commit `e6f83c3`, matching published
+`rn-v0.1.1`; it contains readiness controls without promoting Expo. The current
+React Native/Expo development line advances to 0.2.0-beta.1 on npm `next` and
+must pass its exact-archive native build evidence gate. Stable Expo still needs
+signed physical-device acceptance; do not promote the beta to bypass that gate.
+
+Validate each candidate before publishing. Use the public SDK validation bridge
+in `infra/docs/public-sdk-ci.md`; the legacy private full-validation jobs are
+intentionally disabled. Run the local native tests and hosted iOS startup
+regression as well. Stable React Native and Expo must each validate their own
+release archive.
+
+Publish core before dependent npm packages, then the native packages and both
+React Native channels. The shared JavaScript release can stage core/Web without
+promoting a separately versioned React Native prerelease. Stable React Native
+uses `rn-v0.1.2`; Expo uses `rn-v0.2.0-beta.1`. Never overwrite a public tag.
+Npm staging still requires the maintainer's security-key approval.
+
+Only deploy dashboard/docs requiring the readiness APIs after their referenced
+packages resolve from the public registries. A DigitalOcean deployment does not
+publish SDKs or update customer lockfiles. Customers must update, rebuild,
+initialize with presentation paused, and resume after startup navigation. The
+option defaults to false for compatibility and does not require sign-in.
+
+## Welcome-message onboarding rollout
+
+Apply `infra/postgres/migrations/0049_onboarding_first_inapp.sql` before running
+the updated API or workers. Production API startup runs pending Postgres
+migrations. Deploy the API before the dashboard: the dashboard uses the new
+`create_first_inapp` and `first_inapp_completed` onboarding actions. Existing
+feedback onboarding remains supported during rollout.
+
+Build the workspace core package before the API/dashboard. These shared
+onboarding contracts do not require customers to install a new client SDK.
+Setup instructions require the startup-readiness SDK releases described above.
+
+The welcome example activates for everyone on app open, with one impression per
+user. Completion requires a real shown event and pauses the example before
+advancing. Its delivery proof is stored on the app without personal identifiers,
+so ingest-outbox retention cannot erase onboarding progress.
 
 ## Post-release verification
 

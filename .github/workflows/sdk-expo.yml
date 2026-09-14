@@ -30,6 +30,7 @@ jobs:
         name: Build and verify the single release candidate
         run: |
           mkdir -p "$RUNNER_TEMP/sdk-candidate"
+          pnpm --dir packages/sdk-core pack --pack-destination "$RUNNER_TEMP/sdk-candidate"
           pnpm --dir packages/sdk-react-native pack --pack-destination "$RUNNER_TEMP/sdk-candidate"
           sdk_version=$(node -p 'require("./packages/sdk-react-native/package.json").version')
           filename="usergist-feedback-react-native-$sdk_version.tgz"
@@ -66,6 +67,8 @@ jobs:
         with:
           name: usergist-react-native-candidate
           path: ${{ runner.temp }}/sdk-candidate
+      - name: Use the matching core archive
+        run: echo "USERGIST_CORE_ARCHIVE=$(find '${{ runner.temp }}/sdk-candidate' -name 'usergist-sdk-core-*.tgz' -print -quit)" >> "$GITHUB_ENV"
       - id: bare
         run: node tools/expo/create-bare-consumer.mjs '${{ runner.temp }}/sdk-candidate/${{ needs.archive.outputs.filename }}'
       - name: Android baseline without Expo dependencies
@@ -118,6 +121,8 @@ jobs:
         with:
           name: usergist-react-native-candidate
           path: ${{ runner.temp }}/sdk-candidate
+      - name: Use the matching core archive
+        run: echo "USERGIST_CORE_ARCHIVE=$(find '${{ runner.temp }}/sdk-candidate' -name 'usergist-sdk-core-*.tgz' -print -quit)" >> "$GITHUB_ENV"
       - id: fixture
         run: node tools/expo/create-consumer.mjs '${{ matrix.sdk }}' '${{ matrix.mode }}' '${{ runner.temp }}/sdk-candidate/${{ needs.archive.outputs.filename }}'
       - run: node tools/expo/verify-consumer.mjs '${{ steps.fixture.outputs.consumer }}'

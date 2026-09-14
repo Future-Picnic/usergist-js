@@ -20,6 +20,8 @@ Status legend:
 | Online dynamic personalization (`personalization.v1`) | full | missing | missing | missing |
 | Primary push tap JSON (`push.json-open.v1`) | full | missing | missing | missing |
 | `setConsent({ analytics, feedback, push, survey })` | full | full | full | full |
+| `pausePresentation()` | full | full | full | full |
+| `resumePresentation()` | full | full | full | full |
 | `reset()` | full | full | full | full |
 | `flush()` | full | full | full | full |
 | `setDebug(enabled)` | full | full | full | full |
@@ -127,3 +129,29 @@ The `--allow` escape hatch remains available for an intentionally staged React N
   the host app's environment (`USERGIST_TLS_PIN_LEAF`,
   `USERGIST_TLS_PIN_BACKUP`) when its threat model requires pinning. Empty pins
   fall back to system trust.
+
+## Startup readiness contract
+
+Initialize with `presentationPaused` enabled at app launch. Analytics, consent,
+identity, and networking continue while campaign UI waits. After the existing
+startup loading and navigation have finished and the loaded screen is visible,
+call `resumePresentation()`. Mount any required UserGist UI provider before that
+callback. Readiness must work for both anonymous and identified users.
+
+Call `pausePresentation()` before another flow that must not be interrupted.
+Pausing does not dismiss an already visible SDK surface. Queued feedback,
+surveys, and in-app messages are discarded if their consent is withdrawn or
+the user changes, even if consent is granted again before resuming. Repeated
+initialization keeps the first readiness setting; repeated resume calls do not
+show the same queued work twice. The option defaults to false for existing
+integrations, so upgrading alone does not enable startup deferral.
+
+Do not resume from a splash screen, an app-root mount that still shows loading,
+a disappearing screen, or a fixed timer. Use the host's existing completion
+callback; the SDK cannot infer when arbitrary startup navigation has finished.
+
+
+The same readiness controls apply to Web and React Native/Expo. Native lifecycle
+checks still apply after the host resumes presentation. A release requires tests
+for startup pause, repeated init/resume, consent revocation and regrant, identity
+changes, and pausing while another SDK surface is active.

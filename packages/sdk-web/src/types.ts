@@ -14,7 +14,7 @@ export type RuntimeState =
   | 'destroyed'
 export type IdentifyResult = 'synced' | 'rejected'
 export type OpenResult = {
-  status: 'opened' | 'unavailable' | 'inactive' | 'consent_required' | 'failed'
+  status: 'queued' | 'opened' | 'unavailable' | 'inactive' | 'consent_required' | 'failed'
   message?: string
 }
 export interface Diagnostic {

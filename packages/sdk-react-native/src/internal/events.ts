@@ -1,3 +1,4 @@
+import { PresentationGate } from '@usergist/sdk-core/mobile'
 // Typed event emitter for public callbacks (onPromptShown/onResponse) and
 // internal UI signals (show/dismiss prompts from the matcher to Provider).
 
@@ -72,9 +73,9 @@ const BUFFERED_EVENTS: ReadonlyArray<EventName> = [
   'showRequestDetail',
 ]
 
-export function createEventBus(): EventBus {
+export function createEventBus(gate = new PresentationGate()): EventBus {
   const listeners = new Map<EventName, Set<AnyListener>>()
-  const pending = new Map<EventName, ReadonlyArray<unknown>>()
+  const pending = new Map<EventName, ReadonlyArray<{ payload: unknown; valid: () => boolean }>>()
   const MAX_BUFFERED_PER_EVENT = 100
 
   function setFor(name: EventName): Set<AnyListener> {
@@ -85,6 +86,14 @@ export function createEventBus(): EventBus {
     }
     return s
   }
+
+  const deferred: Array<{ dispatch: () => void; valid: () => boolean }> = []
+  gate.subscribe(() => {
+    for (let index = deferred.length - 1; index >= 0; index--) {
+      if (!deferred[index]!.valid()) deferred.splice(index, 1)
+    }
+    while (!gate.isPaused && deferred.length) deferred.shift()!.dispatch()
+  })
 
   return {
     on<K extends EventName>(name: K, cb: Listener<SdkEvents[K]>): () => void {
@@ -98,7 +107,7 @@ export function createEventBus(): EventBus {
         pending.delete(name)
         for (const item of buffered) {
           try {
-            wrapped(item)
+            if (item.valid()) wrapped(item.payload)
           } catch {
             // listener errors must never cross the SDK boundary
           }
@@ -109,29 +118,30 @@ export function createEventBus(): EventBus {
       }
     },
     emit<K extends EventName>(name: K, payload: SdkEvents[K]): void {
-      if (name === 'resetSurfaces') pending.clear()
+      if (name === 'resetSurfaces') { pending.clear(); deferred.length = 0 }
       if (name === 'dismissRequests') {
         pending.delete('showRequestsBoard')
         pending.delete('showRequestDetail')
       }
-      const s = listeners.get(name)
-      if (!s || s.size === 0) {
-        if (BUFFERED_EVENTS.includes(name)) {
-          const buffered = pending.get(name) ?? []
-          pending.set(
-            name,
-            [...buffered, payload].slice(-MAX_BUFFERED_PER_EVENT),
-          )
+      const campaign = ['showPrompt', 'showSurvey', 'surveyInvite', 'showInAppMessage'].includes(name)
+      const valid = campaign ? gate.validator(name === 'showSurvey' || name === 'surveyInvite' ? 'survey' : 'feedback') : () => true
+      const dispatch = () => {
+        if (!valid()) return
+        const s = listeners.get(name)
+        if (!s || s.size === 0) {
+          if (BUFFERED_EVENTS.includes(name)) {
+            const buffered = pending.get(name) ?? []
+            pending.set(name, [...buffered, { payload, valid }].slice(-MAX_BUFFERED_PER_EVENT))
+          }
+          return
         }
-        return
-      }
-      for (const cb of s) {
-        try {
-          cb(payload as unknown)
-        } catch {
-          // listener errors must never cross the SDK boundary
+        for (const cb of s) {
+          try { cb(payload as unknown) } catch { /* host callbacks are isolated */ }
         }
       }
+      if (campaign && gate.isPaused) {
+        if (deferred.length < MAX_BUFFERED_PER_EVENT) deferred.push({ dispatch, valid })
+      } else dispatch()
     },
   }
 }

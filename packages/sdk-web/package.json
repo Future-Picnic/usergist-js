@@ -1,6 +1,6 @@
 {
   "name": "@usergist/feedback-web",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "UserGist feedback, surveys, in-app messages and feature requests for websites",
   "license": "MIT",
   "type": "module",
@@ -9,17 +9,34 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./react": {
-      "types": "./dist/react.d.ts",
-      "import": "./dist/react.js"
+      "import": {
+        "types": "./dist/react.d.ts",
+        "default": "./dist/react.js"
+      },
+      "require": {
+        "types": "./dist/react.d.cts",
+        "default": "./dist/react.cjs"
+      }
     },
     "./preview": {
-      "types": "./dist/preview.d.ts",
-      "import": "./dist/preview.js"
+      "import": {
+        "types": "./dist/preview.d.ts",
+        "default": "./dist/preview.js"
+      },
+      "require": {
+        "types": "./dist/preview.d.cts",
+        "default": "./dist/preview.cjs"
+      }
     },
     "./browser": "./dist/usergist.global.js"
   },
@@ -40,10 +57,8 @@
     "build": "tsup && tsup --config tsup.react.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "pack:check": "pnpm publish --dry-run --no-git-checks"
-  },
-  "dependencies": {
-    "@usergist/sdk-core": "workspace:^"
+    "pack:check": "node scripts/check-package.mjs",
+    "prepack": "pnpm --filter @usergist/sdk-core build && pnpm build"
   },
   "peerDependencies": {
     "react": ">=18"
@@ -59,7 +74,9 @@
     "react": "18.3.1",
     "tsup": "^8.3.0",
     "typescript": "^5.5.4",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "@usergist/sdk-core": "workspace:^",
+    "fake-indexeddb": "6.2.2"
   },
   "publishConfig": {
     "access": "public"
