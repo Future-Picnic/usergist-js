@@ -38,7 +38,7 @@ jobs:
           echo "filename=$filename" >> "$GITHUB_OUTPUT"
           echo "sha256=$(sha256sum "$RUNNER_TEMP/sdk-candidate/$filename" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Retain the immutable candidate for builds and publication
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: usergist-react-native-candidate
           path: ${{ runner.temp }}/sdk-candidate/*.tgz
