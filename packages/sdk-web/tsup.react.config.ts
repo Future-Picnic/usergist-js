@@ -6,6 +6,7 @@ export default defineConfig({
   entry: { react: 'src/react.tsx' },
   format: ['esm', 'cjs'],
   dts: true,
+  banner: { js: '"use client";' },
   sourcemap: true,
   target: 'es2022',
   clean: false,

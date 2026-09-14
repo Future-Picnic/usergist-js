@@ -2,6 +2,9 @@
 
 ## 0.1.2
 
+- Retain the public Web package’s standalone ESM/CommonJS/React exports and bundled core types.
+- Preserve anonymous-to-identified queued work, retire old credentials, and keep consent revisions monotonic.
+
 - Add startup presentation readiness: initialize with `presentationPaused`, then call `resumePresentation()` after the loaded screen is ready.
 - Keep analytics and networking running while campaign UI is paused; `pausePresentation()` can protect later host flows without dismissing active UI.
 - Invalidate queued presentation work after consent revocation, reset, or identity changes, including requests prepared asynchronously.
