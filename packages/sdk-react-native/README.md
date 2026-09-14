@@ -33,6 +33,7 @@ const identityResult = await UserGist.initAsync(
     apiUrl: 'https://api.usergist.com',
     environment: 'production',
     debug: __DEV__,
+    presentationPaused: true,
   },
   {
     userId: 'user_42',
@@ -229,3 +230,12 @@ silent-ping cycle for this user (saves provider quota + battery).
 ## License
 
 MIT
+
+## Startup readiness
+
+Initialize with `presentationPaused: true`. Keep `UserGistProvider` mounted, then
+call `UserGist.resumePresentation()` from the host's existing completion callback
+after startup loading and navigation finish. Do not resume from a splash screen,
+a root mount while loading, or a timer. Both anonymous and identified users work.
+`pausePresentation()` protects later host flows without dismissing active UI or
+stopping analytics. Revoked consent and user changes invalidate queued messages.

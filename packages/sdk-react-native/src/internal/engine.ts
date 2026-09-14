@@ -1,3 +1,4 @@
+import { PresentationGate } from '@usergist/sdk-core/mobile'
 // The engine owns all singleton state and orchestrates the modules.
 // `UserGist.ts` wraps these functions in a thin, try/catch-guarded public API.
 
@@ -85,6 +86,7 @@ export interface Engine {
   readonly lifecycle: LifecycleManager
   readonly context: ContextProvider
   readonly events: EventBus
+  readonly presentation: PresentationGate
   hydrated: boolean
   hydratingPromise: Promise<void> | null
   flushTimer: ReturnType<typeof setTimeout> | null
@@ -152,7 +154,8 @@ export function createEngine(config: SdkConfig): Engine {
   )
   const caps = createFrequencyCapManager(storage)
   const userState = createUserStateStore(storage)
-  const events = createEventBus()
+  const presentation = new PresentationGate(config.presentationPaused ?? false)
+  const events = createEventBus(presentation)
   const matcher = createTriggerMatcher({
     rulesCache: rules,
     frequencyCaps: caps,
@@ -225,6 +228,7 @@ export function createEngine(config: SdkConfig): Engine {
     lifecycle,
     context,
     events,
+    presentation,
     hydrated: false,
     hydratingPromise: null,
     flushTimer: null,
@@ -587,6 +591,7 @@ async function performMutationFlush(engine: Engine): Promise<MutationFlushResult
           if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
           engine.subjectToken = subjectToken
           engine.transport.setSubjectToken(subjectToken)
+          if (engine.identity.get().externalId !== externalId) engine.presentation.invalidate()
           await engine.identity.setExternalId(externalId)
           if (properties && typeof properties === 'object') {
             const clean = properties as Readonly<Record<string, EventPropertyValue>>
@@ -639,6 +644,7 @@ export async function pollSurveyOffers(engine: Engine): Promise<void> {
 
     if (!engine.consent.get().survey) return
 
+    const presentationIsValid = engine.presentation.validator('survey')
     const id = engine.identity.get()
     const res = await engine.transport.surveysAvailable({
       anonymousId: id.anonymousId,
@@ -659,6 +665,7 @@ export async function pollSurveyOffers(engine: Engine): Promise<void> {
     )
     if (fresh.length === 0 && localIds.length === 0) return
 
+    if (!presentationIsValid() || !engine.consent.allowsSurvey()) return
     for (const s of fresh) {
       engine.events.emit('surveyInvite', {
         surveyId: s.id,

@@ -88,6 +88,8 @@ interface SurveyState {
 }
 
 export function UserGistProvider({ children }: Props): React.ReactElement {
+  const surfaceGeneration = useRef(0)
+  const surveyOpenGeneration = useRef(0)
   const [payload, setPayload] = useState<ShowPromptPayload | null>(null)
   const currentRef = useRef<ShowPromptPayload | null>(null)
 
@@ -98,8 +100,12 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
   const surveyReleaseRef = useRef<(() => void) | null>(null)
   const inAppReleaseRef = useRef<(() => void) | null>(null)
 
-  function enqueueModal(task: ModalTask): void {
-    modalQueueRef.current.enqueue(task)
+  function enqueueModal(task: ModalTask, purpose: 'feedback' | 'survey' = 'feedback'): void {
+    const gate = UserGist.__internal_presentationGate()
+    const eligible = gate.validator(purpose)
+    const generation = surfaceGeneration.current
+    const valid = () => eligible() && generation === surfaceGeneration.current
+    modalQueueRef.current.enqueue((release) => gate.runWhenReady(() => task(release), valid, release))
   }
 
   function releasePrompt(): void {
@@ -155,7 +161,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
             ).then((shown) => {
               if (!shown) releaseSurvey()
             })
-          })
+          }, 'survey')
         })
         unsubShowInApp = bus.on('showInAppMessage', (p) => {
           enqueueModal((release) => {
@@ -168,6 +174,8 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
           })
         })
         unsubResetSurfaces = bus.on('resetSurfaces', () => {
+          surfaceGeneration.current++
+          surveyOpenGeneration.current++
           modalQueueRef.current.clearPending()
           currentRef.current = null
           setPayload(null)
@@ -203,7 +211,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
             ).then((shown) => {
               if (!shown) releaseSurvey()
             })
-          })
+          }, 'survey')
         })
       } catch {
         retryTimer = setTimeout(attach, 250)
@@ -211,6 +219,9 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
     }
     attach()
     return () => {
+      surfaceGeneration.current++
+      surveyOpenGeneration.current++
+      modalQueueRef.current.clearPending()
       if (retryTimer) clearTimeout(retryTimer)
       if (unsubShow) unsubShow()
       if (unsubDismiss) unsubDismiss()
@@ -228,6 +239,10 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
       source: SurveyAttemptSource,
       language?: string,
     ): Promise<boolean> => {
+      const generation = ++surveyOpenGeneration.current
+      const gate = UserGist.__internal_presentationGate()
+      const eligible = gate.validator('survey')
+      const valid = () => eligible() && generation === surveyOpenGeneration.current
       try {
         // Local-fire fast-path: when the survey-matcher just fired,
         // the full survey content is already in the SDK's cache. Use
@@ -239,6 +254,7 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
         if (!survey) return false
         const attempt = await UserGist.__internal_createAttempt(surveyId, source, language)
         if (!attempt) return false
+        return await new Promise<boolean>(resolve => gate.runWhenReady(() => {
         setSurveyState({
           survey,
           attemptId: attempt.attemptId,
@@ -246,7 +262,8 @@ export function UserGistProvider({ children }: Props): React.ReactElement {
           initialQuestionId: attempt.currentQuestionId ?? attempt.startQuestionId,
           initialSnapshot: attempt.snapshot ?? {},
         })
-        return true
+        resolve(true)
+        }, valid, () => resolve(false)))
       } catch {
         return false
       }

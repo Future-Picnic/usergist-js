@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Add `presentationPaused`, `pausePresentation()`, and `resumePresentation()` so analytics starts at launch while campaign UI waits for the loaded screen.
+- Drop queued UI after consent withdrawal, reset, or a changed user; recheck readiness after asynchronous survey preparation.
+- Preserve the stable native package setup. Expo remains on its separate prerelease channel.
+
+
 All notable changes to `@usergist/feedback-react-native` are documented here.
 Releases use [Semantic Versioning](https://semver.org/).
 

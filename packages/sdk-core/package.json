@@ -1,6 +1,6 @@
 {
   "name": "@usergist/sdk-core",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Shared types and utilities across the userGist feedback platform",
   "license": "MIT",
   "homepage": "https://usergist.com/docs/sdks/core",
@@ -36,7 +36,13 @@
     "./package.json": "./package.json"
   },
   "sideEffects": false,
-  "files": ["dist", "mobile.js", "README.md", "CHANGELOG.md", "LICENSE"],
+  "files": [
+    "dist",
+    "mobile.js",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

@@ -13,6 +13,8 @@ export interface SdkConfig {
   readonly maxQueueSize?: number
   readonly triggerSyncIntervalMs?: number
   readonly debug?: boolean
+  /** Defer campaign UI until the host calls resumePresentation(). */
+  readonly presentationPaused?: boolean
   /** Host app version used for lifecycle analytics and destination metadata. */
   readonly appVersion?: string
 }
