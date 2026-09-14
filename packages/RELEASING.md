@@ -182,7 +182,7 @@ overwrite or force-move a published tag.
 
 ## Web SDK and delivery protocol 2
 
-The JS source mirror now includes `packages/sdk-web`. Build `@usergist/sdk-core` before `@usergist/feedback-web`; publish core before web because web consumes its public client entry. Run `pnpm verify:web`, API web migration/authorization tests, `pnpm sdk:check-version`, the dashboard typecheck, and native adapter checks before release. Validate both the ESM package and the standalone browser script. The optional React entry must import the root package singleton.
+The JS source mirror now includes `packages/sdk-web`. Build `@usergist/sdk-core` before `@usergist/feedback-web`. Web bundles the browser-safe helpers and declarations from core at build time; the published Web package has no core runtime dependency and can be released independently. Run `pnpm verify:web`, API web migration/authorization tests, `pnpm sdk:check-version`, the dashboard typecheck, and native adapter checks before release. Validate both the ESM package and the standalone browser script. The optional React entry must import the root package singleton.
 
 Apply `0041_web_support.sql` before deploying the API and workers, then deploy the dashboard and release the SDKs. Existing campaigns retain their configured native platforms. Web is enabled explicitly per app and per campaign. Deploy coordinated-delivery native adapters before enabling mixed native/Web campaigns. Version 1 native inboxes cannot consume protocol 2 instructions. Legacy web-envelope compatibility is not a substitute for upgrading all workers and native adapters. Do not backfill Web into existing campaigns.
 
@@ -197,3 +197,32 @@ validates the packed native bridge, and stages only the React Native package.
 The web SDK is not included. Maintainer 2FA approval is still required on npm.
 The reviewed private release branch remains the source of truth; the public
 mirror receives identical SDK files and a sanitized release commit.
+
+## First Web release 0.1.0
+
+Publish the reviewed Web source and its core build inputs to the JavaScript mirror,
+then tag `web-v0.1.0`. The Web job in `publish.yml` validates the version, runs the
+SDK tests, and installs the packed archive into an isolated consumer to verify
+plain ESM/CommonJS, optional React, SSR, TypeScript, and the standalone script.
+It retains the immutable archive and SHA256 checksum as a workflow artifact.
+Only Web is published by `web-v*`; existing npm core and React Native versions
+are unaffected.
+
+npm cannot stage a brand-new package. If Web does not yet exist, the workflow
+uses the one-time `NPM_BOOTSTRAP_TOKEN` described above when configured. Without
+that secret it prepares the archive and explicitly reports **not published**.
+A maintainer can instead download the verified archive and run an authenticated
+`npm publish <archive.tgz> --access public`. Configure the Web package's trusted
+publisher for `Future-Picnic/usergist-js`, workflow `publish.yml`, with staging
+only and maintainer 2FA before future releases. Subsequent `web-v*` releases
+use `npm stage publish --provenance`. Keep bootstrap credentials out of source.
+
+## Web lifecycle fixes
+
+The lifecycle fixes originally prepared for Web 0.1.1 are included in 0.1.2,
+alongside startup presentation readiness. They cover overlapping identification,
+anonymous-storage retirement, consent changes during request-board loading, and
+monotonic consent versions. The persistent-storage regression suite and isolated
+archive checks validate these behaviors. Keep the manifest, runtime version, and
+`packages/sdk-web/SDK_VERSION` at 0.1.2; do not publish the superseded 0.1.1
+candidate or overwrite either version's existing public tag.
