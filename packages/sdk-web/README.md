@@ -37,6 +37,31 @@ if (result === 'synced') {
 
 Analytics is independent of feedback and survey consent. The SDK emits `$app_open` after explicit activation only when analytics consent is granted. It does not collect pageviews, URLs, clicks or form fields automatically. Call `track()` for events and `setPageContext()` for page targeting. No web push, notification permissions, service worker or push credentials are used.
 
+## Startup presentation readiness
+
+Initialize with `presentationPaused` enabled at app launch. Analytics, consent,
+identity, and networking continue while campaign UI waits. After the existing
+startup loading and navigation have finished and the loaded screen is visible,
+call `resumePresentation()`. Mount any required UserGist UI provider before that
+callback. Readiness must work for both anonymous and identified users.
+
+Call `pausePresentation()` before another flow that must not be interrupted.
+Pausing does not dismiss an already visible SDK surface. Queued feedback,
+surveys, and in-app messages are discarded if their consent is withdrawn or
+the user changes, even if consent is granted again before resuming. Repeated
+initialization keeps the first readiness setting; repeated resume calls do not
+show the same queued work twice. The option defaults to false for existing
+integrations, so upgrading alone does not enable startup deferral.
+
+Do not resume from a splash screen, an app-root mount that still shows loading,
+a disappearing screen, or a fixed timer. Use the host's existing completion
+callback; the SDK cannot infer when arbitrary startup navigation has finished.
+
+```ts
+// In the loaded screen’s existing startup/navigation completion callback:
+usergist.resumePresentation()
+```
+
 ## Mint subject tokens on your backend
 
 Your authenticated server calls `POST /v1/apps/:appId/sdk/subject-tokens` with an API token that has the `sdk:subjects` scope. Send `{ "externalId": "your-authenticated-user-id" }`, deriving that ID from your server session. Return `data.subjectToken` to the browser as `{ subjectToken }` from your own `/api/usergist-token` endpoint. A client write key cannot mint identified subject tokens.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0-beta.1
+
+- Add startup presentation readiness: initialize with `presentationPaused`, then call `resumePresentation()` after the loaded screen is ready.
+- Keep analytics and networking running while campaign UI is paused; `pausePresentation()` can protect later host flows without dismissing active UI.
+- Invalidate queued presentation work after consent revocation, reset, or identity changes, including requests prepared asynchronously.
+
 ## 0.2.0-beta.0
 
 - Add Expo config plugin, iOS extension/EAS setup, and an optional notification adapter.

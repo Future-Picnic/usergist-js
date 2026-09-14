@@ -86,6 +86,8 @@ export const updateOnboardingSchema = z
       .enum([
         'resume',
         'defer',
+        'create_first_inapp',
+        'first_inapp_completed',
         'create_first_feedback',
         'first_feedback_completed',
         'push_configured',
@@ -95,6 +97,12 @@ export const updateOnboardingSchema = z
       .optional(),
     step: onboardingStepSchema.optional(),
     question: z.string().trim().min(1).max(500).optional(),
+    message: z.object({
+      title: z.string().trim().min(1).max(200),
+      body: z.string().trim().min(1).max(500),
+      buttonLabel: z.string().trim().min(1).max(40),
+      format: z.enum(['modal', 'slideup']),
+    }).strict().optional(),
   })
   .refine((value) => Boolean(value.action || value.step), {
     message: 'Provide an onboarding action or step',

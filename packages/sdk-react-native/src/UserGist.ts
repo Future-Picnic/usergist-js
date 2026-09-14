@@ -441,6 +441,12 @@ export const UserGist = {
     void UserGist.initAsync(config)
   },
 
+  /** Defer campaign UI without interrupting analytics or an active modal. */
+  pausePresentation(): void { engine?.presentation.setPaused(true) },
+  /** Call after the host's loaded screen and navigation are ready. */
+  resumePresentation(): void { engine?.presentation.setPaused(false) },
+  __internal_presentationGate() { return requireEngine().presentation },
+
   async initAsync(
     config: SdkConfig,
     initialIdentity?: InitialIdentity,
@@ -597,6 +603,8 @@ export const UserGist = {
   async setConsent(purposes: Consent): Promise<boolean> {
     try {
       const e = requireEngine()
+      if (purposes.feedback === false) e.presentation.invalidate('feedback')
+      if (purposes.survey === false) e.presentation.invalidate('survey')
       await ensureHydrated(e)
       if (e.resetting) return false
       const next = await e.consent.set(purposes)
@@ -653,6 +661,7 @@ export const UserGist = {
       if (e.resetting) return resetPromise ?? Promise.resolve()
       e.resetting = true
       e.resetGeneration += 1
+      e.presentation.invalidate()
       requestsCache = null
       lastEnablePushOptions = null
       e.events.emit('resetSurfaces', undefined)
@@ -1182,12 +1191,14 @@ export const UserGist = {
         url.match(/[?&]survey=([A-Za-z0-9._-]+)/)
       if (!match || !match[1]) return false
       const token = match[1]
+      const presentationIsValid = e.presentation.validator('survey')
       const id = e.identity.get()
       const resolved = await e.transport.surveyResolveLink({
         token,
         anonymousId: id.anonymousId,
         externalId: id.externalId ?? null,
       })
+      if (!presentationIsValid() || !e.consent.allowsSurvey()) return false
       if (resolved.consentRequired) {
         debugLog('survey link resolved but consent required — awaiting consent')
         return false

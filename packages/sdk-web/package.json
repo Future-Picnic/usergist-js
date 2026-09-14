@@ -1,6 +1,6 @@
 {
   "name": "@usergist/feedback-web",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "UserGist feedback, surveys, in-app messages and feature requests for websites",
   "license": "MIT",
   "type": "module",

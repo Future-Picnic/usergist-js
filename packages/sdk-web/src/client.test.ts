@@ -319,6 +319,72 @@ describe('web delivery regressions', () => {
     expect(c.getSnapshot().queueSize).toBe(0)
   })
 
+  it('holds campaign UI while analytics flushes and resumes the queued presentation once', async () => {
+    const c = await client({ presentationPaused: true })
+    await c.setConsent({ feedback: true, analytics: true })
+    await c.identify('customer', {}, 'token')
+    const original = fetch
+    let authorizations = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/authorize')) {
+        authorizations++
+        return ok({ status: 'authorized', presentationId: 'ready-presentation', content: { questions: [{ id: 'q', type: 'short_text', title: 'Welcome' }] } })
+      }
+      return original(url, init)
+    }))
+    expect(await c.openFeedback('welcome')).toEqual({ status: 'queued' })
+    c.track('startup_loaded')
+    await c.flush()
+    expect(calls.some(call => call.path === '/v1/sdk/ingest')).toBe(true)
+    expect(document.querySelector('[data-usergist]')).toBeNull()
+    await c.init({ writeKey: 'ug_test_key', presentationPaused: false })
+    expect(authorizations).toBe(0)
+    c.resumePresentation()
+    c.resumePresentation()
+    for (let i = 0; i < 80; i++) await Promise.resolve()
+    expect(authorizations).toBe(1)
+    expect(document.querySelector('[data-usergist]')?.shadowRoot?.querySelector('[role=dialog]')).toBeTruthy()
+    c.pausePresentation()
+    expect(document.querySelector('[data-usergist]')?.shadowRoot?.querySelector('[role=dialog]')).toBeTruthy()
+  })
+
+  it('drops paused presentations after consent withdrawal and regrant', async () => {
+    const c = await client({ presentationPaused: true })
+    await c.setConsent({ feedback: true })
+    await c.identify('customer', {}, 'token')
+    expect(await c.openFeedback('old')).toEqual({ status: 'queued' })
+    await c.setConsent({ feedback: false })
+    await c.setConsent({ feedback: true })
+    c.resumePresentation()
+    for (let i = 0; i < 30; i++) await Promise.resolve()
+    expect(calls.some(call => call.path.endsWith('/authorize'))).toBe(false)
+  })
+
+  it('rechecks readiness when authorization finishes during a host transition', async () => {
+    const c = await client()
+    await c.setConsent({ feedback: true })
+    await c.identify('customer', {}, 'token')
+    const original = fetch
+    let finish!: (response: Response) => void
+    let authorizations = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/authorize')) {
+        authorizations++
+        return new Promise<Response>(resolve => { finish = resolve })
+      }
+      return original(url, init)
+    }))
+    const pending = c.openFeedback('welcome')
+    c.pausePresentation()
+    finish(ok({ status: 'authorized', presentationId: 'transition', content: { questions: [{ id: 'q', type: 'short_text', title: 'Welcome' }] } }))
+    expect(await pending).toEqual({ status: 'queued' })
+    expect(document.querySelector('[data-usergist]')).toBeNull()
+    c.resumePresentation()
+    for (let i = 0; i < 80; i++) await Promise.resolve()
+    expect(authorizations).toBe(1)
+    expect(document.querySelector('[data-usergist]')?.shadowRoot?.querySelector('[role=dialog]')).toBeTruthy()
+  })
+
   it.each(['feedback', 'survey'] as const)('closes only the screen whose %s consent was withdrawn', async (purpose) => {
     const c = await client()
     await c.setConsent({ feedback: true, survey: true })

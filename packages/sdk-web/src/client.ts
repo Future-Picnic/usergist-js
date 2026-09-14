@@ -1,3 +1,4 @@
+import { PresentationGate } from '@usergist/sdk-core/client'
 import { userPropertiesUpdateSchema } from '@usergist/sdk-core'
 import type {
   ApiResponse,
@@ -27,7 +28,7 @@ import type {
   RequestMutationResult,
 } from './types.js'
 
-const VERSION = '0.1.0'
+const VERSION = '0.1.2'
 const PII = new Set(['email', 'phone', 'ssn', 'tax_id'])
 export class WebSdkError extends Error {
   constructor(
@@ -91,6 +92,8 @@ export class UserGistClient {
   private polling = false
   private inboxCursor = 0
   private opening = false
+  private readonly presentation = new PresentationGate()
+  private readonly deferredPresentations = new Map<string, { valid: () => boolean; run: () => void }>()
   private refreshing?: Promise<void>
   private consentDirty = false
   private resetWork?: Promise<void>
@@ -179,9 +182,29 @@ export class UserGistClient {
       ...config,
       apiUrl: (config.apiUrl ?? 'https://api.usergist.com').replace(/\/$/, ''),
     }
+    this.presentation.setPaused(config.presentationPaused ?? false)
     // Intentionally no storage, identity, timers, DOM, or network here.
     this.changed()
   }
+  /** Pause campaign UI without stopping collection or closing the current surface. */
+  pausePresentation(): void { this.presentation.setPaused(true) }
+  /** Resume after the host's loaded route and navigation are ready. */
+  resumePresentation(): void {
+    this.presentation.setPaused(false)
+    this.drainPresentations()
+    this.schedule(0)
+  }
+  private drainPresentations(): void {
+    for (const [key, task] of this.deferredPresentations) {
+      if (!task.valid()) { this.deferredPresentations.delete(key); continue }
+      if (this.presentation.isPaused || this.opening || this.renderer?.isOpen ||
+          typeof document === 'undefined' || document.visibilityState !== 'visible') return
+      this.deferredPresentations.delete(key)
+      task.run()
+      return
+    }
+  }
+
   private async api<T>(
     path: string,
     body?: unknown,
@@ -340,6 +363,10 @@ export class UserGistClient {
     const namespace = `${scope(this.config.writeKey)}:${
       this.config.environment ?? 'production'
     }:${encodeURIComponent(userId || 'anonymous')}:${tabId}`
+    if (this.externalId !== (userId || null)) {
+      this.presentation.invalidate()
+      this.deferredPresentations.clear()
+    }
     this.state = 'activating'
     this.channel?.close()
     this.channel = undefined
@@ -469,6 +496,9 @@ export class UserGistClient {
     return { anonymousId: this.anonymousId!, externalId: this.externalId }
   }
   async setConsent(consent: Consent): Promise<boolean> {
+    if (consent.feedback === false) this.presentation.invalidate('feedback')
+    if (consent.survey === false) this.presentation.invalidate('survey')
+    this.drainPresentations()
     this.consent = { ...this.consent, ...consent, push: false }
     this.consentVersion = Date.now()
     this.consentDirty = true
@@ -725,6 +755,7 @@ export class UserGistClient {
     try {
       if (!this.active) return
       await this.flush()
+      this.drainPresentations()
       if (document.visibilityState === 'visible') await this.poll()
     } catch (error) {
       this.diagnostic(
@@ -828,13 +859,24 @@ export class UserGistClient {
       presentationId?: string
       content?: any
       attempt?: CreateSurveyAttemptResponse
-    }
+    },
+    eligibility?: () => boolean,
   ): Promise<OpenResult> {
     const purpose = pillar === 'survey' ? 'survey' : 'feedback'
     const blocked = this.check(purpose)
     if (blocked) return blocked
-    this.opening = true
     const generation = this.generation
+    const eligible = eligibility ?? this.presentation.validator(purpose)
+    const valid = () => eligible() && generation === this.generation && this.active && this.consent[purpose] === true
+    const defer = (content = prepared): OpenResult => {
+      const key = instructionId ? `instruction:${instructionId}` : `${pillar}:${id}`
+      if (this.deferredPresentations.size >= 100 && !this.deferredPresentations.has(key)) return { status: 'unavailable' }
+      this.deferredPresentations.set(key, { valid, run: () => { void this.openExperience(pillar, id, instructionId, source, content, eligible) } })
+      return { status: 'queued' }
+    }
+    if (!valid()) return { status: 'inactive' }
+    if (this.presentation.isPaused) return defer()
+    this.opening = true
     const key = instructionId ? `instruction:${instructionId}` : uuid()
     try {
       const result =
@@ -861,20 +903,18 @@ export class UserGistClient {
               : 'unavailable',
         }
       if (
-        generation !== this.generation ||
-        !this.active ||
-        !this.consent[purpose]
+        !valid()
       )
         return { status: 'inactive' }
+      if (this.presentation.isPaused) return defer(result)
       const presentationId = result.presentationId!
       const shownKey = `presentations:shown`
       const shown = (await this.store?.get<string[]>(shownKey)) ?? []
       if (
-        generation !== this.generation ||
-        !this.active ||
-        !this.consent[purpose]
+        !valid()
       )
         return { status: 'inactive' }
+      if (this.presentation.isPaused) return defer(result)
       if (shown.includes(presentationId)) return { status: 'unavailable' }
       let content = result.content
       const started = Date.now()
@@ -911,11 +951,10 @@ export class UserGistClient {
           at: number
         }>(`survey:${attempt.attemptId}`)
         if (
-          generation !== this.generation ||
-          !this.active ||
-          !this.consent.survey
+          !valid()
         )
           return { status: 'inactive' }
+        if (this.presentation.isPaused) return defer({ ...result, attempt })
         this.getRenderer().show({
           ...content,
           pillar,
@@ -1032,6 +1071,7 @@ export class UserGistClient {
       }
     } finally {
       this.opening = false
+      this.drainPresentations()
     }
   }
   private handleCta(cta: NonNullable<RenderExperience['ctas']>[number]) {
@@ -1384,6 +1424,8 @@ export class UserGistClient {
   private async performReset(broadcast = true): Promise<void> {
     const clientId = this.clientId
     this.generation++
+    this.presentation.invalidate()
+    this.deferredPresentations.clear()
     this.inboxCursor = 0
     if (this.timer) clearTimeout(this.timer)
     for (const request of this.requests) request.abort()

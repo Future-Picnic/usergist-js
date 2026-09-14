@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createApiTokenSchema, createAppSchema, updateOnboardingSchema } from './apps.js'
+import { defaultOnboardingMessage } from '../types/workspace.js'
 import { deliveryPlatformsForApp } from '../types/web.js'
 
 describe('SDK administration schemas', () => {
@@ -39,6 +40,17 @@ describe('SDK administration schemas', () => {
     })
     expect(() => updateOnboardingSchema.parse({ action: 'create_first_feedback' })).toThrow()
     expect(() => updateOnboardingSchema.parse({})).toThrow()
+  })
+
+  it('accepts the welcome message without configuration and limits optional customization', () => {
+    expect(updateOnboardingSchema.parse({ action: 'create_first_inapp' })).toEqual({ action: 'create_first_inapp' })
+    const message = defaultOnboardingMessage('Piano Byte')
+    expect(updateOnboardingSchema.parse({ action: 'create_first_inapp', message }).message).toEqual(message)
+    expect(updateOnboardingSchema.parse({ action: 'create_first_inapp', message: { ...message, format: 'slideup' } }).message?.format).toBe('slideup')
+    for (const override of [{ title: '   ' }, { body: '' }, { buttonLabel: 'x'.repeat(41) }, { format: 'modal_full' }, { action: 'deeplink' }]) {
+      expect(updateOnboardingSchema.safeParse({ action: 'create_first_inapp', message: { ...message, ...override } }).success).toBe(false)
+    }
+    expect(updateOnboardingSchema.parse({ action: 'first_inapp_completed' }).action).toBe('first_inapp_completed')
   })
 
   it('accepts a draft portal during app creation and rejects unsafe public addresses', () => {

@@ -53,3 +53,5 @@ export * from './types/mcp.js'
 
 export * from './types/personalization.js'
 export * from './personalization.js'
+
+export * from './presentation.js'

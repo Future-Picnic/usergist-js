@@ -55,13 +55,16 @@ jobs:
           const core = JSON.parse(fs.readFileSync('packages/sdk-core/package.json', 'utf8'))
           const reactNative = JSON.parse(fs.readFileSync('packages/sdk-react-native/package.json', 'utf8'))
 
+          const reactNativeRelease = reactNativeOnly || reactNative.version === expected
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `react_native_release=${reactNativeRelease}\n`)
+
           for (const [name, actual] of [
             ...(reactNativeOnly ? [] : [
               ['packages/SDK_VERSION', versionFile],
               ['@usergist/sdk-core', core.version],
               ['@usergist/feedback-web', JSON.parse(fs.readFileSync('packages/sdk-web/package.json', 'utf8')).version],
             ]),
-            ['@usergist/feedback-react-native', reactNative.version],
+            ...(reactNativeRelease ? [['@usergist/feedback-react-native', reactNative.version]] : []),
           ]) {
             if (actual !== expected) {
               throw new Error(`${name} is ${actual}; expected ${expected}`)
@@ -74,7 +77,7 @@ jobs:
             }
           }
           const runtime = fs.readFileSync('packages/sdk-react-native/src/internal/context.ts', 'utf8')
-          if (!runtime.includes(`USERGIST_SDK_VERSION = '${expected}'`)) {
+          if (!runtime.includes(`USERGIST_SDK_VERSION = '${reactNative.version}'`)) {
             throw new Error('React Native runtime version does not match release tag')
           }
           NODE
@@ -94,6 +97,7 @@ jobs:
       - run: pnpm --filter @usergist/feedback-react-native test:plugin
       - run: pnpm --filter @usergist/feedback-react-native build
       - name: Select the successful native build run
+        if: steps.versions.outputs.react_native_release == 'true'
         id: native_evidence
         env:
           USERGIST_EXPO_RELEASE_EVIDENCE: ${{ vars.USERGIST_EXPO_RELEASE_EVIDENCE }}
@@ -114,29 +118,35 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `run_id=${evidence.nativeBuildRunId}\n`)
           NODE
       - name: Download the exact archive tested on every native platform
+        if: steps.versions.outputs.react_native_release == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: usergist-react-native-candidate
           path: ${{ runner.temp }}/usergist-packs
           run-id: ${{ steps.native_evidence.outputs.run_id }}
           github-token: ${{ github.token }}
-      - name: Inspect the verified archive and prepare the core package
+      - name: Prepare the core package
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/usergist-packs"
           (cd packages/sdk-core && pnpm pack --pack-destination "$RUNNER_TEMP/usergist-packs")
           core_archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-sdk-core-*.tgz' -print -quit)
-          rn_archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
           test -n "$core_archive"
+          tar -tzf "$core_archive" > "$RUNNER_TEMP/core-files.txt"
+          grep -qx 'package/dist/index.js' "$RUNNER_TEMP/core-files.txt"
+      - name: Inspect the verified React Native archive
+        if: steps.versions.outputs.react_native_release == 'true'
+        shell: bash
+        run: |
+          rn_archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)
           test -n "$rn_archive"
           tar -xOf "$rn_archive" package/package.json > "$RUNNER_TEMP/rn-package.json"
           node -e "const p=require(process.argv[1]); if(p.dependencies['@usergist/sdk-core'] !== '^'+require('./packages/sdk-core/package.json').version) process.exit(1)" "$RUNNER_TEMP/rn-package.json"
-          tar -tzf "$core_archive" > "$RUNNER_TEMP/core-files.txt"
           tar -tzf "$rn_archive" > "$RUNNER_TEMP/rn-files.txt"
-          grep -qx 'package/dist/index.js' "$RUNNER_TEMP/core-files.txt"
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/rn-files.txt"
           node packages/sdk-react-native/scripts/check-package.mjs "$rn_archive"
       - name: Enforce Expo native and signed-device release gates
+        if: steps.versions.outputs.react_native_release == 'true'
         env:
           USERGIST_EXPO_RELEASE_EVIDENCE: ${{ vars.USERGIST_EXPO_RELEASE_EVIDENCE }}
         run: |
@@ -144,7 +154,16 @@ jobs:
           node tools/expo/check-release-evidence.mjs "$archive"
       - name: Build Web package archive
         if: steps.versions.outputs.react_native_only != 'true'
-        run: pnpm --dir packages/sdk-web pack --pack-destination "$RUNNER_TEMP/usergist-packs"
+        run: |
+          pnpm --dir packages/sdk-web pack --pack-destination "$RUNNER_TEMP/usergist-packs"
+          archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-web-*.tgz' -print -quit)
+          node packages/sdk-web/scripts/check-package.mjs "$archive"
+      - name: Retain release archives
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: usergist-packages-${{ github.ref_name }}
+          path: ${{ runner.temp }}/usergist-packs/
+          if-no-files-found: error
       - name: Stage core package for 2FA approval
         if: steps.versions.outputs.react_native_only != 'true'
         shell: bash
@@ -153,6 +172,7 @@ jobs:
           test -n "$archive"
           npm stage publish "$archive" --access public --provenance
       - name: Stage React Native package for 2FA approval
+        if: steps.versions.outputs.react_native_release == 'true'
         shell: bash
         run: |
           archive=$(find "$RUNNER_TEMP/usergist-packs" -name 'usergist-feedback-react-native-*.tgz' -print -quit)

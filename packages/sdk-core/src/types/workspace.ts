@@ -126,12 +126,40 @@ export interface OnboardingFirstFeedback {
   readonly lastDismissedAt: string | null
 }
 
+/** Small, ready-to-use first message; the full composer stays in the dashboard. */
+export interface OnboardingInAppContent {
+  readonly title: string
+  readonly body: string
+  readonly buttonLabel: string
+  readonly format: 'modal' | 'slideup'
+}
+
+export function defaultOnboardingMessage(appName: string): OnboardingInAppContent {
+  return {
+    title: `Welcome to ${appName.trim() || 'our app'}`,
+    body: 'Glad you’re here. Take a look around and make yourself at home.',
+    buttonLabel: 'Got it',
+    format: 'modal',
+  }
+}
+
+export interface OnboardingFirstInApp extends Omit<OnboardingInAppContent, 'format'> {
+  readonly format: 'modal' | 'modal_full' | 'slideup'
+  readonly messageId: string
+  readonly status: 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'archived'
+  readonly shownAt: string | null
+  readonly interactedAt: string | null
+  readonly interaction: 'cta_clicked' | 'dismissed' | null
+  readonly identityType: 'anonymous' | 'identified' | null
+}
+
 export interface AppOnboardingStatus extends AppOnboarding {
   readonly clientKeyAuthenticatedAt: string | null
   readonly environment: WriteKey['environment']
   readonly firstEvent: OnboardingEvent | null
   readonly firstAudienceUserCreated: boolean
   readonly firstFeedback: OnboardingFirstFeedback | null
+  readonly firstInApp?: OnboardingFirstInApp | null
   readonly pushCredentials: {
     readonly ios: boolean
     readonly android: boolean
@@ -142,6 +170,8 @@ export interface UpdateAppOnboardingRequest {
   readonly action?:
     | 'resume'
     | 'defer'
+    | 'create_first_inapp'
+    | 'first_inapp_completed'
     | 'create_first_feedback'
     | 'first_feedback_completed'
     | 'push_configured'
@@ -149,6 +179,7 @@ export interface UpdateAppOnboardingRequest {
     | 'complete'
   readonly step?: OnboardingStep
   readonly question?: string
+  readonly message?: OnboardingInAppContent
 }
 
 export interface DeferCurrentUserOnboardingRequest {
