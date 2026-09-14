@@ -61,18 +61,20 @@ self-review disabled.
 
 ## Development validation
 
-The complete cross-platform matrix is intentionally **manual** while UserGist
-is under active development. Ordinary pull requests and pushes to `main` do not
-start it or consume its hosted-runner budget.
+Run the relevant package checks locally while developing. Before a coordinated
+release, open a reviewed, non-draft SDK PR and run the public validation bridge:
 
-- During day-to-day work, run the relevant package checks locally.
-- Before a coordinated SDK release or after a shared protocol change, open
-  **Actions → SDK full validation (manual) → Run workflow**, select the exact
-  candidate branch, and enter the reason.
-- The CLI equivalent is
-  `gh workflow run sdk-ci.yml --ref <candidate-branch> -f reason="<reason>"`.
-- Tag-driven release workflows independently revalidate the SDK they are about
-  to publish. A failed check stops before the public mirror or registry changes.
+```sh
+node sdk-mirrors/js/tools/sdk-ci/bridge.mjs --pr <number>
+```
+
+Reconcile after the public builds finish. See `infra/docs/public-sdk-ci.md` for
+snapshot isolation and exact-source checks. The old private full-validation
+jobs are disabled; they do not provide release evidence.
+
+Tag-driven native releases independently revalidate their SDK. `--sdk-only`
+checks package versions without requiring the not-yet-deployed app setup docs.
+The default version check still includes those docs during the product rollout.
 
 ## Release train
 
@@ -80,8 +82,8 @@ start it or consume its hosted-runner budget.
 2. Run `pnpm sdk:set-version X.Y.Z`, then `pnpm install --lockfile-only`.
 3. Run the affected SDK checks locally, then open and review a pull request.
 4. Merge the exact reviewed commit to `main`.
-5. Intentionally run **SDK full validation (manual)** on `main` and wait for all
-   five jobs to pass.
+5. Verify the public SDK checks passed for the reviewed source and that each
+   release-specific archive/native gate passed.
 6. Create annotated tags on that same commit:
 
    ```sh
