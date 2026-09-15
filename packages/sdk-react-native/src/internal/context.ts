@@ -4,7 +4,7 @@
 
 import type { IngestContext, SdkPlatform } from '@usergist/sdk-core/mobile'
 
-export const USERGIST_SDK_VERSION = '0.1.2'
+export const USERGIST_SDK_VERSION = '0.1.4'
 
 type PlatformLike = {
   readonly OS?: string

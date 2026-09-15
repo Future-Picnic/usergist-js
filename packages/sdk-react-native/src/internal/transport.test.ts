@@ -16,7 +16,7 @@ describe('transport retry classification', () => {
       context: {
         anonymousId: 'anonymous-a',
         externalId: null,
-        sdkVersion: '0.1.0',
+        sdkVersion: '0.1.4',
         platform: 'react-native',
       },
       events: [{
@@ -63,4 +63,18 @@ describe('transport retry classification', () => {
     expect(seen.get('/v1/sdk/identify')).toBe('st_identified')
     expect(seen.get('/v1/sdk/consent')).toBe('st_anonymous')
   })
+})
+
+it('reset cancellation stops retries and discards late responses from the previous credential', async () => {
+  let finish!: (response: Response) => void
+  const fetchMock = vi.fn(() => new Promise<Response>(resolve => { finish = resolve }))
+  vi.stubGlobal('fetch', fetchMock)
+  const transport = createTransport({ writeKey: 'public', apiUrl: 'https://example.test' })
+  transport.setSubjectToken('st_account_a')
+  const pending = transport.identify({anonymousId:'a',externalId:'account-a'}, 'st_account_a')
+  transport.cancelAll()
+  transport.setSubjectToken('st_account_b')
+  finish(new Response('{}', { status: 503 }))
+  await expect(pending).rejects.toMatchObject({name:'AbortError'})
+  expect(fetchMock).toHaveBeenCalledOnce()
 })

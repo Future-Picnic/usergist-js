@@ -5,6 +5,7 @@ export interface Workspace {
   readonly name: string
   readonly slug: string
   readonly region: string
+  readonly timezone: string
   readonly createdAt: string
   readonly updatedAt: string
 }
@@ -49,6 +50,7 @@ export interface User {
   readonly name?: string | null
   readonly emailVerifiedAt?: string | null
   readonly createdAt: string
+  readonly onboardingCompletedAt: string | null
   // Cross-workspace operator flag. Set on a tiny number of internal
   // accounts; surfaced so the dashboard can render the /admin
   // surface. SDK consumers never see this — it's only populated by
@@ -57,16 +59,131 @@ export interface User {
 }
 
 export interface App {
+  readonly setupMode?: 'sdk' | 'portal'
   readonly id: string
   readonly workspaceId: string
   readonly name: string
   readonly slug: string
-  readonly platforms: ReadonlyArray<'ios' | 'android' | 'react-native' | 'flutter'>
+  readonly platforms: ReadonlyArray<
+    'ios' | 'android' | 'react-native' | 'expo' | 'flutter' | 'web'
+  >
+  readonly webConfig?: import('./web.js').WebAppConfig
   readonly piiAllowList: ReadonlyArray<string>
   readonly lifecycleEventsEnabled: boolean
   readonly billingSuspendedAt: string | null
+  readonly onboarding: AppOnboarding
   readonly createdAt: string
   readonly updatedAt: string
+}
+
+export type OnboardingGoal =
+  | 'feedback'
+  | 'survey'
+  | 'inapp'
+  | 'push'
+  | 'requests'
+export type OnboardingStatus = 'in_progress' | 'deferred' | 'completed'
+export type OnboardingStep =
+  | 'connect'
+  | 'verify'
+  | 'experience'
+  | 'push'
+  | 'launch'
+export type OnboardingPushChoice = 'pending' | 'configured' | 'skipped'
+
+export interface AppOnboarding {
+  readonly goal: OnboardingGoal | null
+  readonly status: OnboardingStatus
+  readonly step: OnboardingStep
+  readonly pushChoice: OnboardingPushChoice
+  readonly startedAt: string
+  readonly deferredAt: string | null
+  readonly completedAt: string | null
+}
+
+export interface OnboardingEvent {
+  readonly name: '$app_open'
+  readonly occurredAt: string
+  readonly receivedAt: string
+  readonly anonymousId: string
+  readonly externalId: string | null
+  readonly identityType: 'anonymous' | 'identified'
+  readonly platform: string | null
+  readonly sdkVersion: string | null
+  readonly appVersion: string | null
+}
+
+export interface OnboardingFirstFeedback {
+  readonly promptId: string
+  readonly question: string
+  readonly status: 'draft' | 'active' | 'paused' | 'archived'
+  readonly createdAt: string
+  readonly shownAt: string | null
+  readonly responseAt: string | null
+  readonly responseValue: number | string | ReadonlyArray<string> | null
+  readonly responseAnonymousId: string | null
+  readonly responseExternalId: string | null
+  readonly lastDismissedAt: string | null
+}
+
+/** Small, ready-to-use first message; the full composer stays in the dashboard. */
+export interface OnboardingInAppContent {
+  readonly title: string
+  readonly body: string
+  readonly buttonLabel: string
+  readonly format: 'modal' | 'slideup'
+}
+
+export function defaultOnboardingMessage(appName: string): OnboardingInAppContent {
+  return {
+    title: `Welcome to ${appName.trim() || 'our app'}`,
+    body: 'Glad you’re here. Take a look around and make yourself at home.',
+    buttonLabel: 'Got it',
+    format: 'modal',
+  }
+}
+
+export interface OnboardingFirstInApp extends Omit<OnboardingInAppContent, 'format'> {
+  readonly format: 'modal' | 'modal_full' | 'slideup'
+  readonly messageId: string
+  readonly status: 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'archived'
+  readonly shownAt: string | null
+  readonly interactedAt: string | null
+  readonly interaction: 'cta_clicked' | 'dismissed' | null
+  readonly identityType: 'anonymous' | 'identified' | null
+}
+
+export interface AppOnboardingStatus extends AppOnboarding {
+  readonly clientKeyAuthenticatedAt: string | null
+  readonly environment: WriteKey['environment']
+  readonly firstEvent: OnboardingEvent | null
+  readonly firstAudienceUserCreated: boolean
+  readonly firstFeedback: OnboardingFirstFeedback | null
+  readonly firstInApp?: OnboardingFirstInApp | null
+  readonly pushCredentials: {
+    readonly ios: boolean
+    readonly android: boolean
+  }
+}
+
+export interface UpdateAppOnboardingRequest {
+  readonly action?:
+    | 'resume'
+    | 'defer'
+    | 'create_first_inapp'
+    | 'first_inapp_completed'
+    | 'create_first_feedback'
+    | 'first_feedback_completed'
+    | 'push_configured'
+    | 'push_skipped'
+    | 'complete'
+  readonly step?: OnboardingStep
+  readonly question?: string
+  readonly message?: OnboardingInAppContent
+}
+
+export interface DeferCurrentUserOnboardingRequest {
+  readonly action: 'defer'
 }
 
 export interface WriteKey {
@@ -84,7 +201,10 @@ export interface CreatedWriteKey extends WriteKey {
   readonly plaintext: string // only returned on creation
 }
 
-export type ApiTokenScope = 'sdk:subjects' | 'push.transactional'
+export type ApiTokenScope =
+  | 'sdk:subjects'
+  | 'push.transactional'
+  | 'users.properties.write'
 
 /**
  * Metadata for a workspace-scoped server credential. The plaintext secret is

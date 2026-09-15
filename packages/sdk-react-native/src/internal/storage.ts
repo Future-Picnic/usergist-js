@@ -145,80 +145,93 @@ export function createStorageScope(writeKey: string): StorageScope {
   const prefix = `@usergist/${hashKey(writeKey)}/`
   const key = (suffix: string): string => `${prefix}${suffix}`
   const isCredential = (suffix: string): boolean =>
-    suffix === STORAGE_KEYS.subjectToken || suffix === STORAGE_KEYS.mutationQueue
+    suffix === STORAGE_KEYS.identity || suffix === STORAGE_KEYS.userProperties || suffix === STORAGE_KEYS.subjectToken || suffix === STORAGE_KEYS.mutationQueue || suffix === STORAGE_KEYS.sessionRevocations || suffix === STORAGE_KEYS.pushDevice || suffix === STORAGE_KEYS.pushToken
   const implementation = (suffix: string): AsyncStorageLike =>
     isCredential(suffix) ? credentialBackend() : backend()
+  let pending: Promise<unknown> = Promise.resolve()
+  function serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const task = pending.catch(() => {}).then(operation)
+    pending = task
+    return task
+  }
   return {
     key,
     async getJson<T>(suffix: string): Promise<T | null> {
-      try {
-        const impl = implementation(suffix)
-        let raw = await impl.getItem(key(suffix))
-        // One-time migration from older SDK builds that stored credentials in
-        // AsyncStorage. Always remove the plaintext copy, even if a native
-        // secure-store write fails, so migration cannot preserve credentials
-        // in an unencrypted backend.
-        if (raw == null && isCredential(suffix) && !customAdapter) {
-          const legacy = loadAsyncStorage()
-          const old = await legacy?.getItem(key(suffix))
-          if (old != null) {
-            try {
-              await impl.setItem(key(suffix), old)
-            } finally {
-              await legacy?.removeItem(key(suffix))
+      return serialize(async () => {
+        try {
+          const impl = implementation(suffix)
+          let raw = await impl.getItem(key(suffix))
+          // One-time migration from older SDK builds that stored credentials in
+          // AsyncStorage. Always remove the plaintext copy, even if a native
+          // secure-store write fails, so migration cannot preserve credentials
+          // in an unencrypted backend.
+          if (raw == null && isCredential(suffix) && !customAdapter) {
+            const legacy = loadAsyncStorage()
+            const old = await legacy?.getItem(key(suffix))
+            if (old != null) {
+              try {
+                await impl.setItem(key(suffix), old)
+              } finally {
+                await legacy?.removeItem(key(suffix))
+              }
+              raw = old
             }
-            raw = old
           }
+          if (raw == null) return null
+          return JSON.parse(raw) as T
+        } catch (e) {
+          reportError('storage.getJson failed', e)
+          return null
         }
-        if (raw == null) return null
-        return JSON.parse(raw) as T
-      } catch (e) {
-        reportError('storage.getJson failed', e)
-        return null
-      }
+      })
     },
     async setJson<T>(suffix: string, value: T): Promise<void> {
       try {
-        await implementation(suffix).setItem(key(suffix), JSON.stringify(value))
+        await serialize(() => implementation(suffix).setItem(key(suffix), JSON.stringify(value)))
       } catch (e) {
         reportError('storage.setJson failed', e)
       }
     },
     async setJsonStrict<T>(suffix: string, value: T): Promise<void> {
-      await implementation(suffix).setItem(key(suffix), JSON.stringify(value))
+      await serialize(() => implementation(suffix).setItem(key(suffix), JSON.stringify(value)))
     },
     async remove(suffix: string): Promise<void> {
-      try {
-        await implementation(suffix).removeItem(key(suffix))
-        if (isCredential(suffix) && !customAdapter) {
-          await loadAsyncStorage()?.removeItem(key(suffix))
+      return serialize(async () => {
+        try {
+          await implementation(suffix).removeItem(key(suffix))
+          if (isCredential(suffix) && !customAdapter) {
+            await loadAsyncStorage()?.removeItem(key(suffix))
+          }
+        } catch (e) {
+          reportError('storage.remove failed', e)
         }
-      } catch (e) {
-        reportError('storage.remove failed', e)
-      }
+      })
     },
     async clearAll(suffixes: ReadonlyArray<string>): Promise<void> {
-      try {
-        const normal = suffixes.filter((suffix) => !isCredential(suffix)).map(key)
-        const credentials = suffixes.filter(isCredential).map(key)
-        const normalImpl = backend()
-        const credentialImpl = credentialBackend()
-        if (normal.length > 0) {
-          if (normalImpl.multiRemove) await normalImpl.multiRemove(normal)
-          else await Promise.all(normal.map((k) => normalImpl.removeItem(k)))
-        }
-        if (credentials.length > 0) {
-          if (credentialImpl.multiRemove) await credentialImpl.multiRemove(credentials)
-          else await Promise.all(credentials.map((k) => credentialImpl.removeItem(k)))
-          if (!customAdapter) {
-            const legacy = loadAsyncStorage()
-            if (legacy?.multiRemove) await legacy.multiRemove(credentials)
-            else await Promise.all(credentials.map((k) => legacy?.removeItem(k)))
+      return serialize(async () => {
+        try {
+          const normal = suffixes.filter((suffix) => !isCredential(suffix)).map(key)
+          const credentials = suffixes.filter(isCredential).map(key)
+          const normalImpl = backend()
+          const credentialImpl = credentialBackend()
+          if (normal.length > 0) {
+            if (normalImpl.multiRemove) await normalImpl.multiRemove(normal)
+            else await Promise.all(normal.map((k) => normalImpl.removeItem(k)))
           }
+          if (credentials.length > 0) {
+            if (credentialImpl.multiRemove) await credentialImpl.multiRemove(credentials)
+            else await Promise.all(credentials.map((k) => credentialImpl.removeItem(k)))
+            if (!customAdapter) {
+              const legacy = loadAsyncStorage()
+              if (legacy?.multiRemove) await legacy.multiRemove(credentials)
+              else await Promise.all(credentials.map((k) => legacy?.removeItem(k)))
+            }
+          }
+        } catch (e) {
+          reportError('storage.clearAll failed', e)
+          throw e
         }
-      } catch (e) {
-        reportError('storage.clearAll failed', e)
-      }
+      })
     },
   }
 }
@@ -234,6 +247,9 @@ export const STORAGE_KEYS = {
   userProperties: 'userProperties',
   eventHistory: 'eventHistory',
   subjectToken: 'subjectToken',
+  sessionRevocations: 'sessionRevocations',
+  pushDevice: 'pushDevice',
+  pushToken: 'pushToken',
   mutationQueue: 'mutationQueue',
   instructionCursor: 'instructionCursor',
   seenInstructions: 'seenInstructions',

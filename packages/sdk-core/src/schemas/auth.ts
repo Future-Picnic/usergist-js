@@ -27,7 +27,17 @@ export const loginMagicLinkConsumeRequestSchema = z.object({
   token: z.string().min(16).max(512),
 })
 
+export const updateCurrentUserSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one field is required',
+  })
+
 export type SignupBody = z.infer<typeof signupRequestSchema>
 export type LoginPasswordBody = z.infer<typeof loginPasswordRequestSchema>
 export type LoginMagicLinkBody = z.infer<typeof loginMagicLinkRequestSchema>
 export type LoginMagicLinkConsumeBody = z.infer<typeof loginMagicLinkConsumeRequestSchema>
+export type UpdateCurrentUserBody = z.infer<typeof updateCurrentUserSchema>

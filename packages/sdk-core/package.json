@@ -1,6 +1,6 @@
 {
   "name": "@usergist/sdk-core",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Shared types and utilities across the userGist feedback platform",
   "license": "MIT",
   "homepage": "https://usergist.com/docs/sdks/core",
@@ -33,7 +33,12 @@
       "import": "./dist/mobile.js",
       "require": "./dist/mobile.cjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js",
+      "require": "./dist/client.cjs"
+    }
   },
   "sideEffects": false,
   "files": [

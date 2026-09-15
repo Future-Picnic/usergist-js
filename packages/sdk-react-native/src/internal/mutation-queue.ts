@@ -2,9 +2,10 @@ import { generateEventId } from './identity.js'
 import { STORAGE_KEYS, type StorageScope } from './storage.js'
 import { reportError } from './debug.js'
 
-export type MutationPurpose = 'essential' | 'feedback' | 'survey'
+export type MutationPurpose = 'analytics' | 'essential' | 'feedback' | 'survey'
 export type MutationKind =
   | 'identify'
+  | 'user-properties'
   | 'feedback-response'
   | 'survey-complete'
   | 'survey-abandon'
@@ -77,11 +78,28 @@ export function createMutationQueue(storage: StorageScope): MutationQueue {
         const existing = dedupeKey
           ? items.find((item) => item.dedupeKey === dedupeKey)
           : undefined
-        if (existing) {
+        if (existing && kind !== 'identify') {
           id = existing.id
           return
         }
-        const next = { id, kind, purpose, payload, createdAt: new Date().toISOString(), dedupeKey }
+        const next = {
+          id,
+          kind,
+          purpose,
+          payload: existing ? {
+            ...payload,
+            properties: {
+              ...(existing.payload.properties as Record<string, unknown> ?? {}),
+              ...(payload.properties as Record<string, unknown> ?? {}),
+            },
+          } : payload,
+          createdAt: new Date().toISOString(),
+          dedupeKey,
+        }
+        if (existing) {
+          items = items.map(item => item.id === existing.id ? next : item)
+          return
+        }
         items = purpose === 'essential' ? [next, ...items] : [...items, next]
       })
       return id

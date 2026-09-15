@@ -9,9 +9,48 @@ import {
   type Engine,
 } from './engine.js'
 import { PermanentHttpError } from './transport.js'
+import { createMutationQueue } from './mutation-queue.js'
+import { createStorageScope, configureStorageAdapter } from './storage.js'
 
 afterEach(() => {
   vi.useRealTimers()
+})
+
+it('retains offline profile edits until analytics consent and applies explicit removal without identifying again', async () => {
+  const values = new Map<string, string>()
+  configureStorageAdapter({
+    getItem: async key => values.get(key) ?? null,
+    setItem: async (key, value) => { values.set(key, value) },
+    removeItem: async key => { values.delete(key) },
+  })
+  const storage = createStorageScope('profile-backport')
+  const queued = createMutationQueue(storage)
+  await queued.hydrate()
+  await queued.enqueue('user-properties', 'analytics', {
+    mutationId: 'profile-edit', anonymousId: 'guest-install',
+    set: { isAnonymous: false, blockedPii: 'private' }, unset: ['email'],
+  })
+  const restored = createMutationQueue(storage)
+  await restored.hydrate()
+  let analytics = false
+  const update = vi.fn(async () => ({ applied: true, filteredKeys: ['blockedPii'] }))
+  const mergeProperties = vi.fn()
+  const e = {
+    resetting: false, resetGeneration: 0, mutationFlushPromise: null,
+    mutations: restored,
+    identity: { get: () => ({ anonymousId: 'guest-install', externalId: '123' }) },
+    consent: { get: () => ({ analytics, feedback: false, survey: false, push: false, version: 1 }), allowsAnalytics: () => analytics },
+    transport: { consent: vi.fn(async () => ({ ok: true })), userProperties: update },
+    userState: { mergeProperties },
+  } as unknown as Engine
+  await flushMutations(e)
+  expect(update).not.toHaveBeenCalled()
+  expect(restored.size()).toBe(1)
+  analytics = true
+  await flushMutations(e)
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({ anonymousId: 'guest-install', unset: ['email'] }))
+  expect(mergeProperties).toHaveBeenCalledWith({ isAnonymous: false }, ['email'])
+  expect(restored.size()).toBe(0)
 })
 
 describe('engine repeat delivery', () => {
@@ -243,15 +282,15 @@ describe('durable survey abandonment', () => {
       resetting: false,
       resetGeneration: 0,
       mutationFlushPromise: null,
-      consent: { get: () => ({ analytics: true }) },
+      consent: { get: () => ({ analytics: true, version: 1 }), allowsAnalytics: () => true },
       mutations: {
         size: () => (pending ? 1 : 0),
         peek: () => (pending ? mutation : null),
         remove: vi.fn(async () => { pending = false }),
       },
-      transport: { identify, setSubjectToken: vi.fn() },
+      transport: { identify, setSubjectToken: vi.fn(), consent: vi.fn(async () => ({ok:true})) },
       storage: { setJsonStrict },
-      identity: { setExternalId },
+      identity: { setExternalId, get: () => ({anonymousId:"anonymous-a", externalId:null}) },
       userState: { mergeProperties: vi.fn() },
     } as unknown as Engine
 

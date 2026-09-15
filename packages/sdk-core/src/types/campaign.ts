@@ -1,7 +1,12 @@
+import type { PersonalizationSpec } from './personalization.js'
 import type { AudienceSpec, TriggerSpec } from './targeting.js'
 import type { JsonAction } from './inapp-message.js'
 
-export type PushDeliveryMode = 'broadcast' | 'scheduled' | 'triggered' | 'transactional'
+export type PushDeliveryMode =
+  | 'broadcast'
+  | 'scheduled'
+  | 'triggered'
+  | 'transactional'
 
 export type PushPlatformFilter = 'all' | 'ios' | 'android'
 
@@ -23,7 +28,18 @@ export type CampaignStatus =
   | 'completed'
   | 'archived'
 
-export type PushActionType = 'open_app' | 'deep_link' | 'url' | 'dismiss' | 'json'
+export type PushActionType =
+  | 'open_app'
+  | 'deep_link'
+  | 'url'
+  | 'dismiss'
+  | 'json'
+
+export interface PushOpenAction {
+  readonly action: 'open_app' | 'deep_link' | 'url' | 'json'
+  readonly target?: string
+  readonly actionJson?: JsonAction
+}
 
 export interface PushActionButton {
   readonly label: string
@@ -34,9 +50,15 @@ export interface PushActionButton {
 }
 
 export type PushUrgency = 'time_sensitive' | 'normal' | 'low'
-export type PushInterruptionLevel = 'passive' | 'active' | 'time-sensitive' | 'critical'
+export type PushInterruptionLevel =
+  | 'passive'
+  | 'active'
+  | 'time-sensitive'
+  | 'critical'
 
 export interface PushVariant {
+  readonly openAction?: PushOpenAction | null
+  readonly personalization?: PersonalizationSpec | null
   readonly id: string
   readonly campaignId: string
   readonly language: string | null
@@ -171,7 +193,9 @@ export interface CreateCampaignRequest {
   readonly abConfig?: PushABConfig
   readonly startAt?: string | null
   readonly endAt?: string | null
-  readonly variants: ReadonlyArray<Omit<PushVariant, 'id' | 'campaignId' | 'createdAt' | 'updatedAt'>>
+  readonly variants: ReadonlyArray<
+    Omit<PushVariant, 'id' | 'campaignId' | 'createdAt' | 'updatedAt'>
+  >
   readonly status?: CampaignStatus
 }
 
@@ -180,6 +204,9 @@ export interface UpdateCampaignRequest extends Partial<CreateCampaignRequest> {
 }
 
 export interface PushTransactionalRequest {
+  readonly data?: Readonly<
+    Record<string, import('./personalization.js').PersonalizationScalar>
+  >
   readonly campaignId: string
   readonly anonymousId?: string
   readonly externalId?: string

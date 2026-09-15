@@ -1,3 +1,4 @@
+import type { UserPropertiesUpdate } from '@usergist/sdk-core/mobile'
 // HTTPS transport with retry + exponential backoff + jitter.
 //
 // We do NOT gzip in JS for v0 — RN does not ship zlib. This is noted in the
@@ -148,7 +149,8 @@ export interface Transport {
     readonly anonymousId: string
     readonly currentToken?: string
   }) => Promise<SdkSessionResponse>
-  readonly revokeSession: () => Promise<{ ok: true }>
+  readonly setAuthenticationHandler: (handler: () => void) => void
+  readonly revokeSession: (anonymousId?: string) => Promise<{ ok: true }>
   readonly instructions: (after: number) => Promise<{
     readonly instructions: ReadonlyArray<{
       readonly id: number
@@ -172,11 +174,14 @@ export interface Transport {
     readonly anonymousId: string
     readonly externalId: string | null
   }) => Promise<SdkArmedInAppMessagesResponse>
-  readonly consent: (p: SdkConsentPayload) => Promise<{ ok: true }>
+  readonly consent: (p: SdkConsentPayload, subjectTokenOverride?: string) => Promise<{ ok: true }>
+  readonly userProperties: (
+    p: UserPropertiesUpdate & { anonymousId: string },
+  ) => Promise<{ applied: boolean; filteredKeys: string[] }>
   readonly identify: (
     p: SdkIdentifyPayload,
     subjectToken: string,
-  ) => Promise<{ ok: true }>
+  ) => Promise<{ ok: true; subjectToken?: string; expiresAt?: string; filteredKeys?: string[]; properties?: Record<string, import("@usergist/sdk-core/mobile").EventPropertyValue> }>
   readonly submitResponse: (p: SubmitResponsePayload) => Promise<{ ok: true }>
   readonly pushRegisterToken: (p: PushRegisterTokenPayload) => Promise<unknown>
   readonly pushInvalidateToken: (p: PushInvalidateTokenPayload) => Promise<unknown>
@@ -311,6 +316,9 @@ export function createTransport(cfg: TransportConfig): Transport {
   let consecutiveFailures = 0
   let circuitOpenUntil = 0
   let subjectToken: string | null = null
+  let authenticationHandler: (() => void) | undefined
+  let invalidatedToken: string | null = null
+  let invalidatedAt = 0
 
   function resetCircuit(): void {
     consecutiveFailures = 0
@@ -332,6 +340,7 @@ export function createTransport(cfg: TransportConfig): Transport {
   }
 
   async function request<T>(opts: RequestOpts): Promise<T> {
+    const requestSignal = abortController.signal
     const requestSubjectToken = opts.subjectTokenOverride ?? subjectToken
     if (opts.requiresSubject !== false && !requestSubjectToken) {
       throw new Error('subject-session-unavailable')
@@ -343,6 +352,7 @@ export function createTransport(cfg: TransportConfig): Transport {
     let attempt = 0
     // eslint-disable-next-line no-constant-condition
     while (true) {
+      if (requestSignal.aborted) throw new DOMExceptionLike('Aborted', 'AbortError')
       try {
         debugLog('http →', { method: opts.method, path: opts.path, attempt })
         // Compose a per-request timeout with the shared cancel controller so a
@@ -350,8 +360,11 @@ export function createTransport(cfg: TransportConfig): Transport {
         // of outcome so we don't leak timers or listeners.
         const timeoutCtrl = new AbortController()
         const onParentAbort = (): void => timeoutCtrl.abort()
-        abortController.signal.addEventListener('abort', onParentAbort)
-        const timeoutId = setTimeout(() => timeoutCtrl.abort(), REQUEST_TIMEOUT_MS)
+        requestSignal.addEventListener('abort', onParentAbort)
+        const timeoutId = setTimeout(
+          () => timeoutCtrl.abort(),
+          REQUEST_TIMEOUT_MS
+        )
         let res: Response
         try {
           res = await fetch(url, {
@@ -370,8 +383,9 @@ export function createTransport(cfg: TransportConfig): Transport {
           })
         } finally {
           clearTimeout(timeoutId)
-          abortController.signal.removeEventListener('abort', onParentAbort)
+          requestSignal.removeEventListener('abort', onParentAbort)
         }
+        if (requestSignal.aborted) throw new DOMExceptionLike('Aborted', 'AbortError')
         debugLog('http ←', {
           method: opts.method,
           path: opts.path,
@@ -381,6 +395,7 @@ export function createTransport(cfg: TransportConfig): Transport {
         if (res.ok) {
           resetCircuit()
           const text = await res.text()
+          if (requestSignal.aborted) throw new DOMExceptionLike('Aborted', 'AbortError')
           if (!text) return {} as T
           const parsed = JSON.parse(text) as unknown
           // Unwrap the API envelope `{success, data, error}` if present.
@@ -395,6 +410,11 @@ export function createTransport(cfg: TransportConfig): Transport {
           }
           return parsed as T
         }
+        if (res.status === 401 && requestSubjectToken && requestSubjectToken === subjectToken && (invalidatedToken !== requestSubjectToken || Date.now() - invalidatedAt >= 5000)) {
+          invalidatedToken = requestSubjectToken
+          invalidatedAt = Date.now()
+          authenticationHandler?.()
+        }
         // Non-2xx
         if (res.status >= 400 && res.status < 500 && res.status !== 429) {
           // client error — don't retry
@@ -403,7 +423,10 @@ export function createTransport(cfg: TransportConfig): Transport {
         recordFailure(res.status)
         if (!opts.idempotent) throw new Error(`http-${res.status}`)
         if (attempt >= MAX_ATTEMPTS - 1) throw new Error(`http-${res.status}`)
-        await sleep(retryAfterMs(res.headers.get('Retry-After')) ?? backoff(attempt), abortController.signal)
+        await sleep(
+          retryAfterMs(res.headers.get('Retry-After')) ?? backoff(attempt),
+          requestSignal
+        )
         attempt += 1
       } catch (e) {
         if (e instanceof PermanentHttpError) throw e
@@ -412,45 +435,50 @@ export function createTransport(cfg: TransportConfig): Transport {
           // A real cancel (cancelAll / reset) aborts the parent controller —
           // propagate it. Otherwise this abort was our per-request timeout, so
           // record a failure and fall through to the retry logic below.
-          if (abortController.signal.aborted) throw e
+          if (requestSignal.aborted) throw e
           recordFailure(0)
         }
         if (!opts.idempotent) throw e
         if (attempt >= MAX_ATTEMPTS - 1) throw e
-        await sleep(backoff(attempt), abortController.signal)
+        await sleep(backoff(attempt), requestSignal)
         attempt += 1
       }
     }
   }
 
   return {
+    setAuthenticationHandler(handler) { authenticationHandler = handler },
     setSubjectToken(token): void {
       subjectToken = token
     },
-    session: ({ anonymousId, currentToken }) => request<SdkSessionResponse>({
-      method: 'POST',
-      path: '/v1/sdk/session',
-      body: { anonymousId },
-      idempotent: false,
-      requiresSubject: false,
-      ...(currentToken ? { subjectTokenOverride: currentToken } : {}),
-    }),
-    revokeSession: () => request<{ ok: true }>({
-      method: 'POST',
-      path: '/v1/sdk/session/revoke',
-      idempotent: true,
-    }),
+    session: ({ anonymousId, currentToken }) =>
+      request<SdkSessionResponse>({
+        method: 'POST',
+        path: '/v1/sdk/session',
+        body: { anonymousId },
+        idempotent: false,
+        requiresSubject: false,
+        ...(currentToken ? { subjectTokenOverride: currentToken } : {}),
+      }),
+    revokeSession: (anonymousId) =>
+      request<{ ok: true }>({
+        method: 'POST',
+        path: '/v1/sdk/session/revoke',
+        body: anonymousId ? { anonymousId } : {},
+        idempotent: true,
+      }),
     instructions: (after) => request({
       method: 'GET',
       path: `/v1/sdk/instructions?after=${encodeURIComponent(String(after))}&limit=100`,
       idempotent: true,
     }),
-    acknowledgeInstructions: (ids) => request({
-      method: 'POST',
-      path: '/v1/sdk/instructions/ack',
-      body: { ids },
-      idempotent: true,
-    }),
+    acknowledgeInstructions: (ids) =>
+      request({
+        method: 'POST',
+        path: '/v1/sdk/instructions/ack',
+        body: { ids },
+        idempotent: true,
+      }),
     ingest: (batch) =>
       request<SdkIngestResponse>({
         method: 'POST',
@@ -485,15 +513,23 @@ export function createTransport(cfg: TransportConfig): Transport {
         idempotent: true,
       })
     },
-    consent: (p) =>
+    consent: (p, subjectTokenOverride) =>
       request<{ ok: true }>({
         method: 'POST',
         path: '/v1/sdk/consent',
+        subjectTokenOverride,
+        body: p,
+        idempotent: true,
+      }),
+    userProperties: (p) =>
+      request({
+        method: 'POST',
+        path: '/v1/sdk/user-properties',
         body: p,
         idempotent: true,
       }),
     identify: (p, identifySubjectToken) =>
-      request<{ ok: true }>({
+      request<{ ok: true; subjectToken?: string; expiresAt?: string }>({
         method: 'POST',
         path: '/v1/sdk/identify',
         body: p,

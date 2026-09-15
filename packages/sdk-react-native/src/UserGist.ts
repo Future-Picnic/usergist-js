@@ -1,3 +1,7 @@
+import { drainRevocations, hasPendingRevocations } from './internal/session-revocations.js'
+import { setPushSubscriptionStateHandler, pushSubscriptionChanged } from './internal/push-subscription.js'
+import { cancelIdentityRecovery, identityChanged, setIdentityStateHandler, setSubjectTokenProvider, getIdentityState } from './internal/identity-lifecycle.js'
+import { userPropertiesUpdateSchema } from '@usergist/sdk-core/mobile'
 // UserGist — public singleton facade.
 //
 // Philosophy:
@@ -74,6 +78,7 @@ import type { NotificationPayload } from './native/events.js'
 import { AppState, Platform } from 'react-native'
 import { generateEventId, validateIdentifyTransition } from './internal/identity.js'
 import {
+  STORAGE_KEYS,
   configureStorageAdapter,
   type UserGistStorageAdapter,
 } from './internal/storage.js'
@@ -130,6 +135,14 @@ export interface InAppHandlers {
 }
 
 let engine: Engine | null = null
+let pushRegistrationQueue: Promise<void> = Promise.resolve()
+function serializePushRegistration(
+  operation: () => Promise<void>,
+): Promise<void> {
+  const task = pushRegistrationQueue.then(operation)
+  pushRegistrationQueue = task.catch(() => undefined)
+  return task
+}
 let runtimeStarted = false
 let runtimeStartPromise: Promise<void> | null = null
 let resetPromise: Promise<void> | null = null
@@ -151,6 +164,19 @@ function ensureRequestsCache() {
   return requestsCache
 }
 
+function requestSessionIsCurrent(e: Engine): () => boolean {
+  const generation = e.resetGeneration
+  const consentVersion = e.consent.get().version
+  const identity = e.identity.get()
+  return () =>
+    !e.resetting &&
+    generation === e.resetGeneration &&
+    consentVersion === e.consent.get().version &&
+    e.consent.allowsFeedback() &&
+    identity.anonymousId === e.identity.get().anonymousId &&
+    identity.externalId === e.identity.get().externalId
+}
+
 function requireEngine(): Engine {
   if (!engine) {
     throw new Error('UserGist.init must be called before using the SDK')
@@ -161,6 +187,16 @@ function requireEngine(): Engine {
 function ensureEngine(config: SdkConfig): Engine {
   if (engine) return engine
   engine = createEngine(config)
+  const pushEngine = engine
+  pushEngine.retryPushRegistration = async () => {
+    if (pushEngine.resetting) return
+    const saved = await pushEngine.storage.getJson<{ token: string; platform: 'ios' | 'android'; environment: 'production' | 'sandbox' }>(STORAGE_KEYS.pushDevice)
+    if (!saved) return
+    pushEngine.pushTokenAvailable = true
+    if (pushEngine !== engine || pushEngine.resetting) return
+    pushSubscriptionChanged(pushEngine)
+    if (pushEngine.consent.allowsPush()) await registerPushDevice(saved.token, saved.platform, { environment: saved.environment }, true)
+  }
   surveyStore = createSurveyStore(config.writeKey)
   return engine
 }
@@ -260,6 +296,8 @@ function attachEnginePushListeners(): void {
 }
 
 function forwardToPushHandler(p: NotificationPayload, kind: 'received' | 'opened'): void {
+  if (!engine?.consent.allowsPush() || engine.resetting) return
+  if (p.data?.usergist_anonymous_id && p.data.usergist_anonymous_id !== engine.identity.get().anonymousId) return
   const data = p.data ?? {}
   if (p.deliveryId) {
     ;(data as Record<string, unknown>).usergist_delivery_id = p.deliveryId
@@ -351,6 +389,11 @@ export const UserGist = {
     }
   },
 
+  setPushSubscriptionStateHandler,
+  setIdentityStateHandler,
+  setSubjectTokenProvider,
+  getIdentityState,
+
   identify(
     userId: string,
     properties?: Record<string, EventPropertyValue>,
@@ -370,7 +413,9 @@ export const UserGist = {
         return 'rejected'
       }
       const e = requireEngine()
+      const generation = e.resetGeneration
       await ensureHydrated(e)
+      if (e.resetting || e.resetGeneration !== generation) return 'rejected'
       const identity = e.identity.get()
       const pendingIdentity = e.mutations.peek()
       const transition = validateIdentifyTransition(
@@ -382,9 +427,14 @@ export const UserGist = {
         reportError('identify rejected: call reset() before switching users')
         return 'rejected'
       }
-      const cleanProps = e.consent.allowsAnalytics() ? asEventProps(properties) : undefined
+      const cleanProps = e.consent.allowsAnalytics()
+        ? (properties && Object.keys(properties).length
+            ? userPropertiesUpdateSchema.parse({ mutationId: generateEventId(), set: properties }).set
+            : undefined)
+        : undefined
       if (
         transition === 'already_identified' &&
+        (!subjectToken || subjectToken === e.subjectToken) &&
         (!cleanProps || Object.keys(cleanProps).length === 0)
       ) {
         return 'synced'
@@ -393,14 +443,22 @@ export const UserGist = {
         reportError('identify requires a server-minted subject token')
         return 'rejected'
       }
-      const mutationId = await e.mutations.enqueue('identify', 'essential', {
-        subjectToken,
-        anonymousId: identity.anonymousId,
-        externalId: userId,
-        ...(cleanProps ? { properties: cleanProps } : {}),
-      }, `identify:${userId}`)
+      identityChanged(e, 'identifying')
+      const mutationId = await e.mutations.enqueue(
+        'identify',
+        'essential',
+        {
+          subjectToken,
+          anonymousId: identity.anonymousId,
+          externalId: userId,
+          ...(cleanProps ? { properties: cleanProps } : {}),
+        },
+        `identify:${userId}`
+      )
       const result = await flushMutations(e)
+      if (e.resetting || e.resetGeneration !== generation) return 'rejected'
       if (result.permanentlyRejectedIds.has(mutationId)) {
+        identityChanged(e, 'rejected')
         reportError('identify was rejected by the server')
         return 'rejected'
       }
@@ -412,6 +470,41 @@ export const UserGist = {
       return 'synced'
     } catch (err) {
       reportError('identify failed', err)
+      return 'rejected'
+    }
+  },
+
+  /** Update the current user, including anonymous users. Durable and retried on reconnect. */
+  async setUserProperties(
+    properties: Record<string, EventPropertyValue>,
+    unset: readonly string[] = []
+  ): Promise<IdentifyResult> {
+    try {
+      const e = requireEngine()
+      const generation = e.resetGeneration
+      await ensureHydrated(e)
+      if (
+        e !== engine ||
+        e.resetting ||
+        e.resetGeneration !== generation ||
+        !e.consent.allowsAnalytics()
+      )
+        return 'rejected'
+      const update = userPropertiesUpdateSchema.parse({
+        mutationId: generateEventId(),
+        set: properties,
+        unset: [...unset],
+      })
+      const mutationId = await e.mutations.enqueue(
+        'user-properties',
+        'analytics',
+        { ...update, anonymousId: e.identity.get().anonymousId }
+      )
+      const result = await flushMutations(e)
+      if (result.permanentlyRejectedIds.has(mutationId)) return 'rejected'
+      return e.mutations.has(mutationId) ? 'queued' : 'synced'
+    } catch (error) {
+      reportError('setUserProperties failed', error)
       return 'rejected'
     }
   },
@@ -436,7 +529,23 @@ export const UserGist = {
       if (purposes.feedback === false) e.presentation.invalidate('feedback')
       if (purposes.survey === false) e.presentation.invalidate('survey')
       await ensureHydrated(e)
+      if (e.resetting) return false
       const next = await e.consent.set(purposes)
+      if (e.resetting || next.version !== e.consent.get().version) return false
+      if (!next.feedback) {
+        requestsCache = null
+        e.events.emit('dismissRequests', undefined)
+      }
+      if (e.resetting || next.version !== e.consent.get().version) return false
+      if (purposes.push === false) {
+        lastEnablePushOptions = null
+        await pushRegistrationQueue
+        if (e.resetting || next.version !== e.consent.get().version)
+          return false
+        if (e.lastPushToken) await invalidatePushDevice(e.lastPushToken, true)
+        if (!e.consent.allowsPush()) await UserGistPushNative.disablePush()
+      }
+      if (e.resetting || next.version !== e.consent.get().version) return false
       const id = e.identity.get()
       try {
         await e.transport.consent({
@@ -455,6 +564,8 @@ export const UserGist = {
         reportError('transport.consent failed', err)
         return false
       }
+      pushSubscriptionChanged(e)
+      if (next.push) void e.retryPushRegistration?.().catch(error => reportError('push registration deferred', error))
       if (next.feedback || next.survey) {
         await refreshTargetingRules(e, true)
       }
@@ -471,21 +582,26 @@ export const UserGist = {
   reset(): Promise<void> {
     try {
       const e = requireEngine()
-      if (e.resetting) return resetPromise ?? Promise.resolve()
+      if (resetPromise) return resetPromise
       e.resetting = true
+      identityChanged(e, 'resetting')
+      pushSubscriptionChanged(e)
+      lastEnablePushOptions = null
       e.resetGeneration += 1
+      e.transport.cancelAll()
+      cancelIdentityRecovery(e)
       e.presentation.invalidate()
       e.events.emit('resetSurfaces', undefined)
       const operation = (async () => {
         await ensureHydrated(e)
-        if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
-        await UserGistPushNative.disablePush().catch(() => undefined)
+        void UserGistPushNative.disablePush().catch(() => undefined)
         await clearAllState(e)
+        requestsCache = null
       })()
       const finalized = operation
-        .catch((err: unknown) => reportError('reset failed', err))
+        .then(() => { e.resetting = false; pushSubscriptionChanged(e) })
+        .catch((err: unknown) => { identityChanged(e, 'reset-failed'); reportError('reset failed', err); throw err })
         .finally(() => {
-          e.resetting = false
           if (resetPromise === finalized) resetPromise = null
         })
       resetPromise = finalized
@@ -599,64 +715,11 @@ export const UserGist = {
     platform: 'ios' | 'android',
     opts?: { environment?: 'production' | 'sandbox' },
   ): Promise<void> {
-    try {
-      if (!token) return
-      const e = requireEngine()
-      await ensureHydrated(e)
-      if (!e.consent.allowsPush()) return
-      // Consent is enforced server-side (the register-token route reads
-      // consent_log and refuses if push was explicitly declined). We no
-      // longer short-circuit here because the host app typically calls
-      // setConsent and registerPushToken in parallel; racing the local
-      // consent hydration is not our problem to solve.
-      const id = e.identity.get()
-      const environment = opts?.environment ??
-        (e.config.environment === 'production' ? 'production' : 'sandbox')
-      const registrationKey = [
-        id.anonymousId,
-        id.externalId ?? '',
-        platform,
-        environment,
-        token,
-      ].join(':')
-      if (
-        e.lastPushRegistrationKey === registrationKey &&
-        Date.now() - e.lastPushRegistrationAt < 24 * 60 * 60_000
-      ) return
-      await e.transport.pushRegisterToken({
-        anonymousId: id.anonymousId,
-        externalId: id.externalId ?? null,
-        token,
-        platform,
-        environment,
-        language: undefined,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        appVersion: undefined,
-        sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
-        optIn: true,
-      })
-      e.lastPushToken = token
-      e.lastPushRegistrationKey = registrationKey
-      e.lastPushRegistrationAt = Date.now()
-      debugLog('push token registered with server')
-    } catch (err) {
-      reportError('registerPushToken failed', err)
-    }
+    await registerPushDevice(token, platform, opts)
   },
 
   async invalidatePushToken(token: string): Promise<void> {
-    try {
-      if (!token) return
-      const e = requireEngine()
-      await ensureHydrated(e)
-      const id = e.identity.get()
-      await e.transport.pushInvalidateToken({
-        anonymousId: id.anonymousId,
-        token,
-      })
-    } catch (err) {
-      reportError('invalidatePushToken failed', err)
-    }
+    await invalidatePushDevice(token)
   },
 
   /**
@@ -772,11 +835,46 @@ export const UserGist = {
     readonly installDelegateProxy?: boolean
   }): Promise<{
     readonly granted: boolean
-    readonly status: 'authorized' | 'provisional' | 'denied' | 'not_determined'
+    readonly status:
+      | 'authorized'
+      | 'provisional'
+      | 'denied'
+      | 'not_determined'
     readonly token?: string
     readonly platform: 'ios' | 'android'
+    readonly error?: string
   }> {
     try {
+      const e = requireEngine()
+      await ensureHydrated(e)
+      if (!e.consent.allowsPush() || e.resetting)
+        return {
+          granted: false,
+          status: 'not_determined',
+          platform: Platform.OS === 'ios' ? 'ios' : 'android',
+          error: 'consent_required',
+        }
+      const generation = e.resetGeneration
+      const consentVersion = e.consent.get().version
+      const current = () =>
+        !e.resetting &&
+        generation === e.resetGeneration &&
+        consentVersion === e.consent.get().version &&
+        e.consent.allowsPush()
+      const cancelled = () => ({
+        granted: false,
+        status: 'not_determined' as const,
+        platform:
+          Platform.OS === 'ios' ? ('ios' as const) : ('android' as const),
+        error: 'session_changed',
+      })
+      opts = {
+        ...opts,
+        environment:
+          opts?.environment ??
+          defaultEnvironment(),
+      }
+      if (!current()) return cancelled()
       if (!enginePushListenersAttached) attachEnginePushListeners()
       // Snapshot the caller's options so the AppState foreground listener
       // can re-run enablePush idempotently with the same environment.
@@ -786,12 +884,17 @@ export const UserGist = {
         installDelegateProxy: opts?.installDelegateProxy,
       }
       const result = await UserGistPushNative.enablePush(opts ?? {})
+      // Reset/withdrawal owns native cleanup. An old permission callback must
+      // not disable a new account's subsequently enabled notification adapter.
+      if (!current()) return cancelled()
       // Server-side registration runs on the tokenReceived event; if the
       // native module already had a cached token it surfaces here.
       if (result.granted && result.token) {
-        const platform = (result.platform === 'ios' ? 'ios' : 'android') as 'ios' | 'android'
+        const platform = (result.platform === 'ios' ? 'ios' : 'android') as
+          | 'ios'
+          | 'android'
         await UserGist.registerPushToken(result.token, platform, {
-          environment: opts?.environment ?? (defaultEnvironment()),
+          environment: opts?.environment ?? defaultEnvironment(),
         })
       }
       return result as Awaited<ReturnType<typeof UserGist.enablePush>>
@@ -799,23 +902,18 @@ export const UserGist = {
       reportError('enablePush failed', err)
       return {
         granted: false,
-        status: 'denied',
-        platform: (typeof navigator === 'object' && (navigator as { product?: string }).product === 'ReactNative' ? 'ios' : 'android') as 'ios' | 'android',
+        status: 'not_determined',
+        error: 'push_setup_failed',
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
       }
     }
   },
 
   async disablePush(): Promise<void> {
+    lastEnablePushOptions = null
     try {
-      const e = engine
-      if (e?.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
-      await UserGistPushNative.disablePush()
-      if (e) {
-        e.lastPushToken = null
-        e.lastPushRegistrationKey = null
-        e.lastPushRegistrationAt = 0
-        void UserGist.setConsent({ push: false })
-      }
+      if (engine) await UserGist.setConsent({ push: false })
+      else await UserGistPushNative.disablePush()
     } catch (err) {
       reportError('disablePush failed', err)
     }
@@ -1146,11 +1244,14 @@ export const UserGist = {
   // `feedback` consent purpose. No new consent migration required.
 
   async getRequests(
-    options: import('@usergist/sdk-core/mobile').GetRequestsOptions = {},
+    options: import('@usergist/sdk-core/mobile').GetRequestsOptions = {}
   ): Promise<import('@usergist/sdk-core/mobile').GetRequestsResult> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
+      if (e.resetting || !e.consent.allowsFeedback())
+        return { items: [], nextCursor: null }
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const result = await e.transport.requestsList({
         anonymousId: id.anonymousId,
@@ -1162,6 +1263,7 @@ export const UserGist = {
         cursor: options.cursor ?? null,
         limit: options.limit,
       })
+      if (!current()) return { items: [], nextCursor: null }
       ensureRequestsCache().upsertList(
         result.items.map((s) => ({
           id: s.id,
@@ -1179,7 +1281,7 @@ export const UserGist = {
           viewerHasUpvoted: s.viewerHasUpvoted,
           viewerIsFollowing: s.viewerIsFollowing,
           viewerIsSubmitter: false,
-        })),
+        }))
       )
       return result
     } catch (err) {
@@ -1193,12 +1295,16 @@ export const UserGist = {
     description: string,
     callback?: (
       err: Error | null,
-      req?: import('@usergist/sdk-core/mobile').Request,
-    ) => void,
+      req?: import('@usergist/sdk-core/mobile').Request
+    ) => void
   ): void {
     try {
       const e = requireEngine()
-      if (typeof title !== 'string' || title.length === 0 || title.length > 120) {
+      if (
+        typeof title !== 'string' ||
+        title.length === 0 ||
+        title.length > 120
+      ) {
         callback?.(new Error('title required, max 120 chars'))
         return
       }
@@ -1213,10 +1319,11 @@ export const UserGist = {
       void (async () => {
         try {
           await ensureHydrated(e)
-          if (!e.consent.allowsFeedback()) {
+          if (e.resetting || !e.consent.allowsFeedback()) {
             callback?.(new Error('feedback consent required'))
             return
           }
+          const current = requestSessionIsCurrent(e)
           const id = e.identity.get()
           const req = await e.transport.requestSubmit({
             idempotencyKey: generateEventId(),
@@ -1225,6 +1332,12 @@ export const UserGist = {
             title,
             description,
           })
+          if (!current()) {
+            callback?.(
+              new Error('Request cancelled by identity or consent change')
+            )
+            return
+          }
           ensureRequestsCache().upsert(req)
           recordServerBackedEventLocally(e, '$request_submitted')
           requestsHandlers.onSubmit?.(req)
@@ -1243,10 +1356,11 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
       const cache = ensureRequestsCache()
       const rollback = cache.applyOptimisticVote(requestId, vote)
       try {
+        const current = requestSessionIsCurrent(e)
         const id = e.identity.get()
         const result = await e.transport.requestVote({
           requestId,
@@ -1254,8 +1368,15 @@ export const UserGist = {
           externalId: id.externalId ?? null,
           vote,
         })
+        if (!current()) {
+          rollback()
+          return
+        }
         cache.commitVote(requestId, result)
-        recordServerBackedEventLocally(e, vote ? '$request_upvoted' : '$request_unupvoted')
+        recordServerBackedEventLocally(
+          e,
+          vote ? '$request_upvoted' : '$request_unupvoted'
+        )
         requestsHandlers.onVote?.(result)
       } catch (err) {
         rollback()
@@ -1270,10 +1391,11 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
       const cache = ensureRequestsCache()
       const rollback = cache.applyOptimisticFollow(requestId, follow)
       try {
+        const current = requestSessionIsCurrent(e)
         const id = e.identity.get()
         const result = await e.transport.requestFollow({
           requestId,
@@ -1281,8 +1403,15 @@ export const UserGist = {
           externalId: id.externalId ?? null,
           follow,
         })
+        if (!current()) {
+          rollback()
+          return
+        }
         cache.commitFollow(requestId, result)
-        recordServerBackedEventLocally(e, follow ? '$request_followed' : '$request_unfollowed')
+        recordServerBackedEventLocally(
+          e,
+          follow ? '$request_followed' : '$request_unfollowed'
+        )
         requestsHandlers.onFollow?.(result)
       } catch (err) {
         rollback()
@@ -1308,8 +1437,10 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return null
-      return await e.transport.requestBranding()
+      if (e.resetting || !e.consent.allowsFeedback()) return null
+      const current = requestSessionIsCurrent(e)
+      const branding = await e.transport.requestBranding()
+      return current() ? branding : null
     } catch (err) {
       reportError('getRequestBranding failed', err)
       return null
@@ -1323,18 +1454,20 @@ export const UserGist = {
    * call this when rendering a detail view that needs the response.
    */
   async getRequest(
-    requestId: string,
+    requestId: string
   ): Promise<import('@usergist/sdk-core/mobile').Request | null> {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return null
+      if (e.resetting || !e.consent.allowsFeedback()) return null
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const req = await e.transport.requestGet({
         requestId,
         anonymousId: id.anonymousId,
         externalId: id.externalId ?? null,
       })
+      if (!current()) return null
       ensureRequestsCache().upsert(req)
       return req
     } catch (err) {
@@ -1346,7 +1479,7 @@ export const UserGist = {
   openRequestsBoard(): void {
     try {
       const e = requireEngine()
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
       e.events.emit('showRequestsBoard', undefined)
     } catch (err) {
       reportError('openRequestsBoard failed', err)
@@ -1356,14 +1489,16 @@ export const UserGist = {
   openRequestDetail(requestId: string): void {
     try {
       const e = requireEngine()
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
       e.events.emit('showRequestDetail', { requestId })
     } catch (err) {
       reportError('openRequestDetail failed', err)
     }
   },
 
-  setRequestsHandlers(handlers: import('@usergist/sdk-core/mobile').RequestsHandlers): void {
+  setRequestsHandlers(
+    handlers: import('@usergist/sdk-core/mobile').RequestsHandlers
+  ): void {
     requestsHandlers = { ...handlers }
   },
 
@@ -1371,19 +1506,22 @@ export const UserGist = {
 
   /** List comments for a request, ordered oldest-first. */
   async getComments(
-    requestId: string,
-  ): Promise<ReadonlyArray<import('@usergist/sdk-core/mobile').RequestComment>> {
+    requestId: string
+  ): Promise<
+    ReadonlyArray<import('@usergist/sdk-core/mobile').RequestComment>
+  > {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return []
+      if (e.resetting || !e.consent.allowsFeedback()) return []
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const result = await e.transport.requestCommentsList({
         requestId,
         anonymousId: id.anonymousId,
         externalId: id.externalId ?? null,
       })
-      return result.items
+      return current() ? result.items : []
     } catch (err) {
       reportError('getComments failed', err)
       return []
@@ -1393,13 +1531,14 @@ export const UserGist = {
   /** Post a comment on a request. Returns the new row, or null on failure. */
   async postComment(
     requestId: string,
-    body: string,
+    body: string
   ): Promise<import('@usergist/sdk-core/mobile').RequestComment | null> {
     try {
       const e = requireEngine()
       validateCommentBody(body)
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return null
+      if (e.resetting || !e.consent.allowsFeedback()) return null
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const comment = await e.transport.requestCommentPost({
         idempotencyKey: generateEventId(),
@@ -1408,6 +1547,7 @@ export const UserGist = {
         externalId: id.externalId ?? null,
         body,
       })
+      if (!current()) return null
       recordServerBackedEventLocally(e, REQUEST_COMMENTED_EVENT_NAME)
       return comment
     } catch (err) {
@@ -1420,13 +1560,14 @@ export const UserGist = {
   async editComment(
     requestId: string,
     commentId: string,
-    body: string,
+    body: string
   ): Promise<import('@usergist/sdk-core/mobile').RequestComment | null> {
     try {
       const e = requireEngine()
       validateCommentBody(body)
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return null
+      if (e.resetting || !e.consent.allowsFeedback()) return null
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       const comment = await e.transport.requestCommentEdit({
         requestId,
@@ -1434,6 +1575,7 @@ export const UserGist = {
         anonymousId: id.anonymousId,
         body,
       })
+      if (!current()) return null
       recordServerBackedEventLocally(e, REQUEST_COMMENT_EDITED_EVENT_NAME)
       return comment
     } catch (err) {
@@ -1447,13 +1589,15 @@ export const UserGist = {
     try {
       const e = requireEngine()
       await ensureHydrated(e)
-      if (!e.consent.allowsFeedback()) return
+      if (e.resetting || !e.consent.allowsFeedback()) return
+      const current = requestSessionIsCurrent(e)
       const id = e.identity.get()
       await e.transport.requestCommentDelete({
         requestId,
         commentId,
         anonymousId: id.anonymousId,
       })
+      if (!current()) return
       recordServerBackedEventLocally(e, REQUEST_COMMENT_DELETED_EVENT_NAME)
     } catch (err) {
       reportError('deleteComment failed', err)
@@ -1462,3 +1606,88 @@ export const UserGist = {
 } as const
 
 export type UserGistStatic = typeof UserGist
+
+/** Registration and invalidation share an ordered lane. Automatic retries may
+ * consume a retained token, but must never recreate an invalidated candidate. */
+async function registerPushDevice(
+  token: string,
+  platform: 'ios' | 'android',
+  opts?: { environment?: 'production' | 'sandbox' },
+  retry = false
+): Promise<void> {
+  try {
+    if (!token) return
+    const e = requireEngine()
+    if (e.resetting) return
+    const generation = e.resetGeneration
+    await serializePushRegistration(async () => {
+      await ensureHydrated(e)
+      if (e.resetting || generation !== e.resetGeneration) return
+      const environment = opts?.environment ??
+        (e.config.environment === 'production' ? 'production' : 'sandbox')
+      if (e.resetting || generation !== e.resetGeneration) return
+      const descriptor = { token, platform, environment }
+      const stored = await e.storage.getJson(STORAGE_KEYS.pushDevice)
+      if (JSON.stringify(stored) !== JSON.stringify(descriptor)) {
+        if (retry) return
+        await e.storage.setJsonStrict(STORAGE_KEYS.pushDevice, descriptor)
+      }
+      e.pushTokenAvailable = true
+      pushSubscriptionChanged(e)
+      if (!e.consent.allowsPush()) return
+      await drainRevocations(e)
+      if (await hasPendingRevocations(e) || e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+      const id = e.identity.get()
+      const registrationKey = [id.anonymousId, id.externalId ?? '', platform, environment, token].join(':')
+      if (e.lastPushRegistrationKey === registrationKey && Date.now() - e.lastPushRegistrationAt < 24 * 60 * 60_000) return
+      // Persist before delivery so logout still owns a token if its response is lost.
+      e.lastPushToken = token
+      await e.storage.setJson(STORAGE_KEYS.pushToken, token)
+      if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+      const registration = await e.transport.pushRegisterToken({
+        anonymousId: id.anonymousId, externalId: id.externalId ?? null,
+        token, platform, environment, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        sdkVersion: `rn-${USERGIST_SDK_VERSION}`, optIn: true,
+      })
+      if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+      if (!(registration && typeof registration === 'object' && 'registered' in registration && registration.registered === true)) {
+        pushSubscriptionChanged(e)
+        return
+      }
+      e.lastPushRegistrationKey = registrationKey
+      e.lastPushRegistrationAt = Date.now()
+      pushSubscriptionChanged(e)
+      debugLog('push token registered with server')
+    })
+  } catch (err) {
+    reportError('registerPushToken failed', err)
+  }
+}
+
+async function invalidatePushDevice(token: string, retainDevice = false): Promise<void> {
+  try {
+    if (!token) return
+    const e = requireEngine()
+    const generation = e.resetGeneration
+    await serializePushRegistration(async () => {
+      await ensureHydrated(e)
+      if (e.resetting || generation !== e.resetGeneration) return
+      const saved = await e.storage.getJson<{ token: string }>(STORAGE_KEYS.pushDevice)
+      if (saved?.token === token) {
+        // Retire the automatic retry candidate before invalidating it remotely.
+        if (!retainDevice) await e.storage.setJsonStrict(STORAGE_KEYS.pushDevice, null)
+        e.pushTokenAvailable = retainDevice
+        e.lastPushRegistrationKey = null
+        e.lastPushRegistrationAt = 0
+      }
+      if (e.lastPushToken === token) {
+        await e.storage.setJsonStrict(STORAGE_KEYS.pushToken, null)
+        e.lastPushToken = null
+      }
+      pushSubscriptionChanged(e)
+      await e.transport.pushInvalidateToken({ anonymousId: e.identity.get().anonymousId, token })
+    })
+  } catch (err) {
+    reportError('invalidatePushToken failed', err)
+  }
+}
