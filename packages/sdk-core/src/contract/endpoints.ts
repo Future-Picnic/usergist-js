@@ -10,6 +10,7 @@ import type {
   EventDefinition,
   IngestBatch,
   EventPropertySchema,
+  EventPropertyValue,
 } from '../types/event.js'
 import type {
   ArmedTrigger,
@@ -492,6 +493,8 @@ export interface SdkSessionResponse {
 }
 
 export interface SdkIdentifyPayload {
+  /** Proof that the SDK owns the anonymous history it is linking. */
+  readonly previousSubjectToken?: string
   readonly anonymousId: string
   readonly externalId: string
   readonly properties?: Record<string, string | number | boolean | null>
@@ -1038,7 +1041,7 @@ export const endpoints = {
       subjectId?: string
     }
   >,
-  'POST /v1/sdk/identify': {} as Endpoint<SdkIdentifyPayload, { ok: true }>,
+  'POST /v1/sdk/identify': {} as Endpoint<SdkIdentifyPayload, { ok: true; filteredKeys: string[]; properties: Readonly<Record<string, EventPropertyValue>> } & SdkSessionResponse>,
   'POST /v1/sdk/responses': {} as Endpoint<SubmitResponsePayload, { ok: true }>,
 
   // GDPR

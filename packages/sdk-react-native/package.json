@@ -1,6 +1,6 @@
 {
   "name": "@usergist/feedback-react-native",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "description": "userGist feedback + push SDK for React Native (self-contained, no Firebase/OneSignal/WonderPush required)",
   "license": "MIT",
   "homepage": "https://usergist.com/docs/sdks/react-native",

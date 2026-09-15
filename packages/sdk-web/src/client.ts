@@ -1,3 +1,4 @@
+import { rememberRevocation, drainRevocations } from './session-revocations.js'
 import { PresentationGate } from '@usergist/sdk-core/client'
 import { userPropertiesUpdateSchema } from '@usergist/sdk-core'
 import type {
@@ -28,7 +29,7 @@ import type {
   RequestMutationResult,
 } from './types.js'
 
-const VERSION = '0.1.2'
+const VERSION = '0.1.4'
 const PII = new Set(['email', 'phone', 'ssn', 'tax_id'])
 export class WebSdkError extends Error {
   constructor(
@@ -86,6 +87,7 @@ export class UserGistClient {
   private activating?: {
     userId: string
     generation: number
+    signature: string
     promise: Promise<IdentifyResult>
   }
   private previousAnonymousStorage?: {
@@ -128,7 +130,14 @@ export class UserGistClient {
     )
       this.schedule(0)
   }
-  private online = () => this.schedule(0)
+  private cleanupKey() { return `usergist:${scope(this.config!.writeKey)}:revocations` }
+  private retryCleanup() {
+    if (!this.config || this.state === 'destroyed') return
+    // Cleanup belongs to the client lifetime, including time spent logged out.
+    if (typeof window !== 'undefined') window.addEventListener('online', this.online)
+    void drainRevocations(this.cleanupKey(), { writeKey: this.config.writeKey, apiUrl: this.config.apiUrl! })
+  }
+  private online = () => { this.retryCleanup(); this.schedule(0) }
   private diagnostic(code: string, message: string) {
     const value: Diagnostic = { code, message, at: new Date().toISOString() }
     try {
@@ -147,7 +156,7 @@ export class UserGistClient {
       queueSize: this.queue.length,
       screenName: this.screenName,
     }
-    for (const listener of this.listeners) listener()
+    for (const listener of this.listeners) { try { listener() } catch { this.diagnostic('handler_error', 'Identity observer failed') } }
   }
   getSnapshot = () => this.snapshot
   subscribe = (listener: () => void) => {
@@ -218,7 +227,8 @@ export class UserGistClient {
     path: string,
     body?: unknown,
     method = body === undefined ? 'GET' : 'POST',
-    refresh = true
+    refresh = true,
+    subjectTokenOverride?: string
   ): Promise<T> {
     if (!this.config) throw new WebSdkError('Initialize UserGist first')
     if (path === '/v1/sdk/ingest' && body) {
@@ -246,8 +256,8 @@ export class UserGistClient {
         headers: {
           Authorization: `Bearer ${this.config.writeKey}`,
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-          ...(this.token ? { 'X-UserGist-Subject-Token': this.token } : {}),
-          ...(this.clientId ? { 'X-UserGist-Client-Id': this.clientId } : {}),
+          ...((subjectTokenOverride ?? this.token) ? { 'X-UserGist-Subject-Token': subjectTokenOverride ?? this.token! } : {}),
+          ...(this.clientId && !subjectTokenOverride ? { 'X-UserGist-Client-Id': this.clientId } : {}),
           'X-UserGist-SDK': 'web/' + VERSION,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -274,7 +284,7 @@ export class UserGistClient {
       if (generation !== this.generation)
         throw new WebSdkError('Session changed', 0, 'SESSION_CHANGED')
       if (!response.ok || !result.success) {
-        if (response.status === 401 && this.active) {
+        if (response.status === 401 && this.active && !subjectTokenOverride) {
           this.state = 'authentication-required'
           this.renderer?.close(false)
           this.changed()
@@ -296,19 +306,29 @@ export class UserGistClient {
       this.refreshing = undefined
     }))
   }
-  private async performRefreshIdentity() {
+  private async performRefreshIdentity(suppliedToken?: string) {
     const id = this.externalId
     const generation = this.generation
-    if (!id || !this.config?.getSubjectToken)
+    if (!id || (!suppliedToken && !this.config?.getSubjectToken))
       throw new WebSdkError('Sign in again', 401)
-    const token = await this.config.getSubjectToken(id)
+    try {
+    const token = suppliedToken ?? await this.config!.getSubjectToken!(id)
     if (generation !== this.generation) throw new WebSdkError('Session changed')
-    this.token = token
+    const accepted = await this.api<{ subjectToken?: string }>('/v1/sdk/identify', { ...this.identity(), previousSubjectToken: this.token ?? undefined }, 'POST', false, token)
+    if (generation !== this.generation) throw new WebSdkError('Session changed')
+    this.token = accepted.subjectToken ?? token
     this.clientId = null
-    await this.api('/v1/sdk/identify', { ...this.identity() }, 'POST', false)
     await this.registerClient()
     this.state = 'active-identified'
     this.changed()
+    } catch (error) {
+      if (generation === this.generation) {
+        this.state = 'authentication-required'
+        this.renderer?.close(false)
+        this.changed()
+      }
+      throw error
+    }
   }
   identify(
     userId: string,
@@ -316,9 +336,10 @@ export class UserGistClient {
     subjectToken?: string
   ): Promise<IdentifyResult> {
     const generation = this.generation
+    const signature = JSON.stringify([subjectToken ?? null, properties ?? {}])
     const pending = this.activating
     if (pending?.generation === generation) {
-      if (pending.userId === userId) return pending.promise
+      if (pending.userId === userId && pending.signature === signature) return pending.promise
       return pending.promise.then(() =>
         generation === this.generation
           ? this.identify(userId, properties, subjectToken)
@@ -328,7 +349,7 @@ export class UserGistClient {
     const promise = this.activate(userId, properties, subjectToken).finally(() => {
       if (this.activating?.promise === promise) this.activating = undefined
     })
-    this.activating = { userId, generation, promise }
+    this.activating = { userId, generation, signature, promise }
     return promise
   }
   async startAnonymous(): Promise<IdentifyResult> {
@@ -347,13 +368,22 @@ export class UserGistClient {
     subjectToken?: string
   ): Promise<IdentifyResult> {
     if (this.resetWork) await this.resetWork
+    this.retryCleanup()
     if (!this.config || this.state === 'destroyed') return 'rejected'
     if (this.active) {
       if (
         this.externalId === userId ||
         (userId === '' && this.externalId === null)
-      )
-        return 'synced'
+      ) {
+        try {
+          if (subjectToken && subjectToken !== this.token) await this.performRefreshIdentity(subjectToken)
+          if (properties && Object.keys(properties).length) return await this.setUserProperties(properties)
+          return 'synced'
+        } catch (error) {
+          this.diagnostic('identity_update_failed', error instanceof Error ? error.message : 'Identification failed')
+          return 'rejected'
+        }
+      }
       if (this.externalId) {
         this.diagnostic(
           'reset_required',
@@ -414,17 +444,21 @@ export class UserGistClient {
         const token =
           subjectToken ?? (await this.config.getSubjectToken?.(userId)) ?? null
         assertCurrent()
-        this.token = token
-        if (!this.token)
+        const previousSubjectToken = this.token
+        if (!token)
           throw new WebSdkError(
             'identify() requires a server-minted subject token'
           )
-        await this.api(
+        const accepted = await this.api<{ subjectToken?: string }>(
           '/v1/sdk/identify',
-          { ...this.identity(), properties: clean(properties) },
+          { ...this.identity(), properties: this.consent.analytics && properties && Object.keys(properties).length
+              ? userPropertiesUpdateSchema.parse({ mutationId: uuid(), set: properties }).set : undefined, previousSubjectToken: previousSubjectToken ?? undefined },
           'POST',
-          false
+          false,
+          token
         )
+        assertCurrent()
+        this.token = accepted.subjectToken ?? token
       } else {
         let saved: string | null = null
         try {
@@ -479,11 +513,15 @@ export class UserGistClient {
       this.track('$app_open')
       this.schedule(0)
       this.emit('activated', this.snapshot)
+      // Initial activation precedes server consent. Apply profile values only
+      // after consent is acknowledged, so first-login properties are not lost.
+      if (this.consent.analytics && properties && Object.keys(properties).length) return await this.setUserProperties(properties)
       return 'synced'
     } catch (error) {
       if (generation === this.generation) {
         this.state = 'inactive'
-        this.token = null
+        // Keep the last accepted credential for retry/logout. A rejected
+        // backend proof must not discard ownership of the anonymous alias.
         this.clientId = null
         this.externalId = null
         this.changed()
@@ -566,20 +604,24 @@ export class UserGistClient {
   async setUserProperties(
     properties: Properties,
     unset: readonly string[] = []
-  ): Promise<void> {
+  ): Promise<IdentifyResult> {
     if (!this.active || !this.consent.analytics)
       throw new WebSdkError('Activate a user and grant analytics consent first')
+    const generation = this.generation
     const update = userPropertiesUpdateSchema.parse({
-      mutationId: uuid(),
-      set: properties,
-      unset: [...unset],
+      mutationId: uuid(), set: properties, unset: [...unset],
     })
-    await this.enqueue(
-      '/v1/sdk/user-properties',
-      { ...update, anonymousId: this.anonymousId },
-      'analytics'
-    )
-    await this.flush()
+    const outcome: { delivered?: boolean; error?: unknown } = {}
+    this.mutationResults.set(update.mutationId, outcome)
+    try {
+      await this.enqueue('/v1/sdk/user-properties',
+        { ...update, anonymousId: this.anonymousId }, 'analytics', 'POST', update.mutationId)
+      await this.flush()
+      if (generation !== this.generation || outcome.error) return 'rejected'
+      return outcome.delivered ? 'synced' : 'queued'
+    } finally {
+      this.mutationResults.delete(update.mutationId)
+    }
   }
   track(eventName: string, properties?: Properties): void {
     if (!this.active || !this.consent.analytics) {
@@ -650,7 +692,8 @@ export class UserGistClient {
     path: string,
     body: unknown,
     purpose: PersistedWork['purpose'],
-    method = 'POST'
+    method = 'POST',
+    queueId: string = uuid()
   ): Promise<void> {
     const generation = this.generation
     const write = this.writes.then(async () => {
@@ -663,7 +706,7 @@ export class UserGistClient {
       if (this.queue.length >= (this.config?.maxQueueSize ?? 500))
         throw new WebSdkError('The pending queue is full. Reconnect and retry.')
       this.queue.push({
-        id: uuid(),
+        id: queueId,
         path,
         body: structuredClone(body),
         purpose,
@@ -1468,6 +1511,9 @@ export class UserGistClient {
   }
   private async performReset(broadcast = true): Promise<void> {
     const clientId = this.clientId
+    if (this.token && this.anonymousId && this.config) {
+      rememberRevocation(this.cleanupKey(), this.token, this.anonymousId)
+    }
     this.generation++
     this.presentation.invalidate()
     this.deferredPresentations.clear()
@@ -1487,8 +1533,6 @@ export class UserGistClient {
     this.channel = undefined
     if (typeof document !== 'undefined')
       document.removeEventListener('visibilitychange', this.visibility)
-    if (typeof window !== 'undefined')
-      window.removeEventListener('online', this.online)
     this.renderer?.destroy()
     this.renderer = undefined
     this.queue = []
@@ -1514,10 +1558,13 @@ export class UserGistClient {
     this.consent = {}
     this.store = undefined
     this.changed()
-    await end
+    void end
+    this.retryCleanup()
   }
   async destroy() {
     await this.reset()
+    if (typeof window !== 'undefined')
+      window.removeEventListener('online', this.online)
     this.state = 'destroyed'
     this.changed()
     this.listeners.clear()

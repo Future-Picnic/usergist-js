@@ -1,5 +1,8 @@
 # @usergist/feedback-react-native
 
+For account IDs, backend-verified guests, token expiry, property updates, and logout, see [the identity integration guide](https://usergist.com/docs/integrations/identity). The identity lifecycle APIs require SDK **0.2.0-beta.2** and the coordinated backend update; verify the installed version before copying examples into an older app.
+
+
 Production userGist SDK for React Native and the behavioral reference for the
 iOS, Android, and Flutter packages. Use the dashboard's SDK setup flow to
 verify authentication and ingestion. The userGist APNs and FCM paths have
@@ -101,7 +104,7 @@ AppRegistry.registerComponent('app', () => App)
 | `await UserGist.identifyAsync(userId, props?, subjectToken)` | Backward-compatible async identity API returning `synced`, `queued`, or `rejected`. |
 | `UserGist.track(name, props?)` | Enqueues a stable event id and immediately evaluates only server-authorized client-side campaigns; all other decisions remain server-authoritative. |
 | `await UserGist.setConsent({ analytics?, feedback?, push?, survey? })` | Persists and synchronizes the transition, refreshes targeting rules, then resolves with `true`; returns `false` when synchronization fails. |
-| `await UserGist.reset()` | Cancels in-flight, clears queue, rotates anonymous id, wipes caches, and resolves after the new anonymous session is ready. |
+| `await UserGist.reset()` | Cancels in-flight, clears queue, rotates anonymous id, wipes caches, and resolves after local cleanup; remote logout and new-session setup retry independently. |
 | `UserGist.setThemeOverrides(theme)` | Global theme applied under per-prompt theme. |
 | `UserGist.flush()` | Best-effort flush. |
 | `UserGist.setDebug(boolean)` | Toggle the debug trace logger at runtime. |

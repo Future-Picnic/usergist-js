@@ -1,5 +1,8 @@
 # UserGist for web
 
+For account IDs, backend-verified guests, token expiry, property updates, and logout, see [the identity integration guide](https://usergist.com/docs/integrations/identity). The identity lifecycle APIs require SDK **0.1.4** and the coordinated backend update; verify the installed version before copying examples into an older app.
+
+
 `@usergist/feedback-web` supports feedback, surveys, in-app messages and feature requests in desktop and mobile browsers. It has no React dependency at runtime; an optional React entry point is provided.
 
 ## Connect an app
@@ -98,7 +101,7 @@ await anonymousUsergist.startAnonymous()
 // A later identify(user.id, {}, subjectToken) links the active anonymous alias.
 ```
 
-Call `await usergist.reset()` on host logout before identifying a different account. It closes UI, cancels in-flight work, clears pending work for the client, ends its server session, and tells other active tabs for that user to reset. It does not withdraw that user's consent or invalidate native push registrations. `destroy()` also releases subscriptions; create a fresh client to use the SDK again.
+Call `await usergist.reset()` on host logout before identifying a different account. It closes UI, cancels in-flight work, clears pending work for the client, ends its server session, and tells other active tabs for that user to reset. It does not withdraw consent for other installations. Server cleanup is scoped to this tab’s installation credential; Web does not implement native push registration. `destroy()` also releases subscriptions; create a fresh client to use the SDK again.
 
 ## User properties and personalization
 

@@ -12,7 +12,7 @@ export type RuntimeState =
   | 'active-identified'
   | 'authentication-required'
   | 'destroyed'
-export type IdentifyResult = 'synced' | 'rejected'
+export type IdentifyResult = 'synced' | 'queued' | 'rejected'
 export type OpenResult = {
   status: 'queued' | 'opened' | 'unavailable' | 'inactive' | 'consent_required' | 'failed'
   message?: string

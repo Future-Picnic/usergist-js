@@ -8,7 +8,7 @@ vi.mock('./internal/engine.js', () => ({
   emitAppOpenWhenConsentReady: () => {}, pollInstructions: async () => {}, flushNow: async () => {},
   clearAllState: async (e: any) => { e.identity.get = () => ({ anonymousId: 'new-account', externalId: null }); e.lastPushToken = null; e.lastPushRegistrationKey = null },
 }))
-vi.mock('./internal/survey-store.js', () => ({ createSurveyStore: () => ({}) }))
+vi.mock('./internal/survey-store.js', () => ({ createSurveyStore: () => ({ clear: async () => {} }) }))
 vi.mock('./internal/push-dedupe.js', () => ({ hydratePushDedupe: async () => {}, acceptPushEvent: () => true }))
 vi.mock('./native/push-bridge.js', () => ({
   UserGistPushNative: { syncState: async () => {}, disablePush: vi.fn(async () => {}), enablePush: vi.fn(), defaultEnvironment: async () => 'production' },
@@ -22,18 +22,19 @@ beforeEach(() => {
   let push = true
   let feedback = true
   let version = 0
+  const stored = new Map<string, unknown>()
   fixture.engine = {
     config: { writeKey: 'wk', apiUrl: 'https://api.usergist.com', environment: 'development' },
     identity: { get: () => ({ anonymousId: 'old-account', externalId: null }) },
     consent: { get: () => ({ push, feedback, version }), allowsPush: () => push, allowsFeedback: () => feedback, set: async (v: { push?: boolean; feedback?: boolean }) => { push = v.push ?? push; feedback = v.feedback ?? feedback; version++; return { push, feedback, version } } },
-    lifecycle: { start() {} }, events: { emit: vi.fn() }, storage: { setJson: vi.fn(async () => {}) },
+    lifecycle: { start() {} }, events: { emit: vi.fn() }, storage: { getJson: vi.fn(async (key: string) => stored.get(key) ?? null), setJson: vi.fn(async (key: string, value: unknown) => { stored.set(key, value) }), setJsonStrict: vi.fn(async (key: string, value: unknown) => { stored.set(key, value) }) },
     presentation: new PresentationGate(),
     resetting: false, resetGeneration: 0, lastPushToken: null, lastPushRegistrationKey: null, lastPushRegistrationAt: 0,
-    transport: { pushRegisterToken: vi.fn(async () => {}), pushInvalidateToken: vi.fn(async () => {}), consent: vi.fn(async () => {}) },
+    transport: { cancelAll: vi.fn(), pushRegisterToken: vi.fn(async () => ({ registered: true })), pushInvalidateToken: vi.fn(async () => {}), consent: vi.fn(async () => {}) },
   }
 })
 
-it('logout invalidates an in-flight registration before rotating identity', async () => {
+it('logout finishes locally and ignores an old registration completion', async () => {
   const { UserGist } = await import('./UserGist.js')
   await UserGist.initAsync(fixture.engine.config)
   let complete!: () => void
@@ -43,8 +44,10 @@ it('logout invalidates an in-flight registration before rotating identity', asyn
   const reset = UserGist.reset()
   await UserGist.registerPushToken('late-device', 'ios')
   expect(fixture.engine.transport.pushRegisterToken).toHaveBeenCalledTimes(1)
-  complete(); await registration; await reset
-  expect(fixture.engine.transport.pushInvalidateToken).toHaveBeenCalledWith({ anonymousId: 'old-account', token: 'device' })
+  await reset
+  complete(); await registration
+  expect(fixture.engine.lastPushToken).toBeNull()
+  expect(fixture.engine.lastPushRegistrationKey).toBeNull()
   expect(UserGist.getAnonymousId()).toBe('new-account')
 })
 
@@ -106,4 +109,45 @@ it('an old permission callback cannot disable push after logout and a new opt-in
   expect((await pending).error).toBe('session_changed')
   expect(UserGistPushNative.disablePush).toHaveBeenCalledTimes(disables)
   expect(fixture.engine.transport.pushRegisterToken).toHaveBeenCalledTimes(1)
+})
+
+it('explicit invalidation survives automatic retries and allows an explicit re-registration', async () => {
+  const { UserGist } = await import('./UserGist.js')
+  await UserGist.initAsync(fixture.engine.config)
+  await UserGist.registerPushToken('device', 'ios')
+  await UserGist.invalidatePushToken('device')
+  await fixture.engine.retryPushRegistration()
+  expect(fixture.engine.transport.pushRegisterToken).toHaveBeenCalledTimes(1)
+  expect(fixture.engine.lastPushRegistrationKey).toBeNull()
+  expect(fixture.engine.pushTokenAvailable).toBe(false)
+  await UserGist.registerPushToken('device', 'ios')
+  expect(fixture.engine.transport.pushRegisterToken).toHaveBeenCalledTimes(2)
+})
+
+it('invalidates after an in-flight registration and never revives it through a queued retry', async () => {
+  const { UserGist } = await import('./UserGist.js')
+  await UserGist.initAsync(fixture.engine.config)
+  let complete!: (value: unknown) => void
+  fixture.engine.transport.pushRegisterToken.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+  const registering = UserGist.registerPushToken('device', 'ios')
+  await vi.waitFor(() => expect(complete).toBeTypeOf('function'))
+  const invalidating = UserGist.invalidatePushToken('device')
+  const retrying = fixture.engine.retryPushRegistration()
+  expect(fixture.engine.transport.pushInvalidateToken).not.toHaveBeenCalled()
+  complete({ registered: true })
+  await Promise.all([registering, invalidating, retrying])
+  expect(fixture.engine.transport.pushInvalidateToken).toHaveBeenCalledOnce()
+  expect(fixture.engine.transport.pushRegisterToken).toHaveBeenCalledOnce()
+  expect(fixture.engine.lastPushRegistrationKey).toBeNull()
+})
+
+it('invalidating an older token preserves the current retry candidate', async () => {
+  const { UserGist } = await import('./UserGist.js')
+  await UserGist.initAsync(fixture.engine.config)
+  await UserGist.registerPushToken('new-device', 'ios')
+  await UserGist.invalidatePushToken('old-device')
+  expect(fixture.engine.lastPushToken).toBe('new-device')
+  expect(fixture.engine.lastPushRegistrationKey).not.toBeNull()
+  await fixture.engine.retryPushRegistration()
+  expect(fixture.engine.transport.pushRegisterToken).toHaveBeenCalledOnce()
 })

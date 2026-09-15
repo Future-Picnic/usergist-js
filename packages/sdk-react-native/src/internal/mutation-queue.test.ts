@@ -15,6 +15,18 @@ function memoryStorage(): StorageScope {
 }
 
 describe('durable mutation queue', () => {
+  it('replaces stale identification credentials without losing properties or deleting the replacement after a late response', async () => {
+    const storage = memoryStorage(), queue = createMutationQueue(storage)
+    await queue.hydrate()
+    const first = await queue.enqueue('identify', 'essential', { anonymousId: 'install', externalId: 'guest-id', subjectToken: 'st_expired', properties: { plan: 'free', isAnonymous: true } }, 'identify:guest-id')
+    const fresh = await queue.enqueue('identify', 'essential', { anonymousId: 'install', externalId: 'guest-id', subjectToken: 'st_fresh', properties: { isAnonymous: false } }, 'identify:guest-id')
+    expect(fresh).not.toBe(first)
+    await queue.remove(first)
+    const restored = createMutationQueue(storage)
+    await restored.hydrate()
+    expect(restored.peek()?.payload).toMatchObject({ subjectToken: 'st_fresh', properties: { plan: 'free', isAnonymous: false } })
+    expect(restored.size()).toBe(1)
+  })
   it('retains the latest typed snapshot while an older PATCH is in flight, including after relaunch', async () => {
     const storage = memoryStorage()
     const queue = createMutationQueue(storage)

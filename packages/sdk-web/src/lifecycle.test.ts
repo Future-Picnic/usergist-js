@@ -70,6 +70,61 @@ async function client() {
 }
 
 describe('identity transitions with durable browser storage', () => {
+  it.each(['rejected', 'offline', 'missing'] as const)('retains anonymous ownership after %s identification', async failure => {
+    const sdk = await client()
+    await sdk.startAnonymous()
+    const alias = sdk.getAnonymousId()
+    let attempt = 0
+    handler = async (path, body) => {
+      if (path !== '/v1/sdk/identify') return
+      if (attempt++ === 0 && failure !== 'missing') {
+        if (failure === 'offline') throw new TypeError('offline')
+        return new Response(JSON.stringify({ success: false, error: { message: 'Expired proof' } }), { status: 401 })
+      }
+      if (body.previousSubjectToken !== 'anonymous-token') {
+        return new Response(JSON.stringify({ success: false, error: { code: 'IDENTITY_PROOF_REQUIRED' } }), { status: 409 })
+      }
+      return ok({ subjectToken: 'bound-token' })
+    }
+    expect(await sdk.identify('customer', {}, failure === 'missing' ? undefined : 'expired')).toBe('rejected')
+    expect(await sdk.identify('customer', {}, 'fresh-proof')).toBe('synced')
+    expect(sdk.getAnonymousId()).toBe(alias)
+    expect(sdk.getSnapshot()).toMatchObject({ state: 'active-identified', externalId: 'customer' })
+    const retry = calls.filter(call => call.path === '/v1/sdk/identify').at(-1)!
+    expect(retry.headers['X-UserGist-Subject-Token']).toBe('fresh-proof')
+    expect(retry.body.previousSubjectToken).toBe('anonymous-token')
+  })
+
+  it('retries offline logout revocation on reconnect while remaining logged out', async () => {
+    const sdk = await client()
+    await sdk.identify('customer', {}, 'token')
+    handler = async path => { if (path.endsWith('/revoke')) throw new TypeError('offline'); return undefined }
+    await sdk.reset()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls.filter(call => call.path.endsWith('/revoke'))).toHaveLength(1)
+    handler = undefined
+    window.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls.filter(call => call.path.endsWith('/revoke'))).toHaveLength(2)
+    expect(sdk.getSnapshot()).toMatchObject({ state: 'inactive', externalId: null })
+    const cleanupKey = Object.keys(sessionStorage).find(key => key.endsWith(':revocations'))!
+    expect(JSON.parse(sessionStorage.getItem(cleanupKey)!)).toEqual([])
+  })
+
+  it('applies first-login properties only after server consent is acknowledged', async () => {
+    const sdk = await client()
+    await sdk.setConsent({analytics:true})
+    handler = async (path, body) => {
+      if (path === '/v1/sdk/user-properties') {
+        expect(serverConsent.analytics).toBe(true)
+        expect(body.set).toEqual({isAnonymous:true,email:'guest@example.test'})
+        return ok({applied:true,filteredKeys:[]})
+      }
+    }
+    expect(await sdk.identify('guest-id', {isAnonymous:true,email:'guest@example.test'}, 'st_backend')).toBe('synced')
+    expect(calls.filter(call => call.path === '/v1/sdk/user-properties')).toHaveLength(1)
+  })
+
   it('identifies a customer after an overlapping anonymous activation finishes', async () => {
     const sdk = await client(), entered = deferred(), gate = deferred()
     handler = async path => {
@@ -98,6 +153,36 @@ describe('identity transitions with durable browser storage', () => {
     expect(calls.filter(call => call.path === '/v1/sdk/identify')).toHaveLength(1)
   })
 
+  it('does not discard new properties or a replacement token during the same-user activation', async () => {
+    const sdk = await client(), entered = deferred(), gate = deferred()
+    await sdk.setConsent({ analytics: true })
+    handler = async path => {
+      if (path === '/v1/sdk/identify' && !calls.some(call => call.headers['X-UserGist-Subject-Token'] === 'replacement')) {
+        entered.resolve(); await gate.promise; return ok({ subjectToken: 'bound-first' })
+      }
+    }
+    const first = sdk.identify('guest-id', {}, 'first')
+    await entered.promise
+    const upgraded = sdk.identify('guest-id', { isAnonymous: false }, 'replacement')
+    expect(upgraded).not.toBe(first)
+    gate.resolve()
+    expect(await first).toBe('synced')
+    expect(await upgraded).toBe('synced')
+    const updates = calls.filter(call => call.path === '/v1/sdk/user-properties')
+    expect(updates.some(call => call.body.set.isAnonymous === false)).toBe(true)
+    expect(calls.some(call => call.path === '/v1/sdk/identify' && call.headers['X-UserGist-Subject-Token'] === 'replacement')).toBe(true)
+    expect(sdk.getExternalId()).toBe('guest-id')
+  })
+  it('logout completes locally even while server cleanup is waiting', async () => {
+    const sdk = await client(), gate = deferred()
+    await sdk.identify('customer', {}, 'token')
+    handler = async path => {
+      if (path.endsWith('/end') || path.endsWith('/revoke')) { await gate.promise; return ok({}) }
+    }
+    await sdk.reset()
+    expect(sdk.getSnapshot()).toMatchObject({ state: 'inactive', externalId: null, queueSize: 0 })
+    gate.resolve()
+  })
   it('cancels queued identification when logout happens during activation', async () => {
     const sdk = await client(), entered = deferred(), gate = deferred()
     handler = async path => {

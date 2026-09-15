@@ -1,6 +1,6 @@
 # SDK Parity Matrix
 
-Single source of truth for what each production UserGist SDK ships. React
+Source-tree capability matrix. Unreleased changes below are not claims about previously published artifacts; see IDENTITY-LIFECYCLE.md for rollout status. React
 Native remains the behavioral reference; native iOS, native Android, and
 Flutter implement the same authenticated subject-session, durable delivery,
 campaign, feature-request, and survey protocols with platform-native push APIs.
@@ -16,7 +16,11 @@ Status legend:
 | `init(...)` / `initAsync(...)` | full | full | full | full |
 | `identify(...)` / `identifyAsync(...)` | full | full | full | full |
 | `track(name, properties)` | full | full | full | full |
-| `setUserProperties(properties, unset)` | full | missing | missing | missing |
+| `setUserProperties(properties, unset)` | full | full | full | full |
+| `setSubjectTokenProvider(provider)` | full | full | full | full |
+| `setIdentityStateHandler(handler)` / `getIdentityState()` | full | full | full | full |
+| `setPushSubscriptionStateHandler(handler)` | full | full | full | full |
+| Local reset completion + durable installation logout | full | full | full | full |
 | Online dynamic personalization (`personalization.v1`) | full | missing | missing | missing |
 | Primary push tap JSON (`push.json-open.v1`) | full | missing | missing | missing |
 | `setConsent({ analytics, feedback, push, survey })` | full | full | full | full |
@@ -79,10 +83,10 @@ Status legend:
 
 ## Implementation notes
 
-- **Dynamic personalization** — React Native and the web SDK support typed profile updates and online recipient resolution. Native-only iOS, Android and Flutter SDK support is not included in this release; capability gates exclude older clients from versioned personalized delivery. Personalized survey attempts retain server snapshots; offline reopening after a process restart is not part of this capability. The [Movie Lab guide](../tools/demo-fixtures/README.md) describes the tested scope.
+- **Dynamic personalization** — React Native and the web SDK support typed profile updates and online recipient resolution. Native iOS, Android and Flutter now implement typed profile updates. Native dynamic recipient resolution/rendering remains outside this lifecycle change; capability gates still exclude clients that do not advertise versioned personalized delivery. Personalized survey attempts retain server snapshots; offline reopening after a process restart is not part of this capability. The [Movie Lab guide](../tools/demo-fixtures/README.md) describes the tested scope.
 
 - **Native surveys** — iOS (`NativeSurveyView` / `SurveyHost`), Android (`SurveyActivity`), and Flutter (`SurveyPresenter`) render the full question contract, local branching, validation, and relaunch-safe progress. Completion ends as soon as the encrypted mutation queue accepts the answers; transient delivery failures retry in the background without trapping the user on a Retry screen, while permanent rejection or reset still fails the transition. `openSurvey` uses `GET /v1/sdk/surveys/{id}` plus the server-owned attempt endpoints, with cached armed content as the local-fire fast path.
-- **Authenticated subjects and delivery** — every SDK creates or resumes an anonymous session at `/v1/sdk/session`, applies `X-UserGist-Subject-Token` to protected calls, and sends identify with a request-scoped replacement credential so concurrent calls keep the last confirmed subject. Installation identity rotates only after an explicit 401/403/409 credential conflict; transient session failures preserve anonymous identity and retry. All implementations isolate ingest batches by anonymous/external identity and poll the cursor-based instruction inbox only after local dedupe state is persisted.
+- **Authenticated subjects and delivery** — every SDK creates or resumes an anonymous session at `/v1/sdk/session`, applies `X-UserGist-Subject-Token` to protected calls, and sends identify with a request-scoped replacement credential so concurrent calls keep the last confirmed subject. An identified account is retained on credential expiry and renewed through its backend provider. Only an anonymous credential conflict can rotate an unidentifiable installation; transient session failures retain it. Successful identify exchanges server proof for an installation-bound credential, returns canonical typed profile properties, and requires proof of ownership before merging existing anonymous history. All implementations isolate ingest batches by anonymous/external identity and poll the cursor-based instruction inbox only after local dedupe state is persisted.
 - **Client-side campaigns** — only payloads explicitly marked `clientSideEligible` may fire without a server instruction. Prompt and survey segment/frequency rules use persisted identify properties and bounded event history. Matching server instructions are deduplicated by `triggerEventId`, with the latest 200 locally rendered campaign/event pairs persisted across relaunches on every SDK.
 - **Modal ownership** — prompt, survey, and in-app campaign surfaces use one FIFO per SDK. A queued surface receives its lifecycle callback only when it actually reaches the screen. Reset drops queued surfaces, closes active SDK UI without inventing a user outcome, and prevents a cleared in-flight survey mutation from being reported as delivered.
 - **Lifecycle consent invariant** — `$app_open` intentionally waits for feedback consent because it is also a local feedback-targeting trigger. It is persisted with the feedback purpose, so granting feedback consent is sufficient to evaluate and deliver it.
@@ -95,7 +99,7 @@ Status legend:
   All four SDKs wire the eight `/v1/sdk/requests/...` endpoints + `/v1/sdk/request-branding` through their existing HTTP transport with PATCH + DELETE helpers added for comment edit/delete. The optimistic cache (`RequestsCache.{swift,kt,dart}`) mirrors the RN invariants exactly: upvote auto-creates follow; un-upvote does NOT remove the follow.
 - **Search-as-you-type** uses a 300ms debounce + sequence-number guard so stale in-flight requests are dropped. Identical semantics on all four platforms.
 - **Persisted-queue schema versioning**: iOS uses a wrapped JSON envelope (`{version, events}`); Android & Flutter use a `{"version":1}` header line followed by NDJSON events. All three legacy-migrate bare-array snapshots on hydrate.
-- **Secure storage**: React Native accepts a host-supplied asynchronous encrypted storage adapter before `init()`; otherwise ordinary state uses AsyncStorage while subject credentials and pending mutations use bundled Keychain/EncryptedSharedPreferences bridges. iOS uses Keychain (`kSecAttrAccessibleAfterFirstUnlock`), Android `EncryptedSharedPreferences`, and Flutter `flutter_secure_storage`. Credential-bearing state never falls back to plaintext; legacy plaintext credentials are usable only after successful secure migration.
+- **Secure storage**: React Native accepts a host-supplied asynchronous encrypted storage adapter before `init()`; otherwise ordinary state uses AsyncStorage while identity, profile properties, subject credentials, pending mutations, push descriptors, and logout cleanup use bundled Keychain/EncryptedSharedPreferences bridges. iOS uses Keychain (`kSecAttrAccessibleAfterFirstUnlock`), Android `EncryptedSharedPreferences`, and Flutter `flutter_secure_storage`. Credential-bearing state never falls back to plaintext; legacy plaintext credentials are usable only after successful secure migration.
 - **Transport security**: React Native currently relies on platform HTTPS trust and does not implement application-level SPKI pinning. Native SDK implementations support pinning, but production pin provisioning and rotation still require an operational runbook and live-certificate validation.
 
 ## Validation guard
@@ -155,3 +159,7 @@ The same readiness controls apply to Web and React Native/Expo. Native lifecycle
 checks still apply after the host resumes presentation. A release requires tests
 for startup pause, repeated init/resume, consent revocation and regrant, identity
 changes, and pausing while another SDK surface is active.
+
+## Web identity lifecycle
+
+Web implements verified external IDs, explicit anonymous activation, property set/unset, a snapshot observer, single-flight renewal through `getSubjectToken`, cancellation on reset, and per-tab session cleanup. It intentionally has no native push registration and does not activate anonymous visitors during `init`. Web cleanup survives reloads within a tab but cannot guarantee server logout once that tab's session storage is gone.

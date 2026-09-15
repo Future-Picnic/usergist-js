@@ -29,3 +29,7 @@ export type {
   ArmedTrigger,
   FrequencyCaps,
 } from '@usergist/sdk-core/mobile'
+
+export type { IdentityState, SubjectTokenProvider } from './internal/identity-lifecycle.js'
+
+export type { PushSubscriptionState } from './internal/push-subscription.js'

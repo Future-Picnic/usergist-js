@@ -116,7 +116,7 @@ describe('explicit browser activation', () => {
     await Promise.resolve()
     await c.reset()
     expect(calls.some((c) => c.path.endsWith('/end'))).toBe(true)
-    expect(calls.some((c) => c.path.endsWith('/revoke'))).toBe(false)
+    expect(calls.find((c) => c.path.endsWith('/revoke'))).toMatchObject({ headers: { 'X-UserGist-Subject-Token': 'token' }, body: { anonymousId: expect.any(String) } })
     expect(c.getSnapshot()).toMatchObject({
       state: 'inactive',
       queueSize: 0,

@@ -243,15 +243,15 @@ describe('durable survey abandonment', () => {
       resetting: false,
       resetGeneration: 0,
       mutationFlushPromise: null,
-      consent: { get: () => ({ analytics: true }) },
+      consent: { get: () => ({ analytics: true, version: 1 }), allowsAnalytics: () => true },
       mutations: {
         size: () => (pending ? 1 : 0),
         peek: () => (pending ? mutation : null),
         remove: vi.fn(async () => { pending = false }),
       },
-      transport: { identify, setSubjectToken: vi.fn() },
+      transport: { identify, setSubjectToken: vi.fn(), consent: vi.fn(async () => ({ok:true})) },
       storage: { setJsonStrict },
-      identity: { setExternalId },
+      identity: { setExternalId, get: () => ({anonymousId:"anonymous-a", externalId:null}) },
       userState: { mergeProperties: vi.fn() },
     } as unknown as Engine
 

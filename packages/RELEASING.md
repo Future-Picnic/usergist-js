@@ -112,6 +112,28 @@ workflow, which publishes through pub.dev's short-lived OIDC authentication.
 Release retries never rewrite a public tag: the mirror step verifies that an
 existing tag resolves to the exact filtered commit before continuing.
 
+## Identity lifecycle release
+
+Core, Web, native iOS, Android, and Flutter target **0.1.4**. The current React
+Native/Expo branch targets **0.2.0-beta.2** on npm `next`; preserve the stable
+React Native channel while preparing its separate backport. Run:
+
+```sh
+pnpm sdk:set-version 0.1.4 --react-native=0.2.0-beta.2
+pnpm install --lockfile-only
+```
+
+The version tool validates all replacements before writing files and supports
+an independent React Native channel. Do not promote the Expo beta to stable
+without its exact-archive physical-device evidence. Npm staged approval still
+requires the maintainer security key.
+
+Release SDK artifacts before deploying setup snippets that reference them.
+Deploy the identity backend only after affected integrations can send
+`previousSubjectToken`: older clients receive `IDENTITY_PROOF_REQUIRED` when
+linking existing anonymous history. See [IDENTITY-LIFECYCLE.md](IDENTITY-LIFECYCLE.md)
+for the compatibility boundary and acceptance checks.
+
 ## Startup presentation readiness release
 
 Core, Web, native iOS, and Android advance to 0.1.2. Flutter first shipped

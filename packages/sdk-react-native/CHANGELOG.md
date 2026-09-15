@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0-beta.2 — identity lifecycle
+
+- Serialize explicit token invalidation with registration, remove invalidated retry candidates, and preserve consent-based re-enable behavior.
+- Confirmed identity state and asynchronous completion, with backend token renewal and retained account identity after expiration.
+- Property set/unset using the active session; profile PII follows the app's server allowlist, while event filtering remains in place.
+- Installation-bound credentials, anonymous ownership proof, and canonical profile adoption on identify.
+- Local account reset with cancellation and independent durable logout cleanup; stale responses cannot restore the old account.
+- Push subscription state reflects server acknowledgement; OS tokens survive restart and retry after consent, connectivity, or identity changes.
+
+Requires the coordinated backend lifecycle deployment. See the [identity integration guide](https://usergist.com/docs/integrations/identity) for backend requirements and account-switching guidance.
+
+
 ## 0.2.0-beta.1
 
 - Add startup presentation readiness: initialize with `presentationPaused`, then call `resumePresentation()` after the loaded screen is ready.

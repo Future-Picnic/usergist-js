@@ -88,7 +88,7 @@ export function createMutationQueue(storage: StorageScope): MutationQueue {
         const existing = dedupeKey
           ? items.find((item) => item.dedupeKey === dedupeKey)
           : undefined
-        if (existing) {
+        if (existing && kind !== 'identify') {
           id = existing.id
           return
         }
@@ -96,9 +96,19 @@ export function createMutationQueue(storage: StorageScope): MutationQueue {
           id,
           kind,
           purpose,
-          payload,
+          payload: existing ? {
+            ...payload,
+            properties: {
+              ...(existing.payload.properties as Record<string, unknown> ?? {}),
+              ...(payload.properties as Record<string, unknown> ?? {}),
+            },
+          } : payload,
           createdAt: new Date().toISOString(),
           dedupeKey,
+        }
+        if (existing) {
+          items = items.map(item => item.id === existing.id ? next : item)
+          return
         }
         if (kind === 'survey-progress' && typeof payload.attemptId === 'string') {
           // Each keystroke contains the entire resume snapshot. Keep the newest

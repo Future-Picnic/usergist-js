@@ -1,3 +1,6 @@
+import { drainRevocations, hasPendingRevocations } from './internal/session-revocations.js'
+import { setPushSubscriptionStateHandler, pushSubscriptionChanged } from './internal/push-subscription.js'
+import { cancelIdentityRecovery, identityChanged, setIdentityStateHandler, setSubjectTokenProvider, getIdentityState } from './internal/identity-lifecycle.js'
 import { userPropertiesUpdateSchema } from '@usergist/sdk-core/mobile'
 import { hydratePushDedupe } from './internal/push-dedupe.js'
 // UserGist — public singleton facade.
@@ -245,6 +248,16 @@ function ensureEngine(config: SdkConfig): Engine {
   // A host-owned invitation is not a survey start. Only automatic rendering
   // requests a session bundled with the delivery authorization.
   engine = createEngine(config, () => !surveyHandlers.onInvite)
+  const pushEngine = engine
+  pushEngine.retryPushRegistration = async () => {
+    if (pushEngine.resetting) return
+    const saved = await pushEngine.storage.getJson<{ token: string; platform: 'ios' | 'android'; environment: 'production' | 'sandbox' }>(STORAGE_KEYS.pushDevice)
+    if (!saved) return
+    pushEngine.pushTokenAvailable = true
+    if (pushEngine !== engine || pushEngine.resetting) return
+    pushSubscriptionChanged(pushEngine)
+    if (pushEngine.consent.allowsPush()) await registerPushDevice(saved.token, saved.platform, { environment: saved.environment }, true)
+  }
   surveyStore = createSurveyStore(config.writeKey, () =>
     engine!.identity.get()
   )
@@ -472,6 +485,11 @@ export const UserGist = {
     }
   },
 
+  setPushSubscriptionStateHandler,
+  setIdentityStateHandler,
+  setSubjectTokenProvider,
+  getIdentityState,
+
   identify(
     userId: string,
     properties?: Record<string, EventPropertyValue>,
@@ -491,8 +509,9 @@ export const UserGist = {
         return 'rejected'
       }
       const e = requireEngine()
+      const generation = e.resetGeneration
       await ensureHydrated(e)
-      if (e.resetting) return 'rejected'
+      if (e.resetting || e.resetGeneration !== generation) return 'rejected'
       const identity = e.identity.get()
       const pendingIdentity = e.mutations.peek()
       const transition = validateIdentifyTransition(
@@ -507,10 +526,13 @@ export const UserGist = {
         return 'rejected'
       }
       const cleanProps = e.consent.allowsAnalytics()
-        ? asEventProps(properties)
+        ? (properties && Object.keys(properties).length
+            ? userPropertiesUpdateSchema.parse({ mutationId: generateEventId(), set: properties }).set
+            : undefined)
         : undefined
       if (
         transition === 'already_identified' &&
+        (!subjectToken || subjectToken === e.subjectToken) &&
         (!cleanProps || Object.keys(cleanProps).length === 0)
       ) {
         return 'synced'
@@ -519,6 +541,7 @@ export const UserGist = {
         reportError('identify requires a server-minted subject token')
         return 'rejected'
       }
+      identityChanged(e, 'identifying')
       const mutationId = await e.mutations.enqueue(
         'identify',
         'essential',
@@ -531,7 +554,9 @@ export const UserGist = {
         `identify:${userId}`
       )
       const result = await flushMutations(e)
+      if (e.resetting || e.resetGeneration !== generation) return 'rejected'
       if (result.permanentlyRejectedIds.has(mutationId)) {
+        identityChanged(e, 'rejected')
         reportError('identify was rejected by the server')
         return 'rejected'
       }
@@ -620,7 +645,7 @@ export const UserGist = {
         await pushRegistrationQueue
         if (e.resetting || next.version !== e.consent.get().version)
           return false
-        if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
+        if (e.lastPushToken) await invalidatePushDevice(e.lastPushToken, true)
         await disableNativePushForConsent(e, next.version)
       }
       if (e.resetting || next.version !== e.consent.get().version) return false
@@ -642,6 +667,8 @@ export const UserGist = {
         reportError('transport.consent failed', err)
         return false
       }
+      pushSubscriptionChanged(e)
+      if (next.push) void e.retryPushRegistration?.().catch(error => reportError('push registration deferred', error))
       if (next.feedback || next.survey) {
         await refreshTargetingRules(e, true)
       }
@@ -658,9 +685,13 @@ export const UserGist = {
   reset(): Promise<void> {
     try {
       const e = requireEngine()
-      if (e.resetting) return resetPromise ?? Promise.resolve()
+      if (resetPromise) return resetPromise
       e.resetting = true
+      identityChanged(e, 'resetting')
+      pushSubscriptionChanged(e)
       e.resetGeneration += 1
+      e.transport.cancelAll()
+      cancelIdentityRecovery(e)
       e.presentation.invalidate()
       requestsCache = null
       lastEnablePushOptions = null
@@ -668,9 +699,7 @@ export const UserGist = {
       const operation = (async () => {
         await ensureHydrated(e)
         await syncNativePushState(e, false)
-        await pushRegistrationQueue
-        if (e.lastPushToken) await UserGist.invalidatePushToken(e.lastPushToken)
-        await UserGistPushNative.disablePush().catch(() => undefined)
+        void UserGistPushNative.disablePush().catch(() => undefined)
         await clearAllState(e)
         await surveyStore?.clear()
         await hydratePushDedupe(
@@ -679,9 +708,9 @@ export const UserGist = {
         )
       })()
       const finalized = operation
-        .catch((err: unknown) => reportError('reset failed', err))
+        .then(() => { e.resetting = false; pushSubscriptionChanged(e) })
+        .catch((err: unknown) => { identityChanged(e, 'reset-failed'); reportError('reset failed', err); throw err })
         .finally(() => {
-          e.resetting = false
           if (resetPromise === finalized) resetPromise = null
         })
       resetPromise = finalized
@@ -798,83 +827,11 @@ export const UserGist = {
     platform: 'ios' | 'android',
     opts?: { environment?: 'production' | 'sandbox' }
   ): Promise<void> {
-    try {
-      if (!token) return
-      const e = requireEngine()
-      await ensureHydrated(e)
-      if (!e.consent.allowsPush() || e.resetting) return
-      const generation = e.resetGeneration
-      await serializePushRegistration(async () => {
-        if (
-          e.resetting ||
-          generation !== e.resetGeneration ||
-          !e.consent.allowsPush()
-        )
-          return
-        const id = e.identity.get()
-        const environment =
-          opts?.environment ??
-          (await UserGistPushNative.defaultEnvironment()) ??
-          (e.config.environment === 'production' ? 'production' : 'sandbox')
-        const registrationKey = [
-          id.anonymousId,
-          id.externalId ?? '',
-          platform,
-          environment,
-          token,
-        ].join(':')
-        if (
-          e.lastPushRegistrationKey === registrationKey &&
-          Date.now() - e.lastPushRegistrationAt < 24 * 60 * 60_000
-        )
-          return
-        if (
-          e.resetting ||
-          generation !== e.resetGeneration ||
-          !e.consent.allowsPush()
-        )
-          return
-        // Persist before the request so logout can invalidate a token even when
-        // the response is lost or the process exits after the server accepts it.
-        e.lastPushToken = token
-        await e.storage.setJson(STORAGE_KEYS.pushToken, token)
-        await e.transport.pushRegisterToken({
-          anonymousId: id.anonymousId,
-          externalId: id.externalId ?? null,
-          token,
-          platform,
-          environment,
-          language: undefined,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          appVersion: undefined,
-          sdkVersion: `rn-${USERGIST_SDK_VERSION}`,
-          optIn: true,
-        })
-        e.lastPushToken = token
-        e.lastPushRegistrationKey = registrationKey
-        e.lastPushRegistrationAt = Date.now()
-        debugLog('push token registered with server')
-      })
-    } catch (err) {
-      reportError('registerPushToken failed', err)
-    }
+    await registerPushDevice(token, platform, opts)
   },
 
   async invalidatePushToken(token: string): Promise<void> {
-    try {
-      if (!token) return
-      const e = requireEngine()
-      await ensureHydrated(e)
-      const id = e.identity.get()
-      e.lastPushRegistrationKey = null
-      e.lastPushRegistrationAt = 0
-      await e.transport.pushInvalidateToken({
-        anonymousId: id.anonymousId,
-        token,
-      })
-    } catch (err) {
-      reportError('invalidatePushToken failed', err)
-    }
+    await invalidatePushDevice(token)
   },
 
   /**
@@ -1956,3 +1913,88 @@ export const UserGist = {
 } as const
 
 export type UserGistStatic = typeof UserGist
+
+/** Registration and invalidation share an ordered lane. Automatic retries may
+ * consume a retained token, but must never recreate an invalidated candidate. */
+async function registerPushDevice(
+  token: string,
+  platform: 'ios' | 'android',
+  opts?: { environment?: 'production' | 'sandbox' },
+  retry = false
+): Promise<void> {
+  try {
+    if (!token) return
+    const e = requireEngine()
+    if (e.resetting) return
+    const generation = e.resetGeneration
+    await serializePushRegistration(async () => {
+      await ensureHydrated(e)
+      if (e.resetting || generation !== e.resetGeneration) return
+      const environment = opts?.environment ?? (await UserGistPushNative.defaultEnvironment()) ??
+        (e.config.environment === 'production' ? 'production' : 'sandbox')
+      if (e.resetting || generation !== e.resetGeneration) return
+      const descriptor = { token, platform, environment }
+      const stored = await e.storage.getJson(STORAGE_KEYS.pushDevice)
+      if (JSON.stringify(stored) !== JSON.stringify(descriptor)) {
+        if (retry) return
+        await e.storage.setJsonStrict(STORAGE_KEYS.pushDevice, descriptor)
+      }
+      e.pushTokenAvailable = true
+      pushSubscriptionChanged(e)
+      if (!e.consent.allowsPush()) return
+      await drainRevocations(e)
+      if (await hasPendingRevocations(e) || e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+      const id = e.identity.get()
+      const registrationKey = [id.anonymousId, id.externalId ?? '', platform, environment, token].join(':')
+      if (e.lastPushRegistrationKey === registrationKey && Date.now() - e.lastPushRegistrationAt < 24 * 60 * 60_000) return
+      // Persist before delivery so logout still owns a token if its response is lost.
+      e.lastPushToken = token
+      await e.storage.setJson(STORAGE_KEYS.pushToken, token)
+      if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+      const registration = await e.transport.pushRegisterToken({
+        anonymousId: id.anonymousId, externalId: id.externalId ?? null,
+        token, platform, environment, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        sdkVersion: `rn-${USERGIST_SDK_VERSION}`, optIn: true,
+      })
+      if (e.resetting || generation !== e.resetGeneration || !e.consent.allowsPush()) return
+      if (!(registration && typeof registration === 'object' && 'registered' in registration && registration.registered === true)) {
+        pushSubscriptionChanged(e)
+        return
+      }
+      e.lastPushRegistrationKey = registrationKey
+      e.lastPushRegistrationAt = Date.now()
+      pushSubscriptionChanged(e)
+      debugLog('push token registered with server')
+    })
+  } catch (err) {
+    reportError('registerPushToken failed', err)
+  }
+}
+
+async function invalidatePushDevice(token: string, retainDevice = false): Promise<void> {
+  try {
+    if (!token) return
+    const e = requireEngine()
+    const generation = e.resetGeneration
+    await serializePushRegistration(async () => {
+      await ensureHydrated(e)
+      if (e.resetting || generation !== e.resetGeneration) return
+      const saved = await e.storage.getJson<{ token: string }>(STORAGE_KEYS.pushDevice)
+      if (saved?.token === token) {
+        // Retire the automatic retry candidate before invalidating it remotely.
+        if (!retainDevice) await e.storage.setJsonStrict(STORAGE_KEYS.pushDevice, null)
+        e.pushTokenAvailable = retainDevice
+        e.lastPushRegistrationKey = null
+        e.lastPushRegistrationAt = 0
+      }
+      if (e.lastPushToken === token) {
+        await e.storage.setJsonStrict(STORAGE_KEYS.pushToken, null)
+        e.lastPushToken = null
+      }
+      pushSubscriptionChanged(e)
+      await e.transport.pushInvalidateToken({ anonymousId: e.identity.get().anonymousId, token })
+    })
+  } catch (err) {
+    reportError('invalidatePushToken failed', err)
+  }
+}

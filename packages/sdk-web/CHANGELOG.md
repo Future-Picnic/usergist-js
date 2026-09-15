@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.4 — identity lifecycle
+
+- Preserve anonymous ownership proof after rejected identification so a fresh token can be retried; retry pending logout revocation on reconnect while the client is inactive.
+- Confirmed identity state and asynchronous completion, with backend token renewal and retained account identity after expiration.
+- Property set/unset using the active session; profile PII follows the app's server allowlist, while event filtering remains in place.
+- Installation-bound credentials, anonymous ownership proof, and canonical profile adoption on identify.
+- Local account reset with cancellation and independent durable logout cleanup; stale responses cannot restore the old account.
+- Uses existing `subscribe`/`getSnapshot` and `getSubjectToken` APIs. Logout cleanup is held in session storage for the tab; native push is unsupported.
+
+Requires the coordinated backend lifecycle deployment. See the [identity integration guide](https://usergist.com/docs/integrations/identity) for backend requirements and account-switching guidance.
+
+
 ## 0.1.2
 
 - Retain the public Web package’s standalone ESM/CommonJS/React exports and bundled core types.

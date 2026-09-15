@@ -1,3 +1,5 @@
+import { rememberRevocation, drainRevocations } from './session-revocations.js'
+import { identityChanged, recoverIdentity } from './identity-lifecycle.js'
 import { PresentationGate } from '@usergist/sdk-core/mobile'
 // The engine owns all singleton state and orchestrates the modules.
 // `UserGist.ts` wraps these functions in a thin, try/catch-guarded public API.
@@ -123,6 +125,9 @@ export interface Engine {
   lastPushToken: string | null
   lastPushRegistrationKey: string | null
   lastPushRegistrationAt: number
+  pendingReset?: { subjectToken: string; anonymousId: string }
+  pushTokenAvailable?: boolean
+  retryPushRegistration?: () => Promise<void>
 }
 
 export function resolveConfig(config: SdkConfig): ResolvedConfig {
@@ -235,6 +240,7 @@ export function createEngine(
     },
     onSyncTick: () => {
       const e = eng()
+      void drainRevocations(e).catch(error => reportError('session cleanup deferred', error))
       void refreshTargetingRules(e)
       void flushMutations(e)
       void pollSurveyOffers(e)
@@ -283,6 +289,7 @@ export function createEngine(
     lastPushRegistrationAt: 0,
   }
   ref.value = engine
+  transport.setAuthenticationHandler(() => { void recoverIdentity(engine).then(ok => { if (ok) { void flushNow(engine); void flushMutations(engine) } }) })
 
   queue.onOverflow((dropped) => {
     debugLog('queue overflow', { dropped, queueSize: queue.size() })
@@ -346,8 +353,11 @@ export async function ensureHydrated(engine: Engine): Promise<void> {
 }
 
 export async function ensureSubjectSession(engine: Engine): Promise<void> {
+  if (engine.resetting) return
+  void drainRevocations(engine).catch(error => reportError('session cleanup deferred', error))
   if (engine.subjectToken) return
   if (engine.sessionPromise) return engine.sessionPromise
+  const generation = engine.resetGeneration
   engine.sessionPromise = (async () => {
     const id = engine.identity.get()
     const persisted = await engine.storage.getJson<string>(
@@ -358,6 +368,9 @@ export async function ensureSubjectSession(engine: Engine): Promise<void> {
         anonymousId: id.anonymousId,
         ...(persisted ? { currentToken: persisted } : {}),
       })
+      if (generation !== engine.resetGeneration) return
+      identityChanged(engine, id.externalId ? 'identified' : 'anonymous')
+      if (generation !== engine.resetGeneration) return
       engine.subjectToken = session.subjectToken
       engine.transport.setSubjectToken(session.subjectToken)
       await engine.storage.setJson(
@@ -365,18 +378,25 @@ export async function ensureSubjectSession(engine: Engine): Promise<void> {
         session.subjectToken,
       )
     } catch (error) {
+      if (generation !== engine.resetGeneration) return
       const mayRotate =
         error instanceof PermanentHttpError &&
         (error.status === 401 || error.status === 403 || error.status === 409)
+      if (id.externalId) {
+        if (await recoverIdentity(engine)) return
+        throw error
+      }
       if (!mayRotate) throw error
       // A lost/expired credential must never be replaced for the same known
       // anonymous ID. Rotate to a fresh installation identity and establish a
       // new server-bound subject instead.
       if (persisted) await engine.storage.remove(STORAGE_KEYS.subjectToken)
+      if (generation !== engine.resetGeneration) return
       const rotated = await engine.identity.rotate()
       const session = await engine.transport.session({
         anonymousId: rotated.anonymousId,
       })
+      if (generation !== engine.resetGeneration) return
       engine.subjectToken = session.subjectToken
       engine.transport.setSubjectToken(session.subjectToken)
       await engine.storage.setJson(
@@ -499,10 +519,11 @@ export async function flushNow(engine: Engine): Promise<void> {
 }
 
 async function performFlush(engine: Engine): Promise<void> {
+  void engine.retryPushRegistration?.().catch(error => reportError('push registration deferred', error))
   let requestedImmediateDelivery = false
   try {
     await ensureHydrated(engine)
-    while (engine.queue.size() > 0) {
+    while (!engine.resetting && engine.queue.size() > 0) {
       const consent = engine.consent.get()
       const allowed = engine.queue
         .snapshot()
@@ -578,7 +599,7 @@ async function performFlush(engine: Engine): Promise<void> {
           )
         }
       } catch (e) {
-        if (e instanceof PermanentHttpError) {
+        if (e instanceof PermanentHttpError && e.status !== 401) {
           if (batch.length === 1) {
             engine.queue.remove([batch[0]!.eventId])
             reportError('ingest event quarantined after permanent rejection', {
@@ -600,7 +621,7 @@ async function performFlush(engine: Engine): Promise<void> {
             })
             engine.queue.remove([first.eventId])
           } catch (singleError) {
-            if (singleError instanceof PermanentHttpError) {
+            if (singleError instanceof PermanentHttpError && singleError.status !== 401) {
               engine.queue.remove([first.eventId])
               reportError(
                 'ingest event quarantined after permanent rejection',
@@ -666,6 +687,15 @@ async function performMutationFlush(
     if (mutation.purpose === 'feedback' && !consent.feedback) break
     if (mutation.purpose === 'survey' && !consent.survey) break
     try {
+      if (consent.analytics && (mutation.kind === 'identify' || mutation.kind === 'user-properties')) {
+        const current = engine.identity.get()
+        await engine.transport.consent({ anonymousId: current.anonymousId, externalId: current.externalId,
+          purposes: { analytics: consent.analytics, feedback: consent.feedback, push: consent.push, survey: consent.survey },
+          version: consent.version, effectiveAt: consent.updatedAt ?? new Date().toISOString(),
+        }, current.externalId && mutation.kind === 'identify' ? String(mutation.payload.subjectToken) : undefined)
+        if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
+        if (mutation.kind === 'user-properties' && !engine.consent.allowsAnalytics()) continue
+      }
       if (mutation.kind === 'instruction-ack') {
         await engine.transport.acknowledgeInstructions(
           mutation.payload.ids as number[]
@@ -676,6 +706,10 @@ async function performMutationFlush(
             anonymousId: string
           }
         )
+        if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
+        const set = mutation.payload.set as Record<string, EventPropertyValue> | undefined
+        const unset = mutation.payload.unset as string[] | undefined
+        engine.userState.mergeProperties(Object.fromEntries(Object.entries(set ?? {}).filter(([key]) => !result.filteredKeys.includes(key))), unset)
         if (result.filteredKeys.length)
           reportError(
             'User properties filtered by app privacy settings',
@@ -722,11 +756,12 @@ async function performMutationFlush(
         )
           throw new Error('invalid-identify-mutation')
         try {
-          await engine.transport.identify(
+          const accepted = await engine.transport.identify(
             {
               anonymousId,
               externalId,
-              ...(properties && typeof properties === 'object'
+              ...(engine.subjectToken ? { previousSubjectToken: engine.subjectToken } : {}),
+              ...(engine.consent.allowsAnalytics() && properties && typeof properties === 'object'
                 ? {
                     properties: properties as Readonly<
                       Record<string, EventPropertyValue>
@@ -738,26 +773,33 @@ async function performMutationFlush(
           )
           if (engine.resetting || engine.resetGeneration !== deliveryGeneration)
             break
+          const sessionToken = accepted.subjectToken ?? subjectToken
           await engine.storage.setJsonStrict(
             STORAGE_KEYS.subjectToken,
-            subjectToken
+            sessionToken
           )
           if (engine.resetting || engine.resetGeneration !== deliveryGeneration)
             break
-          engine.subjectToken = subjectToken
-          engine.transport.setSubjectToken(subjectToken)
+          engine.subjectToken = sessionToken
+          engine.transport.setSubjectToken(sessionToken)
           if (engine.identity.get().externalId !== externalId) engine.presentation.invalidate()
           await engine.identity.setExternalId(externalId)
+          if (engine.resetting || engine.resetGeneration !== deliveryGeneration) break
+          identityChanged(engine, 'identified')
+          void engine.retryPushRegistration?.().catch(error => reportError('push registration deferred', error))
           if (properties && typeof properties === 'object') {
-            const clean = properties as Readonly<
-              Record<string, EventPropertyValue>
-            >
-            engine.userState.mergeProperties(clean)
+            const supplied = properties as Record<string, EventPropertyValue>
+            const clean = accepted.filteredKeys
+              ? Object.fromEntries(Object.entries(supplied).filter(([key]) => !accepted.filteredKeys!.includes(key)))
+              : asEventProps(supplied) ?? {}
+            if (accepted.properties) engine.userState.replaceProperties(accepted.properties)
+            else engine.userState.mergeProperties(clean)
             if (engine.consent.allowsAnalytics()) {
-              enqueueAndEvaluate(engine, '$identify', clean)
+              enqueueAndEvaluate(engine, '$identify', asEventProps(clean))
             }
-          } else if (engine.consent.allowsAnalytics()) {
-            enqueueAndEvaluate(engine, '$identify', undefined)
+          } else {
+            if (accepted.properties) engine.userState.replaceProperties(accepted.properties)
+            if (engine.consent.allowsAnalytics()) enqueueAndEvaluate(engine, '$identify', undefined)
           }
         } catch (error) {
           throw error
@@ -769,7 +811,8 @@ async function performMutationFlush(
     } catch (error) {
       if (engine.resetting || engine.resetGeneration !== deliveryGeneration)
         break
-      if (error instanceof PermanentHttpError) {
+      if (error instanceof PermanentHttpError && error.status === 401 && mutation.kind === 'identify') identityChanged(engine, 'authentication-required')
+      if (error instanceof PermanentHttpError && error.status !== 401) {
         await engine.mutations.remove(mutation.id)
         permanentlyRejectedIds.add(mutation.id)
         reportError('mutation quarantined after permanent rejection', {
@@ -1235,6 +1278,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
   pendingAppOpenConsent.delete(engine)
   engine.events.emit('resetSurfaces', undefined)
   engine.transport.cancelAll()
+  engine.transport.setSubjectToken(null)
   await Promise.allSettled([
     engine.mutationFlushPromise ?? Promise.resolve(),
     engine.flushPromise ?? Promise.resolve(),
@@ -1242,22 +1286,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
     engine.instructionPollPromise ?? Promise.resolve(),
     engine.instructionDispatchPromise ?? Promise.resolve(),
   ])
-  // Reset is a local privacy operation and must not wait on network retries.
-  // Revoke the old credential through an isolated transport so failures cannot
-  // open the live engine's circuit or delay the new anonymous session.
-  const subjectToken = engine.subjectToken
-  if (subjectToken) {
-    const revocationTransport = createTransport({
-      writeKey: engine.config.writeKey,
-      apiUrl: engine.config.apiUrl,
-    })
-    revocationTransport.setSubjectToken(subjectToken)
-    void revocationTransport.revokeSession().catch((error) => {
-      debugLog('subject session revoke deferred', {
-        reason: error instanceof Error ? error.message : String(error),
-      })
-    })
-  }
+  await rememberRevocation(engine)
   if (engine.flushTimer) {
     clearTimeout(engine.flushTimer)
     engine.flushTimer = null
@@ -1277,7 +1306,6 @@ export async function clearAllState(engine: Engine): Promise<void> {
     engine.surveyInvitations.clear(),
   ])
   await engine.storage.clearAll([
-    STORAGE_KEYS.identity,
     STORAGE_KEYS.consent,
     STORAGE_KEYS.queue,
     STORAGE_KEYS.rulesCache,
@@ -1294,6 +1322,7 @@ export async function clearAllState(engine: Engine): Promise<void> {
     STORAGE_KEYS.pushToken,
     SEEN_OFFERS_KEY,
   ])
+  await engine.storage.setJsonStrict(STORAGE_KEYS.subjectToken, null)
   engine.subjectToken = null
   engine.transport.setSubjectToken(null)
   engine.locallyHandledSurveyIds.clear()
@@ -1304,5 +1333,9 @@ export async function clearAllState(engine: Engine): Promise<void> {
   engine.lastPushRegistrationAt = 0
   lastPollAt = 0
   await engine.identity.hydrate()
-  await ensureSubjectSession(engine)
+  engine.pendingReset = undefined
+  identityChanged(engine, 'anonymous')
+  void drainRevocations(engine).catch(error => reportError('session cleanup deferred', error))
+  // Local logout completes independently of network availability.
+  setTimeout(() => { void ensureSubjectSession(engine).catch(error => reportError('anonymous session deferred', error)) }, 0)
 }

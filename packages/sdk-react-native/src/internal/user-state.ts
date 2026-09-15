@@ -16,7 +16,8 @@ const HISTORY_CAP_PER_EVENT = 200
 
 export interface UserStateStore {
   readonly hydrate: () => Promise<void>
-  readonly mergeProperties: (p: Readonly<Record<string, string | number | boolean | null>>) => void
+  readonly mergeProperties: (p: Readonly<Record<string, string | number | boolean | null>>, unset?: readonly string[]) => void
+  readonly replaceProperties: (p: Readonly<Record<string, string | number | boolean | null>>) => void
   readonly recordEvent: (name: string, at?: number) => void
   readonly buildForEval: () => UserState
   readonly clear: () => Promise<void>
@@ -60,13 +61,14 @@ export function createUserStateStore(storage: StorageScope): UserStateStore {
       }
       hydrated = true
     },
-    mergeProperties(p): void {
+    mergeProperties(p, unset = []): void {
       state = {
         ...state,
-        properties: { ...state.properties, ...p },
+        properties: Object.fromEntries(Object.entries({ ...state.properties, ...p }).filter(([key]) => !unset.includes(key))),
       }
       schedulePersist()
     },
+    replaceProperties(p): void { state = { ...state, properties: { ...p } }; schedulePersist() },
     recordEvent(name, at = Date.now()): void {
       const iso = new Date(at).toISOString()
       const existing = state.history[name] ?? []
